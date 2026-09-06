@@ -1,0 +1,43 @@
+import puppeteer from 'puppeteer';
+import path from 'path';
+const W=1280,H=800;
+const browser = await puppeteer.launch({ headless:'new', args:['--no-sandbox','--use-gl=swiftshader','--enable-unsafe-swiftshader','--autoplay-policy=no-user-gesture-required','--mute-audio'] });
+const page = await browser.newPage();
+await page.setViewport({width:W,height:H});
+const errs=[];
+page.on('pageerror', e=>errs.push('PAGEERROR: '+e.message));
+page.on('console', m=>{ if(m.type()==='error'){const t=m.text(); if(!/Driver|Context/.test(t)) errs.push('ERR: '+t.slice(0,200));}});
+await page.goto('file://'+path.resolve('neon-vanguard.html')+'?shot=1', {waitUntil:'load'});
+await page.evaluate(()=>document.getElementById('start').click());
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+await page.evaluate(()=>{ window.G.waveTimer=0.15; });
+await wait(5000);
+// force a charge core drop by killing an enemy at threshold
+await page.evaluate(()=>{ const G=window.G; G.corePoints=G.coreNeed-1; const e=G.enemies.find(x=>!x.dead); if(e) e.die(G, G.heroes[0]); });
+await wait(1500);
+console.log('pickups after kill:', await page.evaluate(()=>window.G.pickups.map(p=>p.type).join(',')||'none'));
+await page.screenshot({path:'c1-core-drop.png'});
+// walk the squad onto the core
+await page.evaluate(()=>{ const G=window.G, p=G.pickups.find(x=>x.core)||G.pickups[0]; if(p) G.active.pos.set(p.pos.x,0,p.pos.z); });
+await wait(1500);
+console.log('energy after core:', await page.evaluate(()=>window.G.heroes.map(h=>Math.round(h.energy)).join('/')));
+await page.screenshot({path:'c2-overcharged.png'});
+// CHAIN: ult -> swap -> ult -> swap -> ult
+await page.evaluate(()=>{ for(const h of window.G.heroes) h.energy=h.maxEnergy; });
+await page.mouse.move(700,330);
+await page.keyboard.press('r'); await wait(900);
+console.log('chain1', await page.evaluate(()=>window.G.ultChain));
+await page.keyboard.press('2'); await wait(500);
+await page.keyboard.press('r'); await wait(700);
+console.log('chain2', await page.evaluate(()=>window.G.ultChain), 'mul', await page.evaluate(()=>window.G.ultMul));
+await page.screenshot({path:'c3-chain2.png'});
+await page.keyboard.press('3'); await wait(500);
+await page.keyboard.press('r'); await wait(700);
+const st = await page.evaluate(()=>({chain:window.G.ultChain, mul:window.G.ultMul, od:+window.G.overdriveT.toFixed(2), ts:+window.G.timeScale.toFixed(2), shield:window.G.heroes.map(h=>h.shield)}));
+console.log('TRINITY', JSON.stringify(st));
+await page.screenshot({path:'c4-trinity.png'});
+await wait(1400); await page.screenshot({path:'c5-trinity-blast.png'});
+await wait(2500);
+console.log('after:', await page.evaluate(()=>JSON.stringify({ts:+window.G.timeScale.toFixed(2), chain:window.G.ultChain, score:window.G.score, en:window.G.enemies.length})));
+console.log('ERRORS', errs.length? errs.join('\n'):'none');
+await browser.close();

@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>NEON VANGUARD — Vertical Slice</title>
+<style>
+  :root{
+    --aegis:#ff8a2b; --lyra:#3dffb0; --nyx:#ff3df0;
+    --cy:#18e0ff; --mag:#ff2fa0; --bg:#04050c;
+    --font:'Rajdhani','Chakra Petch','Segoe UI',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:#dff}
+  canvas{display:block}
+  #app{position:fixed;inset:0}
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:10;
+       font-family:var(--font);letter-spacing:.06em;text-transform:uppercase;user-select:none}
+
+  /* ---------- generic neon panel ---------- */
+  .panel{
+    background:linear-gradient(160deg,rgba(8,14,28,.82),rgba(4,7,16,.72));
+    border:1px solid rgba(24,224,255,.28);
+    box-shadow:0 0 22px rgba(0,180,255,.12), inset 0 0 22px rgba(0,140,255,.06);
+    backdrop-filter:blur(6px);
+  }
+  .clip{clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+
+  /* ---------- top bar ---------- */
+  #top{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:stretch}
+  .stat{padding:7px 16px;min-width:96px;text-align:center}
+  .stat .k{font-size:9px;opacity:.55;letter-spacing:.22em}
+  .stat .v{font-size:21px;font-weight:700;line-height:1.05;color:#eaffff;text-shadow:0 0 12px rgba(24,224,255,.65)}
+  .stat.danger .v{color:#ff6a88;text-shadow:0 0 12px rgba(255,60,90,.6)}
+
+  /* ---------- squad cards ---------- */
+  #squad{position:absolute;left:18px;bottom:18px;display:flex;flex-direction:column;gap:8px}
+  .card{position:relative;width:252px;padding:8px 10px 9px 12px;display:flex;gap:10px;align-items:center;
+        transition:transform .18s cubic-bezier(.2,.9,.3,1.4),opacity .2s;opacity:.62;transform:translateX(-8px)}
+  .card.active{opacity:1;transform:translateX(10px)}
+  .card.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c);box-shadow:0 0 14px var(--c)}
+  .card.down{filter:grayscale(.75)}
+  .badge{width:38px;height:38px;display:grid;place-items:center;font-weight:800;font-size:15px;color:#04070f;
+         background:var(--c);box-shadow:0 0 16px var(--c);clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)}
+  .cinfo{flex:1;min-width:0}
+  .cname{font-size:12.5px;font-weight:700;color:#eaffff;display:flex;justify-content:space-between;gap:6px}
+  .cname em{font-style:normal;font-size:9px;opacity:.5;letter-spacing:.16em}
+  .crole{font-size:8.5px;opacity:.55;letter-spacing:.18em;margin-bottom:4px}
+  .bar{height:6px;background:rgba(255,255,255,.09);overflow:hidden;position:relative;margin-bottom:3px}
+  .bar > i{display:block;height:100%;width:100%;transform-origin:left;transition:transform .12s linear;
+           background:linear-gradient(90deg,var(--c),#fff)}
+  .bar.sh > i{background:linear-gradient(90deg,#7cf9ff,#fff)}
+  .bar.en{height:4px}
+  .bar.en > i{background:linear-gradient(90deg,#ffd76a,#fff)}
+  .bar.en.full{animation:pulse .8s infinite alternate}
+  @keyframes pulse{from{filter:brightness(1)}to{filter:brightness(2.1)}}
+  .keyhint{position:absolute;right:8px;top:6px;font-size:9px;opacity:.45}
+
+  /* ---------- skills ---------- */
+  #skills{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:12px}
+  .sk{width:70px;height:70px;position:relative;display:grid;place-items:center;overflow:hidden}
+  .sk .glyph{font-size:20px;font-weight:800;color:#eaffff;text-shadow:0 0 12px var(--c)}
+  .sk .lbl{position:absolute;bottom:5px;font-size:7.5px;opacity:.62;letter-spacing:.1em;text-align:center;width:100%}
+  .sk .kb{position:absolute;top:4px;left:6px;font-size:9px;font-weight:700;color:var(--c)}
+  .sk .cool{position:absolute;inset:0;background:rgba(2,6,14,.82);transform-origin:bottom;transform:scaleY(0)}
+  .sk .cdnum{position:absolute;font-size:19px;font-weight:700;color:#fff;opacity:0}
+  .sk.ready{border-color:var(--c);box-shadow:0 0 18px color-mix(in srgb,var(--c) 40%,transparent),inset 0 0 18px rgba(255,255,255,.05)}
+  .sk.ult.charged{animation:ultglow 1s infinite alternate}
+  @keyframes ultglow{from{box-shadow:0 0 12px var(--c)}to{box-shadow:0 0 34px var(--c),inset 0 0 26px color-mix(in srgb,var(--c) 45%,transparent)}}
+  .sk.fire{animation:skfire .3s}
+  @keyframes skfire{0%{transform:scale(1)}40%{transform:scale(1.22)}100%{transform:scale(1)}}
+
+  /* ---------- right column ---------- */
+  #right{position:absolute;right:18px;top:70px;width:210px;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+  #feed{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+  .fe{font-size:10px;padding:4px 9px;background:rgba(6,10,22,.7);border-right:2px solid var(--c);
+      animation:slidein .25s;white-space:nowrap}
+  @keyframes slidein{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+
+  /* ---------- banners ---------- */
+  #banner{position:absolute;top:22%;left:50%;transform:translateX(-50%);text-align:center;opacity:0}
+  #banner .b1{font-size:15px;letter-spacing:.5em;opacity:.7}
+  #banner .b2{font-size:52px;font-weight:800;line-height:1;letter-spacing:.08em;
+              background:linear-gradient(180deg,#fff,var(--cy));-webkit-background-clip:text;background-clip:text;color:transparent;
+              filter:drop-shadow(0 0 24px rgba(24,224,255,.6))}
+  #banner.show{animation:bann 2.4s forwards}
+  @keyframes bann{0%{opacity:0;transform:translateX(-50%) scale(.85)}12%{opacity:1;transform:translateX(-50%) scale(1)}
+                  75%{opacity:1}100%{opacity:0}}
+
+  #skillcall{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);font-size:34px;font-weight:800;
+             letter-spacing:.16em;opacity:0;text-shadow:0 0 30px currentColor}
+  #skillcall.show{animation:sc 1.1s forwards}
+  @keyframes sc{0%{opacity:0;transform:translate(-50%,-50%) scale(.7) skewX(-14deg)}
+                18%{opacity:1;transform:translate(-50%,-50%) scale(1) skewX(-6deg)}
+                70%{opacity:.9}100%{opacity:0;transform:translate(-50%,-50%) scale(1.08) skewX(-4deg)}}
+
+  /* ---------- floating combat text ---------- */
+  #pops{position:absolute;inset:0;overflow:hidden}
+  .pop{position:absolute;font-weight:800;font-size:16px;text-shadow:0 2px 8px rgba(0,0,0,.9);will-change:transform,opacity}
+
+  /* ---------- crosshair ---------- */
+  #cross{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;opacity:.85;transition:opacity .2s}
+  #cross i{position:absolute;background:var(--cy);box-shadow:0 0 8px var(--cy)}
+  #cross i:nth-child(1){left:12px;top:0;width:2px;height:8px}
+  #cross i:nth-child(2){left:12px;bottom:0;width:2px;height:8px}
+  #cross i:nth-child(3){top:12px;left:0;height:2px;width:8px}
+  #cross i:nth-child(4){top:12px;right:0;height:2px;width:8px}
+  #cross b{position:absolute;inset:8px;border:1px solid rgba(24,224,255,.5);border-radius:50%}
+
+  /* ---------- vignette / hit flash ---------- */
+  .stat.core .v{color:#ffe36a;text-shadow:0 0 12px rgba(255,200,60,.6)}
+  .stat.core.hot{animation:corehot .6s infinite alternate}
+  @keyframes corehot{from{box-shadow:0 0 12px rgba(255,200,60,.2)}to{box-shadow:0 0 26px rgba(255,200,60,.75)}}
+
+  #chain{position:absolute;top:86px;left:50%;transform:translateX(-50%) translateY(-14px);opacity:0;
+         padding:8px 20px 10px;text-align:center;min-width:300px;transition:opacity .18s,transform .18s;
+         background:linear-gradient(160deg,rgba(30,20,4,.9),rgba(10,7,2,.8));
+         border:1px solid rgba(255,210,90,.45);box-shadow:0 0 26px rgba(255,190,60,.25);
+         clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px)}
+  #chain.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  #chain b{display:block;font-size:15px;font-weight:800;letter-spacing:.14em;color:#ffe36a;text-shadow:0 0 16px rgba(255,200,70,.8)}
+  #chain span{display:block;font-size:8.5px;opacity:.6;letter-spacing:.16em;margin-top:2px}
+  #chain::after{content:'';position:absolute;left:0;bottom:0;height:2px;width:100%;transform-origin:left;
+                transform:scaleX(var(--p,1));background:linear-gradient(90deg,#ffe36a,#fff);box-shadow:0 0 10px #ffb14a}
+
+  #cross.medic{filter:drop-shadow(0 0 8px #3dffb0)}
+  #cross.medic::after{content:'REPAIR LOCK';position:absolute;left:50%;top:16px;transform:translateX(-50%);
+    font-size:7px;letter-spacing:.2em;color:#3dffb0;white-space:nowrap;text-shadow:0 0 8px rgba(61,255,176,.8)}
+
+  /* ---- implant draft ---- */
+  #draft{position:absolute;inset:0;display:grid;place-items:center;pointer-events:auto;z-index:40;
+         background:radial-gradient(ellipse at center,rgba(2,6,14,.72),rgba(1,3,8,.94))}
+  #draft.hidden{display:none}
+  .dwrap{text-align:center;animation:dpop .3s cubic-bezier(.2,.9,.3,1.3)}
+  @keyframes dpop{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}
+  .dttl{font-size:11px;letter-spacing:.42em;opacity:.45}
+  .dsub{font-size:19px;font-weight:800;letter-spacing:.14em;margin:2px 0 22px;
+        background:linear-gradient(90deg,#fff,var(--cy));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .dcards{display:flex;gap:16px;justify-content:center}
+  .dcard{position:relative;width:212px;padding:22px 18px 20px;cursor:pointer;text-align:left;
+         background:linear-gradient(165deg,rgba(10,16,30,.96),rgba(4,7,16,.92));
+         border:1px solid color-mix(in srgb,var(--c) 45%,transparent);transition:transform .16s,box-shadow .16s,border-color .16s;
+         clip-path:polygon(16px 0,100% 0,100% calc(100% - 16px),calc(100% - 16px) 100%,0 100%,0 16px)}
+  .dcard:hover{transform:translateY(-7px);border-color:var(--c);box-shadow:0 12px 40px color-mix(in srgb,var(--c) 35%,transparent)}
+  .dcard::before{content:'';position:absolute;left:0;top:0;width:100%;height:3px;background:var(--c);box-shadow:0 0 16px var(--c)}
+  .dkey{position:absolute;right:12px;top:11px;font-size:9px;opacity:.35}
+  .dicon{font-size:26px;color:var(--c);line-height:1;text-shadow:0 0 20px var(--c)}
+  .drar{font-size:7.5px;letter-spacing:.26em;opacity:.5;margin-top:12px;color:var(--c)}
+  .dname{font-size:14px;font-weight:800;letter-spacing:.08em;color:#eafaff;margin:3px 0 8px}
+  .ddesc{font-size:10px;line-height:1.65;opacity:.6;text-transform:none;letter-spacing:.02em}
+  .downed{margin-top:9px;font-size:7.5px;letter-spacing:.18em;opacity:.4}
+  .dcard.epic{box-shadow:0 0 30px rgba(255,61,240,.14)}
+  .dhint{margin-top:22px;font-size:8.5px;letter-spacing:.2em;opacity:.35}
+  .dhint b{color:var(--cy);opacity:.9}
+
+  /* installed implant chips */
+  #buildwrap{margin-top:16px}
+  #buildlist{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:520px;margin:0 auto}
+  .bchip{font-size:8px;letter-spacing:.12em;padding:4px 9px;color:var(--c);
+         border:1px solid color-mix(in srgb,var(--c) 40%,transparent);background:rgba(255,255,255,.03)}
+  .bnone{font-size:8px;letter-spacing:.2em;opacity:.3}
+
+  /* ---- training prompt ---- */
+  #tut{position:absolute;left:50%;top:96px;transform:translate(-50%,-16px);opacity:0;pointer-events:none;
+       min-width:390px;max-width:520px;text-align:center;padding:14px 26px 16px;transition:opacity .25s,transform .25s;
+       background:linear-gradient(160deg,rgba(6,20,30,.92),rgba(3,9,18,.86));
+       border:1px solid rgba(61,255,176,.4);box-shadow:0 0 30px rgba(0,255,170,.16);
+       clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)}
+  #tut.on{opacity:1;transform:translate(-50%,0)}
+  #tut .tnum{font-size:7.5px;letter-spacing:.34em;opacity:.42;color:#3dffb0}
+  #tut .ttitle{font-size:18px;font-weight:800;letter-spacing:.14em;color:#eafff6;margin-top:3px;
+               text-shadow:0 0 18px rgba(61,255,176,.5)}
+  #tut .tkey{display:inline-block;margin:8px 0 7px;padding:5px 14px;font-size:11px;letter-spacing:.22em;
+             color:#04120c;background:linear-gradient(90deg,#3dffb0,#7cf9ff);font-weight:800}
+  #tut .thint{font-size:10px;line-height:1.7;opacity:.6;text-transform:none;letter-spacing:.03em}
+  #tut .tskip{margin-top:9px;font-size:7.5px;letter-spacing:.22em;opacity:.3}
+  #tut .tskip b{color:#7cf9ff}
+
+  /* ---- options panel ---- */
+  .optbox{margin:20px auto 0;max-width:520px;text-align:left;padding:14px 18px 16px;
+          background:rgba(6,11,22,.75);border:1px solid rgba(24,224,255,.22);
+          clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px)}
+  .opthead{font-size:8.5px;letter-spacing:.3em;opacity:.45;margin-bottom:10px}
+  .set{display:flex;align-items:center;gap:12px;margin:0 0 9px;font-size:10px;letter-spacing:.12em}
+  .set>span{flex:0 0 148px;opacity:.62}
+  .set>b{flex:0 0 34px;text-align:right;color:var(--cy);font-size:11px}
+  .set input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:4px;background:rgba(255,255,255,.13);outline:none;cursor:pointer}
+  .set input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;background:var(--cy);
+    box-shadow:0 0 10px var(--cy);cursor:pointer;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+  .set input[type=range]::-moz-range-thumb{width:13px;height:13px;border:none;background:var(--cy);box-shadow:0 0 10px var(--cy)}
+  .set select{flex:1;background:rgba(10,18,34,.9);color:#cff;border:1px solid rgba(24,224,255,.28);
+              font-family:inherit;font-size:9.5px;letter-spacing:.12em;padding:5px 8px;text-transform:uppercase;cursor:pointer}
+  .set select:hover{border-color:rgba(24,224,255,.7)}
+  #bestline{margin-top:16px;font-size:9px;letter-spacing:.24em;opacity:.4}
+  #optwrap.hidden{display:none}
+
+  /* ---- chain-ready squad card ---- */
+  .card.chainready{opacity:1;animation:chainpulse .5s infinite alternate}
+  .card.chainready::after{content:'ULT READY';position:absolute;right:8px;top:-7px;font-size:7px;letter-spacing:.16em;
+     background:linear-gradient(90deg,#ffe36a,#fff);color:#06101e;padding:2px 6px;font-weight:800}
+  @keyframes chainpulse{from{box-shadow:0 0 10px rgba(255,210,90,.25)}to{box-shadow:0 0 26px rgba(255,210,90,.85)}}
+
+  /* ---- end-of-run breakdown ---- */
+  .gorow{display:flex;gap:10px;justify-content:center;margin:18px 0 0;flex-wrap:wrap}
+  .gorow.sub{margin-top:8px;opacity:.72}
+  .gostat{min-width:104px;padding:8px 12px;background:rgba(255,255,255,.045);border-left:2px solid var(--cy);text-align:left}
+  .gorow.sub .gostat{border-left-color:rgba(255,255,255,.2);min-width:96px}
+  .gostat i{font-style:normal;display:block;font-size:7.5px;letter-spacing:.2em;opacity:.5}
+  .gostat b{font-size:17px;color:#fff}
+  .gorow.sub .gostat b{font-size:13px}
+  .gohero{margin:18px auto 0;max-width:520px;text-align:left}
+  .gh{margin-bottom:11px}
+  .ghn{font-size:11px;letter-spacing:.12em;color:var(--c)}
+  .ghn em{font-style:normal;float:right;font-size:7.5px;opacity:.4;letter-spacing:.18em;padding-top:3px}
+  .ghbar{height:5px;background:rgba(255,255,255,.08);margin:4px 0 3px;overflow:hidden}
+  .ghbar s{display:block;height:100%;text-decoration:none;transform-origin:left;
+           background:linear-gradient(90deg,var(--c),#fff);transition:transform .7s cubic-bezier(.2,.9,.3,1.1)}
+  .ghv{font-size:8.5px;letter-spacing:.12em;opacity:.55}
+  .ghv em{font-style:normal;color:var(--c);opacity:.9}
+  .gohead{margin:18px 0 7px;font-size:8px;letter-spacing:.3em;opacity:.4}
+  .gochips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:540px;margin:0 auto}
+  .gobest{margin-top:16px;font-size:9px;letter-spacing:.24em;opacity:.55;color:#ffe36a}
+  body.nodmg .pop{display:none}
+
+  #dmgv{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,transparent 62%,rgba(255,20,60,.42) 100%)}
+  #ultflash{position:absolute;inset:0;opacity:0;mix-blend-mode:screen}
+
+  /* ---------- overlays ---------- */
+  .overlay{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(2,4,10,.86);
+           backdrop-filter:blur(9px);font-family:var(--font);color:#dff;text-transform:uppercase}
+  .overlay .box{max-width:860px;padding:34px 40px;text-align:center}
+  .title{font-size:64px;font-weight:800;letter-spacing:.1em;line-height:1;
+         background:linear-gradient(180deg,#fff 10%,var(--cy) 60%,var(--mag));-webkit-background-clip:text;background-clip:text;color:transparent;
+         filter:drop-shadow(0 0 30px rgba(24,224,255,.45))}
+  .sub{font-size:12px;letter-spacing:.42em;opacity:.6;margin-top:8px}
+  .cols{display:flex;gap:14px;margin:26px 0 20px;justify-content:center;flex-wrap:wrap}
+  .col{width:236px;padding:14px;text-align:left;border-top:2px solid var(--c)}
+  .col h3{font-size:14px;color:var(--c);letter-spacing:.1em}
+  .col .r{font-size:8.5px;opacity:.5;letter-spacing:.2em;margin-bottom:8px}
+  .col p{font-size:10.5px;line-height:1.65;opacity:.72;text-transform:none;letter-spacing:.02em}
+  .col ul{list-style:none;margin-top:8px;font-size:9.5px;line-height:1.9;opacity:.85}
+  .col li b{color:var(--c)}
+  .keys{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px}
+  .kk{font-size:9.5px;padding:5px 10px;border:1px solid rgba(24,224,255,.3);background:rgba(8,14,28,.7)}
+  .kk b{color:var(--cy)}
+  .btn{margin-top:24px;pointer-events:auto;cursor:pointer;display:inline-block;padding:13px 44px;font-size:15px;font-weight:700;
+       letter-spacing:.24em;color:#04070f;background:linear-gradient(90deg,var(--cy),#8ef);border:none;
+       clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);transition:filter .15s,transform .15s}
+  .btn:hover{filter:brightness(1.25);transform:translateY(-2px)}
+  .btn.ghost{background:transparent;border:1px solid rgba(24,224,255,.45);color:var(--cy);text-decoration:none;
+             padding:12px 34px;font-size:13px}
+  .btn.ghost:hover{background:rgba(24,224,255,.12);color:#fff}
+  .hidden{display:none!important}
+  #stats{font-size:11px;opacity:.75;line-height:2;letter-spacing:.1em;text-transform:none}
+  #fps{position:absolute;left:14px;top:14px;font-size:10px;opacity:.35}
+  #audiobtn{position:absolute;right:18px;top:16px;pointer-events:auto;cursor:pointer;font-size:9.5px;
+            letter-spacing:.18em;padding:7px 13px;color:#9ff;background:rgba(8,14,28,.8);
+            border:1px solid rgba(24,224,255,.35);box-shadow:0 0 14px rgba(0,180,255,.15);transition:all .15s}
+  #audiobtn:hover{color:#fff;border-color:rgba(24,224,255,.8);box-shadow:0 0 20px rgba(0,180,255,.35)}
+  #audiobtn.off{color:#ff7a95;border-color:rgba(255,90,120,.4);box-shadow:none}
+  #hint{position:absolute;left:50%;transform:translateX(-50%);bottom:104px;font-size:10px;opacity:.45;letter-spacing:.2em;animation:hintfade 1s 16s forwards}
+  @keyframes hintfade{to{opacity:0}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="hud" class="hidden">
+  <div id="fps">—</div>
+  <div id="audiobtn">▶ AUDIO ON</div>
+  <div id="top">
+    <div class="panel clip stat"><div class="k">Wave</div><div class="v" id="v-wave">1</div></div>
+    <div class="panel clip stat"><div class="k">Hostiles</div><div class="v" id="v-enemies">0</div></div>
+    <div class="panel clip stat"><div class="k">Score</div><div class="v" id="v-score">0</div></div>
+    <div class="panel clip stat"><div class="k">Combo</div><div class="v" id="v-combo">x1</div></div>
+    <div class="panel clip stat core"><div class="k">Overdrive</div><div class="v" id="v-core">0%</div></div>
+  </div>
+
+  <div id="squad"></div>
+  <div id="skills"></div>
+  <div id="right"><div id="feed"></div></div>
+
+  <div id="tut"></div>
+  <div id="draft" class="hidden">
+    <div class="dwrap">
+      <div class="dttl">Implant Bay</div>
+      <div class="dsub">choose an implant</div>
+      <div class="dcards"></div>
+      <div class="dhint">click or press <b>1</b> <b>2</b> <b>3</b> &nbsp;·&nbsp; <b>ESC</b> to skip for +300</div>
+    </div>
+  </div>
+  <div id="chain"></div>
+  <div id="banner"><div class="b1" id="b1">Wave</div><div class="b2" id="b2">01</div></div>
+  <div id="skillcall"></div>
+  <div id="pops"></div>
+  <div id="cross"><i></i><i></i><i></i><i></i><b></b></div>
+  <div id="dmgv"></div>
+  <div id="ultflash"></div>
+  <div id="hint">Tab / 1 2 3 — switch operative · Q E R — abilities · Space — dash · M — mute</div>
+</div>
+
+<div class="overlay" id="menu">
+  <div class="box">
+    <div class="title">Neon Vanguard</div>
+    <div class="sub">Sector 07 · Night City Grid · Vertical Slice</div>
+    <div class="sub" style="letter-spacing:.18em;opacity:.42;margin-top:4px">Headphones recommended · adaptive synthwave score</div>
+    <div style="margin:18px auto 0;max-width:660px;padding:10px 16px;border:1px solid rgba(255,210,90,.35);
+                background:rgba(28,20,4,.5);font-size:10px;line-height:1.9;letter-spacing:.08em;color:#ffe7a8">
+      <b style="letter-spacing:.16em">ULTIMATE CHAIN</b> — kills drop charge shards, and every 16 kills a
+      <b>CHARGE CORE</b> drops that fills all three ultimates at once.<br>
+      Fire an ult, swap operative, fire again within 6.5 s: <b>×2 = +45% ult damage</b> ·
+      <b>all three = TRINITY OVERDRIVE</b> (bullet-time, refreshed kit, arena-wide detonation).
+    </div>
+    <div class="cols" id="roster"></div>
+    <div class="keys">
+      <div class="kk"><b>WASD</b> move</div>
+      <div class="kk"><b>Mouse</b> aim</div>
+      <div class="kk"><b>L-Click / Hold</b> attack</div>
+      <div class="kk"><b>Q E</b> skills</div>
+      <div class="kk"><b>R</b> ultimate (needs full charge)</div>
+      <div class="kk"><b>Space</b> dash</div>
+      <div class="kk"><b>1 2 3 / Tab</b> switch operative</div>
+      <div class="kk"><b>P</b> pause</div>
+      <div class="kk"><b>M</b> mute</div>
+      <div class="kk"><b>PAD</b> controller supported</div>
+      <div class="kk" style="border-color:rgba(255,210,90,.45);color:#ffe36a"><b style="color:#ffe36a">CHAIN</b> ult → swap → ult</div>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap">
+      <div class="btn" id="start">Deploy Squad</div>
+      <a class="btn ghost" href="./character-bay.html">Character Bay</a>
+      <div class="btn ghost" id="trainbtn">Training</div>
+      <div class="btn ghost" id="optbtn">Options</div>
+    </div>
+    <div id="bestline"></div>
+    <div class="optbox hidden" id="optwrap"><div class="opthead">Options</div><div id="opts-menu"></div></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="gameover">
+  <div class="box">
+    <div class="title" id="go-title">Squad Down</div>
+    <div class="sub" id="go-sub">Signal lost in sector 07</div>
+    <div id="stats"></div>
+    <div class="btn" id="restart">Redeploy</div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="paused">
+  <div class="box">
+    <div class="title">Paused</div>
+    <div class="sub">Press P to resume</div>
+    <div id="buildwrap"><div class="opthead" style="text-align:center">Installed implants</div><div id="buildlist"></div></div>
+    <div class="optbox"><div class="opthead">Options</div><div id="opts-pause"></div></div>
+  </div>
+</div>
+
+<script type="module" src="../src/main.js"></script>
+</body>
+</html>

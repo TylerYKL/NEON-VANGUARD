@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NEON VANGUARD — Character Bay</title>
+<style>
+  :root{--c:#ff8a2b;--c2:#18e0ff;--cy:#18e0ff;--font:'Rajdhani','Chakra Petch','Segoe UI',system-ui,sans-serif}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:#04050b;color:#dff;font-family:var(--font);
+            letter-spacing:.05em;text-transform:uppercase;user-select:none}
+  canvas{display:block}
+  #app{position:fixed;inset:0}
+  .panel{background:linear-gradient(160deg,rgba(8,14,28,.86),rgba(4,7,16,.74));
+         border:1px solid rgba(24,224,255,.22);backdrop-filter:blur(8px);
+         box-shadow:0 0 26px rgba(0,140,255,.10),inset 0 0 26px rgba(0,120,255,.05);
+         clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)}
+
+  /* header */
+  #head{position:fixed;top:20px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:5}
+  .tab{cursor:pointer;pointer-events:auto;border:none;font-family:var(--font);text-transform:uppercase;
+       padding:9px 20px;background:rgba(8,14,28,.75);border:1px solid rgba(255,255,255,.10);
+       color:#8fb;filter:grayscale(.7);opacity:.6;transition:all .18s;text-align:left;
+       clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+  .tab b{display:block;font-size:13px;letter-spacing:.1em;color:var(--c)}
+  .tab span{display:block;font-size:8px;opacity:.55;letter-spacing:.16em;color:#cff}
+  .tab:hover{opacity:.9;filter:none}
+  .tab.on{opacity:1;filter:none;border-color:var(--c);box-shadow:0 0 22px color-mix(in srgb,var(--c) 40%,transparent);transform:translateY(2px)}
+
+  #title{position:fixed;top:18px;left:24px;z-index:5}
+  #title .t1{font-size:11px;letter-spacing:.42em;opacity:.45}
+  #title .t2{font-size:16px;font-weight:800;letter-spacing:.2em;
+             background:linear-gradient(90deg,#fff,var(--cy));-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  /* left dossier */
+  #left{position:fixed;left:24px;top:96px;width:330px;padding:20px 22px 22px;z-index:4}
+  #name{font-size:34px;font-weight:800;line-height:.98;letter-spacing:.04em;color:#fff;
+        text-shadow:0 0 26px color-mix(in srgb,var(--c) 70%,transparent)}
+  #tag{font-size:13px;color:var(--c);letter-spacing:.14em;margin-top:2px;display:block}
+  #role{font-size:9px;letter-spacing:.28em;opacity:.5;margin:10px 0 12px}
+  .rule{height:2px;background:linear-gradient(90deg,var(--c),transparent);margin:0 0 14px}
+  #bio{font-size:11px;line-height:1.75;opacity:.66;text-transform:none;letter-spacing:.02em}
+  .lbl{font-size:8px;letter-spacing:.26em;opacity:.42;margin:16px 0 6px}
+  #kit{font-size:10.5px;line-height:1.6;color:var(--c2);letter-spacing:.06em}
+  #stats{margin-top:4px}
+  .st{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+  .st i{font-style:normal;font-size:8px;letter-spacing:.16em;opacity:.5;width:70px}
+  .st u{flex:1;height:5px;background:rgba(255,255,255,.08);text-decoration:none;overflow:hidden;display:block}
+  .st s{display:block;height:100%;text-decoration:none;transform-origin:left;
+        background:linear-gradient(90deg,var(--c),#fff);transition:transform .35s cubic-bezier(.2,.9,.3,1.2)}
+  #vitals{display:flex;gap:8px;margin-top:14px}
+  .vt{flex:1;padding:7px 8px;background:rgba(255,255,255,.04);border-left:2px solid var(--c)}
+  .vt i{font-style:normal;display:block;font-size:7.5px;opacity:.45;letter-spacing:.18em}
+  .vt b{font-size:16px;color:#fff}
+
+  /* right abilities */
+  #right{position:fixed;right:24px;top:96px;width:326px;padding:18px 20px;z-index:4}
+  .ab{display:flex;gap:11px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+  .ab:last-child{border-bottom:none}
+  .ab em{font-style:normal;flex:0 0 28px;height:28px;display:grid;place-items:center;font-size:10px;font-weight:800;
+         color:#04070f;background:var(--c);clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)}
+  .ab.ult em{background:linear-gradient(140deg,#ffe36a,var(--c));box-shadow:0 0 16px rgba(255,210,90,.6)}
+  .ab b{display:block;font-size:11.5px;color:#eaffff;letter-spacing:.08em}
+  .ab p{font-size:9.5px;line-height:1.6;opacity:.55;text-transform:none;letter-spacing:.02em;margin-top:2px}
+
+  /* bottom controls */
+  #bottom{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+  .pz,.act{cursor:pointer;pointer-events:auto;font-family:var(--font);text-transform:uppercase;letter-spacing:.16em;
+        font-size:9px;padding:10px 15px;color:#9ff;background:rgba(8,14,28,.8);
+        border:1px solid rgba(24,224,255,.25);transition:all .15s}
+  .pz:hover,.act:hover{color:#fff;border-color:rgba(24,224,255,.75)}
+  .pz.on{color:#04070f;background:var(--c2);border-color:var(--c2);font-weight:700}
+  .act{border-color:color-mix(in srgb,var(--c) 55%,transparent);color:var(--c)}
+  .act.hero{background:linear-gradient(90deg,var(--c),#fff);color:#04070f;font-weight:800;border:none;
+            clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)}
+  .act.on{color:#04070f;background:var(--c);border-color:var(--c);font-weight:700}
+  .sep{width:1px;height:26px;background:rgba(255,255,255,.14);margin:0 4px}
+  #hint{position:fixed;bottom:66px;left:50%;transform:translateX(-50%);font-size:8.5px;opacity:.32;letter-spacing:.24em;z-index:5}
+  #back{display:inline-block;margin-top:8px;font-size:8.5px;letter-spacing:.2em;color:#8fd8ff;text-decoration:none;
+        border-bottom:1px solid rgba(140,216,255,.3);padding-bottom:2px;pointer-events:auto}
+  #back:hover{color:#fff;border-color:#fff}
+  #corner{position:fixed;right:24px;bottom:22px;font-size:8px;opacity:.3;letter-spacing:.2em;z-index:5;text-align:right;line-height:1.9}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="title"><div class="t1">Neon Vanguard</div><div class="t2">Character Bay</div>
+  <a href="./index.html" id="back">&#8592; back to the arena</a></div>
+<div id="head"><div id="tabs"></div></div>
+
+<div class="panel" id="left">
+  <div id="name">AEGIS-7</div>
+  <span id="tag">«BULWARK»</span>
+  <div id="role">WARRIOR / TANK</div>
+  <div class="rule"></div>
+  <div id="bio"></div>
+  <div class="lbl">Loadout</div>
+  <div id="kit"></div>
+  <div class="lbl">Profile</div>
+  <div id="stats"></div>
+  <div id="vitals">
+    <div class="vt"><i>Integrity</i><b id="hp">340</b></div>
+    <div class="vt"><i>Speed</i><b id="spd">7.6</b></div>
+    <div class="vt"><i>Mitigation</i><b id="dr">35%</b></div>
+  </div>
+</div>
+
+<div class="panel" id="right">
+  <div class="lbl" style="margin-top:0">Ability Kit</div>
+  <div id="abilities"></div>
+</div>
+
+<div id="hint">Drag to orbit · scroll to zoom · 1 2 3 switch · Space fire signature</div>
+<div id="bottom">
+  <div id="poses" style="display:flex;gap:6px"></div>
+  <div class="sep"></div>
+  <button class="act hero" id="sig">▶ FIRE SIGNATURE</button>
+  <button class="act on" id="spin">AUTO-SPIN ON</button>
+  <button class="act" id="zoomw">WEAPON DETAIL</button>
+</div>
+<div id="corner">Procedural rig · no imported assets<br>same shaders as the live build</div>
+
+<script type="module" src="../src/showcase.js"></script>
+</body>
+</html>
