@@ -83,7 +83,7 @@ node build.mjs       # bundles src/ into neon-vanguard / character-bay / model-v
 node tools/lighttest.mjs # 35 assertions: the scene's point-light count never changes
 node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materials, pooling leak check
 node tools/glbtest.mjs   # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
-node tools/skintest.mjs  # 126 assertions: uploaded skins, hero_tuning.json, per-skill FX slots + pooling
+node tools/skintest.mjs  # 138 assertions: uploaded skins, hero_tuning.json, per-skill FX slots + pooling
 node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
 node tools/fxsample.mjs  # writes + validates the AEGIS sample skill FX (see FX-AEGIS.md)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB in models/uploads/
@@ -201,6 +201,7 @@ python3 tools/upload_server.py                                # the :8081 dropbo
 | SIZE / PLACEMENT (x, y, z, yaw) | `scale`, `pos`, `yawDeg` — offsets sit **on top of** the loader's own fit, so 0/0/0 is already right; sliders + type-in boxes, a feet/head readout, `auto-lift` and `reset` |
 | ACTION MOTION | `motion` — step rate, bob, lean, lunge, twist, cast lean, hurt recoil, idle sway, fall speed |
 | SKILL EFFECT | `fx` / `fxOn` / `fxP` (the shared slot) and `fxSlots[0..2]` — one effect per skill, Q / E / R |
+| LIBRARY · models/uploads | `▶` previews any file at the hero **without assigning it** (params via `fxPreviewFor`, always a clamped copy), `⟳ loop` re-fires it, `all · glb · video` filters |
 
 An effect is a **`.glb` prop** or a **video billboard** (`.mp4` / `.webm` / `.ogv`). Drop it on the panel,
 record it from the studio canvas (`● REC` captures the slot's own playback and saves `<id>-s<n>-fx.webm`),

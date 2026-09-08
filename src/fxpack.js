@@ -153,6 +153,27 @@ export function fxEdit(tuning, heroId, slot) {
   };
 }
 
+/** Which parameter block a LIBRARY PREVIEW should use for a file that may not be
+    assigned to anything. The studio fires previews through the same `spawnFX` as
+    a real cast, and it must not have to touch the config to do it, so the lookup
+    is: the slot being edited (if it already holds this file) → the hero's shared
+    slot → any other slot of this hero → kind defaults. Read-only by construction:
+    `clampFX` returns a fresh object, so a preview can never mutate the tuning. */
+export function fxPreviewFor(tuning, heroId, slot, url) {
+  const kind = fxKind(url);
+  const c = (tuning || {})[heroId];
+  if (c) {
+    const s = slot >= 0 && c.fxSlots ? c.fxSlots[slot] : null;
+    if (s && s.src === url) return { p: clampFX(s.p, kind), from: 'slot' };
+    if (c.fx === url) return { p: clampFX(c.fxP, kind), from: 'shared' };
+    for (let i = 0; i < FX_SLOTS; i++) {
+      const o = c.fxSlots && c.fxSlots[i];
+      if (o && o.src === url) return { p: clampFX(o.p, kind), from: 'slot' + i };
+    }
+  }
+  return { p: clampFX(null, kind), from: 'defaults' };
+}
+
 /** How many slots across the roster hold a file — the studio's save readout. */
 export function fxCount(tuning) {
   let n = 0;

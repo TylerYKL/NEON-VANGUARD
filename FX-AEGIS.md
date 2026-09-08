@@ -76,11 +76,13 @@ all it takes — no rebuild, no page reload. Then open `http://localhost:8080/he
    * **Drop zone**: drag the `.glb` onto *DROP .GLB OR VIDEO (.MP4/.WEBM) INTO THIS SLOT · OR CLICK*.
    * For a slot you want to start from the shared look: assign it on `ALL`, select `Q`, then
      **⎘ from all**. (On `ALL` itself that button says *PICK Q / E / R FIRST — ALL IS THE SOURCE*.)
+   *Not sure yet?* Press **▶** on the row instead — that previews the file at AEGIS without assigning it (§4).
+
 5. The row under the drop zone now reads
    `aegis-s0-fx.glb · 568 tris · 9 meshes · glb prop` (plus `(muted)` and `(same as ALL)` when either is
    true) — that cost is per cast, so read it. If you drop something heavy the flash says
    `ASSIGNED, BUT HEAVY: n MESHES / n TRIS PER CAST — DECIMATE IN THE DCC AND RE-DROP`.
-6. **Tune it** in FX LOOK (see §5). Press **▶ play** to fire the slot on the preview; the readout updates
+6. **Tune it** in FX LOOK (see §6). Press **▶ play** to fire the slot on the preview; the readout updates
    live and the effect is the same object the match will spawn.
 7. Press **save**. Flash: `SAVED — 3 FX SLOTS · RESTART THE RUN TO APPLY`.
 8. Go to the game tab and **restart the run** (not a page reload — the tuning is read at `startGame()`).
@@ -97,7 +99,29 @@ Two more controls on that row:
 
 ---
 
-## 4. ● REC — record a video effect
+## 4. Preview any library file first — no slot spent
+
+Every LIBRARY row ends in **▶**. It fires that file at AEGIS through the *same*
+`fxpack.spawnFX` a real cast uses, so what you judge is what you get — and it assigns nothing: nothing is
+written to `hero_tuning.json`, and the params handed to the preview are a **clamped copy** (`fxPreviewFor`),
+so a preview cannot dirty a save. `tools/skintest.mjs` asserts both halves of that claim.
+
+* **Which params does it use?** The slot you are editing, if it already holds that file → otherwise this
+  hero's shared `ALL` block → otherwise whichever other slot holds it → otherwise the kind defaults. The
+  line under the list prints which, e.g.
+  `▶ aegis-s0-fx.glb · glb · 568 tris · 9 meshes · params from Q`.
+* **⟳ loop** re-fires with a 0.22 s beat. A 0.65 s slam cannot be judged from a single play: turn the loop
+  on, then move `grow` / `rise` / `scale` on the slot — each fire re-reads the panel, so the next one shows
+  the change.
+* **■ stop** (or clicking `▶` again) ends it. The clone returns to the entry's pool; nothing is disposed.
+* `all · glb · video` filters the list once the folder has more than a handful of files in it.
+* A file that has never been used is fetched and parsed on the first `▶`, so the preview also tells you the
+  **real** tri / mesh count before you commit a slot to it. Drop a 16k-tri hero skin on there and the same
+  heavy-prop flash fires.
+* A muted slot still previews — preview is not a cast, and `on` only governs whether the *skill* plays it.
+* Video rows preview too, through the refcounted `<video>` + `VideoTexture` path.
+
+## 5. ● REC — record a video effect
 
 What the button actually does (`recordFX()` in `src/studio.js`):
 
@@ -142,7 +166,7 @@ to 200 MB per file — but a video FX is decoded by *every* browser tab that pla
 
 ---
 
-## 5. FX LOOK cheat sheet (ranges are enforced on load by `clampFX`)
+## 6. FX LOOK cheat sheet (ranges are enforced on load by `clampFX`)
 
 | Slider | Range | Sample values `Q` / `E` / `R` / `ALL` | Notes |
 |---|---|---|---|
@@ -164,7 +188,7 @@ keys fall back to the defaults rather than poisoning the bloom chain.
 
 ---
 
-## 6. If something looks wrong
+## 7. If something looks wrong
 
 | Symptom | Cause / fix |
 |---|---|
@@ -173,12 +197,13 @@ keys fall back to the defaults rather than poisoning the bloom chain.
 | Recorded clip shows the arena floor and hero | Expected — REC captures the canvas. Re-record from `idle` with auto-spin off, and keep `video blend = additive`. |
 | `RECORD SAVE FAILED` | The `PUT /upload/<name>` needs `:8081`. Start `python3 tools/upload_server.py`. |
 | Effect too small / huge | The prop is *fitted* to 1.8 m by `normalizeToStage` on load, so authoring scale in your DCC is irrelevant — use the FX `scale` slider, not your modeller's. |
+| Pressing `▶` in the list does nothing | Look at the flash: `PREVIEW FAILED: …` means the dropbox could not serve the file or `parseGLB` rejected it (a `.gltf` with sidecars, or a truncated upload). |
 | Lower half of the FX is missing in the match | The deck plate is opaque and the anchor is the prop's *centre*: raise `height` until the span clears it. `node tools/fxsample.mjs` prints each sample's measured span, and the same measurement is what the studio's PLACEMENT row shows for hero bodies (feet / head, `BURIED`). |
 | Hero itself looks half-buried | Not an FX problem: that was the placement bug fixed in v1.10.1 (`HANDOFF.md` invariant 15). In the studio, PLACEMENT → `reset`, then save. |
 
 ---
 
-## 7. Where this is tested
+## 8. Where this is tested
 
 | Command | Proves |
 |---|---|

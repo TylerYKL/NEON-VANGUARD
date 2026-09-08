@@ -5,7 +5,7 @@ import { Hero, HERO_DEFS } from './heroes.js';
 import { ensureGLBSkins, ensureTuning, loadFXBank } from './glbskin.js';
 import { parseGLB, normalizeToStage, gatherStats } from './gltfutil.js';
 import { animateRig } from './rig.js';
-import { clampFX, fxCount, fxDefsFor, fxEdit, fxKind, FX_SHARED, FX_SLOTS } from './fxpack.js';
+import { clampFX, fxCount, fxDefsFor, fxEdit, fxKind, fxPreviewFor, FX_SHARED, FX_SLOTS, spawnFX } from './fxpack.js';
 import { clamp } from './util.js';
 
 /* ============================================================
@@ -405,6 +405,7 @@ function probeClip(url) {
 let rec = null;
 function recordFX() {
   if (rec) return;
+  if (pv.url) stopPreview();        // the plate is the slot's effect, not a stray preview
   if (!renderer.domElement.captureStream || typeof MediaRecorder === 'undefined') {
     flash('RECORDING NOT SUPPORTED IN THIS BROWSER', '#ff3b5c');
     return;
@@ -436,6 +437,8 @@ function recordFX() {
   setTimeout(() => { if (rec) rec.stop(); }, ms);
 }
 
+let libFilter = 'all';        // 'all' | 'glb' | 'video' — the media tab of the panel
+
 async function refreshLib() {
   const box = $('fxlib');
   try {
@@ -457,21 +460,126 @@ async function refreshLib() {
     }
   }
   box.innerHTML = '';
-  if (!libFiles.length) { box.innerHTML = '<div id="note">nothing in models/uploads yet — drop a file above</div>'; return; }
+  const shown = libFiles.filter((f) => libFilter === 'all' || fxKind(f.name) !== (libFilter === 'glb' ? 'video' : 'glb'));
+  if (!shown.length) {
+    box.innerHTML = '<div id="note">' + (libFiles.length
+      ? 'no ' + libFilter + ' files in models/uploads — try the other filter'
+      : 'nothing in models/uploads yet — drop a file above') + '</div>';
+    syncLibTools();
+    return;
+  }
   const cur = asg().src;
-  for (const f of libFiles) {
+  for (const f of shown) {
     const url = UPDIR + f.name;
+    const kind = fxKind(url);
     const row = document.createElement('div');
-    row.className = 'lib' + (url === cur ? ' on' : '');
+    row.className = 'lib' + (url === cur ? ' on' : '') + (url === pv.url ? ' pv' : '');
+    row._url = url;
     const kb = f.bytes > 0 ? (f.bytes / 1024).toFixed(1) + ' kb' : '—';
+    const ent = fxBank[url];
+    const cost = ent && ent.stats ? ent.stats.tris.toLocaleString() + ' tris · ' + ent.stats.meshes + ' mesh' + (ent.stats.meshes === 1 ? '' : 'es') : kind;
     const tag = used.has(url) ? used.get(url).trim()
       : /^(aegis|lyra|nyx)\.glb$/i.test(f.name) ? 'hero skin' : 'assign';
     row.innerHTML = `<span>${f.name.replace(/\.(glb|mp4|webm|ogv)$/i, '')}</span>` +
-      `<i>${kb}</i><u>${tag}</u>`;
-    row.title = used.has(url) ? 'in use by:' + used.get(url) : 'assign to slot ' + slotLabel(slot).toUpperCase();
+      `<i>${kb} · ${cost}</i><u>${tag}</u>`;
+    row.title = used.has(url) ? 'in use by:' + used.get(url) : 'click to assign to slot ' + slotLabel(slot).toUpperCase();
     row.onclick = () => assign(url);
+    /* ▶ previews WITHOUT assigning: the same spawnFX a real cast uses, fired at
+       the hero, so a file can be judged before it costs a slot. */
+    const play = document.createElement('button');
+    play.className = 'act mini';
+    play.textContent = url === pv.url ? '■' : '▶';
+    play.title = 'preview in the arena (no assignment)';
+    play.onclick = (e) => { e.stopPropagation(); togglePreview(url); };
+    row.appendChild(play);
     box.appendChild(row);
   }
+  syncLibTools();
+}
+
+/** loop / stop / filter buttons + the line that explains what a preview is using */
+function syncLibTools() {
+  for (const b of $('fxlibfilter').children) b.classList.toggle('on', b._f === libFilter);
+  $('fxloop').classList.toggle('on', pv.loop);
+  $('fxstop').style.opacity = pv.url ? '1' : '0.35';
+  if (!pv.url) { $('fxlibnote').textContent = '▶ previews any file in the arena without assigning it — click the row to assign.'; return; }
+  const ent = fxBank[pv.url], st = ent && ent.stats;
+  const r = fxPreviewFor(cfg, heroId(), slot, pv.url);
+  $('fxlibnote').textContent = '▶ ' + pv.url.split('/').pop() +
+    ' · ' + (ent ? ent.kind + ' · ' : '') + (st ? st.tris.toLocaleString() + ' tris · ' + st.meshes + ' meshes · ' : '') +
+    'params from ' + (r.from === 'slot' ? slotLabel(slot).toUpperCase() : r.from === 'shared' ? 'ALL'
+      : r.from === 'defaults' ? 'kind defaults' : 'slot ' + r.from.slice(-1)) +
+    (pv.loop ? ' · looping' : '') + ' · ▶ again to stop';
+}
+
+/* ---------- LIBRARY PREVIEW -------------------------------------------------
+   Fire any file in models/uploads at the hero, through the same fxpack.spawnFX
+   a real cast uses, without writing anything into the config. That last part is
+   the point: fxPreviewFor reads the tuning and hands back a CLAMPED COPY of the
+   params the file would cast with, so previewing cannot dirty a save.
+   Loop is for the 0.6 s things you cannot judge from one play. */
+const pv = { url: null, live: false, loop: false, gap: 0, inst: null, at: 0 };
+
+async function togglePreview(url) {
+  if (pv.url === url) { stopPreview(); return; }
+  try {
+    await bankPut(url);                                  // fetch + parse on demand
+  } catch (e) {
+    flash('PREVIEW FAILED: ' + (e.message || e), '#ff3b5c');
+    return;
+  }
+  if (!fxBank[url]) { flash('PREVIEW FAILED: NOT IN THE BANK', '#ff3b5c'); return; }
+  setAction('idle');      // judge the effect, not the walk cycle (loop keeps your action)
+  pv.loop = false;
+  firePreview(url);
+  const st = fxBank[url] && fxBank[url].stats;
+  if (st && (st.meshes > 24 || st.tris > 60000)) {
+    flash('PREVIEW LOOKS FINE, BUT IT IS HEAVY: ' + st.meshes + ' MESHES / ' + st.tris.toLocaleString() +
+      ' TRIS PER CAST', '#ffb14a');
+  }
+}
+
+function firePreview(url, quiet) {
+  const ent = fxBank[url];
+  const { p } = fxPreviewFor(cfg, heroId(), slot, url);
+  const h = heroes[active];
+  const inst = spawnFX(G, ent, p, new THREE.Vector3(h.pos.x, p.y, h.pos.z), h.facing || 0);
+  pv.url = url; pv.inst = inst; pv.live = true; pv.at = G.time; pv.gap = 0.22;
+  G.addEffect({
+    t: 0, dur: p.dur,
+    update(dt) { const alive = inst.update(dt); pv.live = alive; return alive; },
+    dispose() { inst.kill(); pv.live = false; },
+  });
+  if (!quiet) flash('PREVIEW · ' + url.split('/').pop().toUpperCase() + (p.dur > 0 ? ' · ' + p.dur.toFixed(2) + ' s' : ''), '#7cf9ff');
+  refreshLibRows();
+  syncLibTools();
+}
+
+function stopPreview() {
+  const had = !!pv.url;
+  pv.loop = false; pv.url = null; pv.gap = 0;
+  if (pv.inst) { pv.inst.kill(); pv.inst = null; }
+  pv.live = false;
+  if (had) { refreshLibRows(); syncLibTools(); }
+}
+
+/* class-only refresh: a full refreshLib() re-fetches the listing, and the loop
+   would be doing that every time a preview ends */
+function refreshLibRows() {
+  for (const row of $('fxlib').children) {
+    if (!row._url) continue;
+    row.classList.toggle('pv', row._url === pv.url);
+    const b = row.querySelector('button');
+    if (b) b.textContent = row._url === pv.url ? '■' : '▶';
+  }
+}
+
+/* called from the render loop: re-fire while looping, drop the highlight after a
+   one-shot preview finishes */
+function tickPreview(dt) {
+  if (!pv.url || pv.live) return;
+  if (pv.loop) { if ((pv.gap -= dt) <= 0) firePreview(pv.url, true); return; }   // quiet: a flash per fire is a strobe
+  if (G.time - pv.at > 0.05) { pv.url = null; pv.inst = null; refreshLibRows(); syncLibTools(); }
 }
 
 function syncFX() {
@@ -586,6 +694,18 @@ $('fxcopy').onclick = () => {
   flash('COPIED ALL → ' + slotLabel(slot).toUpperCase() + ' · TUNE FREELY', '#3dffb0');
 };
 $('fxref').onclick = refreshLib;
+const FILTERS = { 'fxf-all': 'all', 'fxf-glb': 'glb', 'fxf-video': 'video' };
+for (const b of $('fxlibfilter').children) {
+  b._f = FILTERS[b.id] || 'all';
+  b.onclick = () => { libFilter = b._f; refreshLib(); };
+}
+$('fxloop').onclick = () => {
+  if (!pv.url) { flash('CLICK ▶ ON A LIBRARY ROW FIRST', '#ffb14a'); return; }
+  pv.loop = !pv.loop;
+  if (pv.loop && !pv.live) firePreview(pv.url);
+  syncLibTools();
+};
+$('fxstop').onclick = () => stopPreview();
 $('fxdrop').onclick = () => $('fxfile').click();
 $('fxfile').onchange = (e) => uploadFX(e.target.files[0]);
 addEventListener('dragover', (e) => { e.preventDefault(); $('fxdrop').classList.add('hot'); });
@@ -680,6 +800,7 @@ function syncPanel() {
       if (!e.update(dt)) { if (e.dispose) e.dispose(); effects.splice(i, 1); }
     }
     if (G.time - (measureFit.t || 0) > 0.3) { measureFit.t = G.time; measureFit(); }
+    tickPreview(dt);
     renderer.render(scene, camera);
   });
   flash('STUDIO READY — TUNE & SAVE', '#7cf9ff');

@@ -5,7 +5,7 @@
 
 Last verified: 2026-09-08 (v1.10.1, hero GLBs stand on the deck) · `neon-vanguard.html` 795 KB ·
 20 modules in `src/`. Headless suites all pass: `lighttest` 35/35, `geocheck` clean, `glbtest` 12/12,
-`skintest` 126/126, `herofit` 18/18. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
+`skintest` 138/138, `herofit` 18/18, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
 before trusting anything visual, and say so plainly in the commit. See §6.
 
@@ -218,7 +218,7 @@ context):
 node tools/lighttest.mjs  # 35 assertions: the point-light count never moves (v1.8 invariant)
 node tools/geocheck.mjs   # per-enemy draw calls / verts / bbox / lights / materials + pooling leak check
 node tools/glbtest.mjs    # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
-node tools/skintest.mjs   # 126 assertions: uploaded skins, hero_tuning.json v1->v2, FX slots, pooling, clamps
+node tools/skintest.mjs   # 138 assertions: uploaded skins, hero_tuning.json v1->v2, FX slots, pooling, clamps
 node tools/herofit.mjs    # 18 assertions: the REAL models/uploads/*.glb stand fully on the deck (invariant 15)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB sitting in models/uploads/
 node tools/fxsample.mjs   # writes + self-validates the AEGIS skill-FX samples in models/uploads/ (see FX-AEGIS.md)
@@ -300,12 +300,15 @@ reload. Nothing in the shipped build depends on the studio: a missing file means
   `.glb` prop or a video billboard with eleven tuning parameters (`scale y dur grow spin rise fade opacity
   light tint blend`, plus `rate vblend face loop` for video). Assign by drop, by `● REC` (the studio records
   its own canvas while the slot plays and saves `<id>-s<n>-fx.webm`), or from the LIBRARY list of
-  `models/uploads/` — the last one needs no re-upload because the bank is keyed by URL.
+  `models/uploads/` — the last one needs no re-upload because the bank is keyed by URL. Each library row ends
+  in **▶ preview**: it fires the file through the same `spawnFX`, reading params through `fxPreviewFor`
+  (edited slot → shared → this hero's other slot → kind defaults) and handing back a *clamped copy*, so a
+  preview can never dirty a save; `⟳ loop` re-fires it every 0.22 s and `all · glb · video` filters the list.
 
 The runtime path is deliberately short: `useSkill(i)` → `Hero.playFX(G, i)` → `fxpack.fxFor()` resolves the
 slot (per-skill, else shared, else nothing) → `fxpack.spawnFX()` builds it from pooled parts. Both the studio
 preview and the match go through `spawnFX`, so "it looked right in the studio" is a real claim. The shape, the
-clamping and the pooling are covered by `tools/skintest.mjs` (126 assertions) and the placement maths by
+clamping and the pooling are covered by `tools/skintest.mjs` (138 assertions) and the placement maths by
 `tools/herofit.mjs` (18), both headless. **`FX-AEGIS.md`** is the worked art-side walkthrough: four sample
 effects for AEGIS, written and self-validated by `node tools/fxsample.mjs`, how to assign one per skill, and
 what `● REC` actually captures (a canvas grab with no alpha — hence additive blending).

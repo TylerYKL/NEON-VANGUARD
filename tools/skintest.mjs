@@ -180,7 +180,7 @@ fxList[0].dispose();
 check('dispose is idempotent (double kill is safe)', true);
 
 /* ---------------- fxpack: parameter sanitising ---------------- */
-const { clampFX, fxCount, fxEdit, fxFor, fxSources, fxKind, fxDefsFor, spawnFX, fxStats, DEFAULT_FX, FX_SHARED, FX_SLOTS } =
+const { clampFX, fxCount, fxEdit, fxFor, fxPreviewFor, fxSources, fxKind, fxDefsFor, spawnFX, fxStats, DEFAULT_FX, FX_SHARED, FX_SLOTS } =
   await import('../src/fxpack.js');
 check('fxKind splits video from prop', fxKind('a.webm') === 'video' && fxKind('a.glb') === 'glb' && fxKind(null) === 'glb');
 const junk = clampFX({ scale: NaN, dur: 1e9, spin: 'x', tint: 'red', blend: 7, opacity: -4 }, 'glb');
@@ -343,6 +343,62 @@ const v3 = spawnFX(G6, ventry, pVid, { x: 0, y: 0, z: 0 }, 0);
 check('billboard meshes are pooled (last one freed is reused)', v3.obj === v2.obj);
 v3.kill();
 check('video element survives for reuse (not disposed)', fxStats().videos === 1);
+
+/* ---------------- library PREVIEW: fire anything, assign nothing ---------------- */
+const pvCfg = {
+  aegis: {
+    fx: 'models/uploads/aegis-fx.glb', fxP: { scale: 1.1, dur: 1.1, light: 7 },
+    fxSlots: [{ src: 'models/uploads/aegis-s0-fx.glb', on: true, p: { scale: 1.5, dur: 0.65, light: 9 } },
+      null,
+      { src: 'models/uploads/aegis-s2-fx.glb', on: true, p: { scale: 2.8, dur: 1.6, light: 16 } }],
+  },
+};
+const before = JSON.stringify(pvCfg);
+const inSlot = fxPreviewFor(pvCfg, 'aegis', 0, 'models/uploads/aegis-s0-fx.glb');
+check('preview uses the slot its file is assigned to', inSlot.from === 'slot' && inSlot.p.scale === 1.5 && inSlot.p.dur === 0.65,
+  inSlot.from + ' ' + JSON.stringify(inSlot.p));
+check('preview of the shared file reads the shared block', (() => {
+  const r = fxPreviewFor(pvCfg, 'aegis', 1, 'models/uploads/aegis-fx.glb');
+  return r.from === 'shared' && r.p.light === 7;
+})());
+check('a file living in ANOTHER slot of this hero still previews with its own look', (() => {
+  const r = fxPreviewFor(pvCfg, 'aegis', 0, 'models/uploads/aegis-s2-fx.glb');
+  return r.from === 'slot2' && r.p.scale === 2.8;
+})());
+const unassigned = fxPreviewFor(pvCfg, 'aegis', 1, 'models/uploads/brand-new.glb');
+check('an unassigned .glb gets the glb defaults', unassigned.from === 'defaults' && unassigned.p.dur === DEFAULT_FX.glb.dur);
+const freshVid = fxPreviewFor(pvCfg, 'aegis', 1, 'models/uploads/brand-new.webm');
+check('an unassigned video gets the video defaults (floats, longer, softer light)',
+  freshVid.p.dur === DEFAULT_FX.video.dur && freshVid.p.y === DEFAULT_FX.video.y && freshVid.p.light === DEFAULT_FX.video.light,
+  JSON.stringify(freshVid.p));
+check('a hero with no entry at all still previews (no throw)', fxPreviewFor(pvCfg, 'lyra', 0, 'x.glb').from === 'defaults');
+check('preview never writes to the tuning', JSON.stringify(pvCfg) === before);
+const mutator = fxPreviewFor(pvCfg, 'aegis', 0, 'models/uploads/aegis-s0-fx.glb');
+mutator.p.scale = 99;
+check('…and hands a COPY, so editing the preview params cannot dirty a save',
+  pvCfg.aegis.fxSlots[0].p.scale === 1.5 && JSON.stringify(pvCfg) === before);
+
+/* spawning something NO slot references — the case a preview is, and the case
+   the studio used to be unable to serve without spending a slot */
+const orphanURL = 'models/uploads/unassigned-candidate.glb';
+const orphan = { kind: 'glb', url: orphanURL, template: entry.template, stats: entry.stats, matPools: {} };
+const scPv = tinyScene();
+const GPv = { scene: scPv, camera: null, lights: null };
+const pPv = fxPreviewFor(pvCfg, 'aegis', 0, orphanURL).p;      // defaults, since nothing holds it
+const one = spawnFX(GPv, orphan, pPv, { x: 0, y: pPv.y, z: 0 }, 0);
+const added = scPv.children.length;
+runOut(one);
+check('an unassigned file spawns and cleans up on its own', added === 1 && scPv.children.length === 0,
+  'children ' + scPv.children.length);
+const two = spawnFX(GPv, orphan, pPv, { x: 0, y: 0, z: 0 }, 0);
+check('a second preview reuses the pooled clone (previews do not allocate per fire)', two.obj === one.obj);
+runOut(two);
+const many = [];
+for (let i = 0; i < 5; i++) many.push(spawnFX(GPv, orphan, pPv, { x: i, y: 0, z: 0 }, 0));
+check('five simultaneous previews take five clones out of the pool', scPv.children.length === 5, 'children ' + scPv.children.length);
+for (const m of many) m.kill();
+check('…and all five go back (pool capped, nothing disposed)', scPv.children.length === 0 && orphan.pool.length === 5,
+  'pool ' + (orphan.pool || []).length);
 
 /* ---------------- the studio editor writes through the same door ---------------- */
 const cfg2 = JSON.parse(JSON.stringify(tunCfg));

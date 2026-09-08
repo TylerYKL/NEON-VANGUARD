@@ -682,7 +682,15 @@ borrowed from the fixed pool in `lights.js` so the scene's light count still nev
 truncates `G.effects` cannot strand one. The studio also prints the tri/mesh cost of whatever you drop and
 warns above 24 meshes, because that is draw calls **per cast**.
 
-**Testing without a browser.** `tools/skintest.mjs` grew from 39 to 126 assertions, plus a new
+**Judging a file before you spend a slot.** The LIBRARY list got its own preview: every row ends in `▶`,
+which fires that file at the hero through the same `spawnFX` a real cast uses, with the params the file would
+actually cast with (edited slot → shared → this hero's other slot → kind defaults, via `fxpack.fxPreviewFor`).
+Because a preview must not become an edit, `fxPreviewFor` hands back a clamped **copy** — `skintest` asserts
+that the tuning object is byte-identical before and after a preview, and that an entry no slot references
+still spawns, pools and dies cleanly. `⟳ loop` re-fires on a 0.22 s beat, because a 0.65 s shockwave is not
+judgable from one play.
+
+**Testing without a browser.** `tools/skintest.mjs` grew from 39 to 138 assertions, plus a new
 `tools/herofit.mjs` (18) that walks the real committed GLBs through parse → normalise → `Hero.build` →
 `animateGLB` and asserts the feet land on y = 0 at default tuning, at 1.35× size and 90 frames into a walk —
 the cheapest possible guard against a "looks fine in the viewer, buried in the game" class of bug. The suite now covers the whole
