@@ -85,7 +85,8 @@ node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materi
 node tools/glbtest.mjs   # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
 node tools/skintest.mjs  # 138 assertions: uploaded skins, hero_tuning.json, per-skill FX slots + pooling
 node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
-node tools/simtest.mjs   # 40 assertions: the cast bench — 9 abilities + basics run, expire and leak nothing
+node tools/simtest.mjs   # 41 assertions: the cast bench — 9 abilities + basics run, expire and leak nothing
+node tools/animcheck.mjs # read-only review of the motion layer: feet vs deck, GLB slam float, clips per file
 node tools/fxsample.mjs  # writes + validates the AEGIS sample skill FX (see FX-AEGIS.md)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB in models/uploads/
 
@@ -182,6 +183,9 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 > Want a worked example with real files? **[`FX-AEGIS.md`](FX-AEGIS.md)** — four sample skill effects for
 > AEGIS (in `models/uploads/`), the assign → tune → save loop, what `● REC` records, and every FX slider with
 > its range. Regenerate them with `node tools/fxsample.mjs`.
+>
+> The layer *under* the FX — how a hero is posed, how it walks, how an attack starts — is reviewed in
+> **[`MOTION-AUDIT.md`](MOTION-AUDIT.md)**; `node tools/animcheck.mjs` re-measures its numbers.
 
 `hero-studio.html` is the art-direction side of the upload pipeline. It boots the real `Hero` class with the
 GLBs from `models/uploads/`, so what you see is what the match will draw. Everything is written to

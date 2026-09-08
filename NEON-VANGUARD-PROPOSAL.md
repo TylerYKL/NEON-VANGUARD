@@ -686,12 +686,22 @@ warns above 24 meshes, because that is draw calls **per cast**.
 cast — the leap, the impact frame, the ability's own rings and shake, bodies flying. `src/sim.js` gives the
 studio a stand-in arena (0/3/6 targets with only the fields the abilities read) and runs the **real**
 `Hero.useSkill(i, G)` in it, with `½×`/`¼×` slow motion applied once to `dt` so the whole page slows together.
-`tools/simtest.mjs` (40 assertions) drives all nine abilities plus the basic attacks through it headlessly and
+`tools/simtest.mjs` (41 assertions) drives all nine abilities plus the basic attacks through it headlessly and
 checks the things nobody could check without a browser: that every cast expires, that the scene is left
 *identical* (same visible set, same total children — a planted per-cast leak turns it red), that the light pool
 balances, that no non-finite transform reaches the frame, and that the bench never double-ticks the page's own
 effect list. The studio also gained an in-panel **HOW FX WORK IN THIS BUILD** explainer, because the six-step chain
 (`useSkill → playFX → fxFor → spawnFX → coroutine → kill`) is exactly the thing people get lost on.
+
+Reviewing the same question one layer down produced **`MOTION-AUDIT.md`**: heroes have no animation clips at
+all — a frame is one positional write plus four decaying envelopes (`attackAnim`, `castAnim`, `hurtAnim`,
+`downed`), and an uploaded GLB skin is a rigid statue that those envelopes rock and bob. It measures two
+shipping bugs (`seismicSlam` restores the hips to a hardcoded `0.95`, so a GLB-skinned AEGIS floats 0.95 m
+above the deck for the rest of the run after one Q; `animateRig` writes a flat `0.95` where `buildHumanoid`
+built `0.95 * scale`, so every procedural hero stands ~15 cm inside the deck) and states why
+`template.clone(true)` must become `SkeletonUtils.clone` *before* anyone wires a mixer: today the four heroes
+share one skeleton because nothing writes a bone. `tools/animcheck.mjs` re-measures all of it and stays green
+until something new breaks — the report came first, the fixes are queued behind it.
 
 **Judging a file before you spend a slot.** The LIBRARY list got its own preview: every row ends in `▶`,
 which fires that file at the hero through the same `spawnFX` a real cast uses, with the params the file would

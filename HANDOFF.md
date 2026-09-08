@@ -5,7 +5,7 @@
 
 Last verified: 2026-09-08 (v1.11, Hero Studio cast-sim) · `neon-vanguard.html` 795 KB ·
 21 modules in `src/`. Headless suites all pass: `lighttest` 35/35, `geocheck` clean, `glbtest` 12/12,
-`skintest` 138/138, `herofit` 18/18, `simtest` 40/40, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
+`skintest` 138/138, `herofit` 18/18, `simtest` 41/41, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
 before trusting anything visual, and say so plainly in the commit. See §6.
 
@@ -221,7 +221,8 @@ node tools/geocheck.mjs   # per-enemy draw calls / verts / bbox / lights / mater
 node tools/glbtest.mjs    # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
 node tools/skintest.mjs   # 138 assertions: uploaded skins, hero_tuning.json v1->v2, FX slots, pooling, clamps
 node tools/herofit.mjs    # 18 assertions: the REAL models/uploads/*.glb stand fully on the deck (invariant 15)
-node tools/simtest.mjs    # 40 assertions: the studio cast bench — all 9 abilities + basics run, expire, leak nothing
+node tools/simtest.mjs    # 41 assertions: the studio cast bench — all 9 abilities + basics run, expire, leak nothing
+node tools/animcheck.mjs    # read-only: measures the motion layer (feet vs deck, GLB slam float, bones/clips per file)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB sitting in models/uploads/
 node tools/fxsample.mjs   # writes + self-validates the AEGIS skill-FX samples in models/uploads/ (see FX-AEGIS.md)
 
@@ -314,6 +315,18 @@ clamping and the pooling are covered by `tools/skintest.mjs` (138 assertions) an
 `tools/herofit.mjs` (18), both headless. **`FX-AEGIS.md`** is the worked art-side walkthrough: four sample
 effects for AEGIS, written and self-validated by `node tools/fxsample.mjs`, how to assign one per skill, and
 what `● REC` actually captures (a canvas grab with no alpha — hence additive blending).
+
+**`MOTION-AUDIT.md` is the review of everything under the FX** (animation, movement, attack), with
+`tools/animcheck.mjs` re-measuring its numbers. Two of its findings are shipping bugs and are **not yet
+fixed**, on purpose: `seismicSlam` restores `rig.hips.position.y` to a hardcoded `0.95`, which is right for
+the procedural rig and wrong for a GLB skin (`hipsRest` is `0` there) → after one Q an AEGIS with an uploaded
+skin floats 0.95 m above the deck for the rest of the run; and `animateRig` writes a flat `0.95` where
+`buildHumanoid` built `0.95 * scale`, so every procedural hero's feet sit ~15 cm *inside* the deck. Both
+are the same root cause — the hips baseline has three sources of truth, one of which (`hero.hipsRest`) is
+read by nobody. Read the file before touching `heroes.js:477/512`, `rig.js:175` or anything to do with GLB
+animation clips: `heroes.js:111` uses `template.clone(true)`, which **shares skeletons between all four
+heroes** (and `fxpack.js:360` does the same to pooled FX clones) — harmless while nothing writes a bone,
+catastrophic the moment a mixer does, so `SkeletonUtils.clone` is phase A of that feature.
 
 **CAST SIM (`src/sim.js`) — the bench that makes the panel honest.** `▶ play` shows one prop; the sim runs the
 real `Hero.useSkill(i, G)` — leap, impact timing, the ability's own rings/particles/shake, knockback — against
@@ -410,10 +423,11 @@ tests are meaningless; draw calls and triangle counts are accurate.
 | Doc | Read it for |
 |---|---|
 | `HANDOFF.md` | this file — orientation, invariants, traps, backlog |
-| `NEON-VANGUARD-PROPOSAL.md` | engine comparison, full game design, VFX/audio architecture, roadmap, and a per-version changelog (v1.0 → v1.10) |
+| `NEON-VANGUARD-PROPOSAL.md` | engine comparison, full game design, VFX/audio architecture, roadmap, and a per-version changelog (v1.0 → v1.11) |
 | `NEON-VANGUARD-REVIEW.md` | the critical review that drove the last four passes; the P2 items are still open and still valid |
 | `README.md` | developer quick reference: controls, build, module map, subsystem notes |
 | `FX-AEGIS.md` | worked example for an art non-programmer: the AEGIS sample skill FX, the assign / tune / ● REC loop, and the tuning cheat sheet |
+| `MOTION-AUDIT.md` | the layer under the FX: how a hero is posed/moved/attacked, 7 findings with measured numbers (2 are shipping bugs, deliberately not yet fixed), and the plan for GLB animation clips — `tools/animcheck.mjs` re-measures it |
 
 **Open questions still owed by the stakeholder** (§9 of the proposal): monetisation/platform, whether co-op
 is the product or a nice-to-have (this changes the architecture *now*), art budget, and final roster size.

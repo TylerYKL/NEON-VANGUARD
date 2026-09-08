@@ -258,7 +258,7 @@ keys fall back to the defaults rather than poisoning the bloom chain.
 | `node tools/skintest.mjs` | 126 assertions: slot resolution + fallback, `clampFX`, URL-keyed bank reuse, free-list recycling, `dispose()`-free material handling, video refcounting, run-reset cleanliness |
 | `node tools/herofit.mjs` | 18 assertions: the hero GLBs themselves still stand on the deck |
 | `node tools/uploadstats.mjs` | tri / mesh / texture cost of everything in `models/uploads/` |
-| `node tools/simtest.mjs` | 40 assertions: the CAST bench — all 9 abilities + the three basics driven headlessly; every cast must expire, leave the scene *identical*, balance the light pool and stay finite |
+| `node tools/simtest.mjs` | 41 assertions: the CAST bench — all 9 abilities + the three basics driven headlessly; every cast must expire, leave the scene *identical*, balance the light pool and stay finite |
 
 Related reading: `HANDOFF.md` §7a (the studio's design + invariants 12–15) and `README.md`
 → *Hero Studio — skins and skill effects*.
