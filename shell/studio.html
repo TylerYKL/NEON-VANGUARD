@@ -45,7 +45,30 @@
           letter-spacing:.18em;color:#7fd8b8;cursor:pointer}
   #fxdrop.hot{border-color:#3dffb0;color:#3dffb0;background:rgba(61,255,176,.07)}
   #fxname{font-size:9px;color:#8fb;letter-spacing:.12em;margin-top:6px;word-break:break-all}
-  #fxrow{display:flex;gap:8px;margin-top:8px}
+  #fxname em{font-style:normal;color:#ffb14a}
+  #fxrow{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  #fxrow .act{padding:8px 9px;font-size:8px;letter-spacing:.1em}
+  /* skill-slot chips: ALL / Q / E / R */
+  #fxslots{display:flex;gap:5px}
+  .chip{flex:1;cursor:pointer;font-family:var(--font);text-transform:uppercase;font-size:8px;
+        letter-spacing:.1em;padding:7px 4px;text-align:center;color:#9ff;background:rgba(8,14,28,.8);
+        border:1px solid rgba(24,224,255,.2);transition:all .15s}
+  .chip b{display:block;font-size:9px;color:#cfe}
+  .chip.on{background:var(--c2);border-color:var(--c2);color:#04070f;font-weight:700}
+  .chip.on b{color:#04070f}
+  .chip i{display:block;width:5px;height:5px;border-radius:50%;background:#3dffb0;margin:3px auto 0;opacity:0}
+  .chip.has i{opacity:1}
+  /* library rows */
+  #fxlib{max-height:130px;overflow-y:auto;scrollbar-width:thin}
+  .lib{display:flex;justify-content:space-between;gap:6px;align-items:center;font-size:8px;
+       letter-spacing:.08em;padding:5px 7px;margin-bottom:4px;cursor:pointer;
+       border:1px solid rgba(255,255,255,.07);background:rgba(8,14,28,.5)}
+  .lib:hover{border-color:rgba(61,255,176,.6);background:rgba(61,255,176,.06)}
+  .lib.on{border-color:var(--c2)}
+  .lib span{color:#cfe;word-break:break-all}
+  .lib i{font-style:normal;opacity:.45;white-space:nowrap}
+  .lib u{text-decoration:none;color:#7fd8b8;white-space:nowrap}
+  input[type=color]{width:100%;height:18px;padding:0;background:none;border:1px solid rgba(255,255,255,.14);cursor:pointer}
   #note{font-size:8.5px;line-height:1.7;opacity:.5;letter-spacing:.1em}
 
   #bottom{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
@@ -76,16 +99,23 @@
   <div id="plc"></div>
   <div class="lbl">ACTION MOTION</div>
   <div id="mot"></div>
-  <div class="lbl">SKILL EFFECT · GLB</div>
-  <div id="fxdrop">DROP .GLB OR VIDEO (.MP4/.WEBM) · OR CLICK<input id="fxfile" type="file" accept=".glb,.mp4,.webm,.ogv" hidden></div>
+  <div class="lbl">SKILL EFFECT · PER SKILL</div>
+  <div id="fxslots"></div>
+  <div id="fxdrop" style="margin-top:8px">DROP .GLB OR VIDEO (.MP4/.WEBM) INTO THIS SLOT · OR CLICK<input id="fxfile" type="file" accept=".glb,.mp4,.webm,.ogv" hidden></div>
   <div id="fxname">none assigned</div>
   <div id="fxrow">
-    <button class="act" id="fxplay">▶ play fx</button>
-    <button class="act" id="fxrec">● record fx</button>
-    <button class="act on" id="fxon">fx on</button>
+    <button class="act" id="fxplay">▶ play</button>
+    <button class="act" id="fxrec">● rec</button>
+    <button class="act on" id="fxon">on</button>
+    <button class="act" id="fxcopy" title="copy the ALL assignment into this slot, then tune it apart">⎘ from all</button>
+    <button class="act" id="fxclear">clear</button>
   </div>
+  <div class="lbl">FX LOOK <i id="fxkind" style="opacity:.6;letter-spacing:.1em"></i></div>
+  <div id="fxp"></div>
+  <div class="lbl">LIBRARY · models/uploads <button class="act" id="fxref" style="float:right;padding:3px 7px;font-size:7px">refresh</button></div>
+  <div id="fxlib"></div>
   <div class="lbl">PIPELINE</div>
-  <div id="note">Edits apply live in this studio. SAVE writes hero_tuning.json into models/uploads/ — the game reads it on START, so your size, motion and skill-fx choices land in the real match.</div>
+  <div id="note">Edits apply live in this studio. SAVE writes hero_tuning.json into models/uploads/ — the game reads it on START, so size, motion and every skill-effect slot land in the real match. Pick a slot (Q / E / R, or ALL for one effect on every skill) before you drop, record or pick from the library.</div>
 </div>
 
 <div id="bottom">

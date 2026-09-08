@@ -3,10 +3,11 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-06 · build `neon-vanguard.html` 717 KB · 6,659 lines across 15 modules.
-`tools/lighttest.mjs` (35 assertions) and `tools/geocheck.mjs` pass. **The six puppeteer suites were NOT
-run in the session that produced v1.8** — that sandbox had no browser and blocked every Chrome download
-host (only the npm registry was reachable). Re-run all six before trusting the visual result. See §6.
+Last verified: 2026-09-08 (v1.10, Hero Studio skill-effect editor) · `neon-vanguard.html` 795 KB ·
+20 modules in `src/`. Headless suites all pass: `lighttest` 35/35, `geocheck` clean, `glbtest` 10/10,
+`skintest` 118/118. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
+download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
+before trusting anything visual, and say so plainly in the commit. See §6.
 
 ---
 
@@ -16,15 +17,18 @@ host (only the npm registry was reachable). Re-run all six before trusting the v
 You pilot one of three operatives; the other two fight as AI. Wave survival, boss every 5th wave, an
 implant draft between waves, and an ultimate-chain combo system that rewards swapping mid-fight.
 
-Everything is procedural — geometry, textures, animation, all 38 sound effects and the music. **There is
-not a single asset file in the build.** The whole game ships as one self-contained HTML file.
+Everything in the game is procedural — geometry, textures, animation, all 38 sound effects and the music.
+**There is not a single asset file required to boot.** The whole game ships as one self-contained HTML file.
+(The uploaded hero skins and skill-effect clips in `models/uploads/` are an *optional* art pipeline: the game
+reads them if they are there and falls back to the procedural rig if they are not — see §7a.)
 
 **The deliverables:**
 | File | What |
 |---|---|
 | `neon-vanguard.html` | the game (717 KB, open it directly, no server needed) |
 | `character-bay.html` | character turntable viewer (589 KB) |
-| `model-viewer.html` | art-direction tool — drop a GLB next to the procedural rig (673 KB) |
+| `model-viewer.html` | art-direction tool — drop a GLB next to the procedural rig (674 KB) |
+| `hero-studio.html` | Hero Studio — tune uploaded skins and edit per-skill effects (695 KB) |
 
 ---
 
@@ -73,16 +77,17 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
 ├── screenshots/            12 gameplay + 7 character-bay captures
 ├── tools/                  headless puppeteer test suites (see §6)
 └── src/
-    ├── main.js      1467  bootstrap, post FX, input, gamepad, camera, wave director, draft,
+    ├── main.js      1474  bootstrap, post FX, input, gamepad, camera, wave director, draft,
     │                      hazards, settings, dev-tool wiring, the shared context object `G`
-    ├── heroes.js    1252  hero data, all 12 abilities, buffs, damage/heal, squad AI
+    ├── heroes.js    1352  hero data, all 12 abilities, buffs, damage/heal, squad AI, playFX per skill slot
     ├── entities.js   704  projectile pool, enemy types + AI, elites, telegraph driver, pooling
     ├── audio.js      587  WebAudio synth toolkit, 38 SFX cues, adaptive music sequencer
     ├── showcase.js   459  character bay (separate entry point)
-    ├── viewer.js     —    model viewer: GLB drop + procedural rig side-by-side (art tool)
-    ├── gltfutil.js   —    DOM-free GLB parse/stats/normalise (viewer + glbtest)
-    ├── glbskin.js    —    loads uploaded hero GLB skins (models/uploads/*.glb), procedural fallback
-    ├── studio.js     —    Hero Studio: size / action-motion / skill-FX tuning → hero_tuning.json
+    ├── viewer.js     215  model viewer: GLB drop + procedural rig side-by-side (art tool)
+    ├── gltfutil.js    63  DOM-free GLB parse/stats/normalise (viewer + glbtest + uploadstats)
+    ├── studio.js     606  Hero Studio: size / placement / motion / per-skill FX editor → hero_tuning.json
+    ├── fxpack.js     398  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
+    ├── glbskin.js    155  uploaded hero skins + hero_tuning.json reader (v2) + URL-keyed effect bank
     ├── fx.js         431  pooled particles/rings/beams/sparks/telegraphs, shake, flash
     ├── world.js      311  arena, floor shader, baked skyline, billboards, rain, cover pylons
     ├── rig.js        331  faceted humanoid rig (chamfer/seg + flat shading) + animator + weapons
@@ -95,8 +100,9 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
     └── util.js       121  math/material/texture helpers + disposeObj()
 ```
 
-**Editing the HUD or page chrome?** That lives in `shell/game.html`, not in a built file. The two root
-`*.html` deliverables are generated — never hand-edit them.
+**Editing the HUD or page chrome?** That lives in `shell/game.html` (and `shell/studio.html`,
+`shell/bay.html`, `shell/viewer.html`), not in a built file. The four root `*.html` deliverables are
+generated by `node build.mjs` — never hand-edit them.
 
 ---
 
@@ -129,7 +135,8 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
 2. **Release what you take.** `fx.telegraph()` must be paired with `fx.tellRelease()` on death, interrupt
    *and* cleanup. If the pool starves, enemies stop telegraphing. `tools/` tests assert it returns to 28.
 3. **`disposeObj(scene, obj)` for anything an ability builds at cast time.** `scene.remove()` alone leaks a
-   geometry and a shader per cast. Currently used in 7 places in `heroes.js`.
+   geometry and a shader per cast. Used in 6 places in `heroes.js` — but deliberately **not** in
+   `playFX()`: an uploaded effect is a clone of a bank template (see invariant 13).
 4. **Flag animated meshes.** `bakeStatics()` in `entities.js` merges every non-animated child sharing a
    material. If you animate a mesh, set `o.userData.animated = 1` or it will be swallowed into the merge.
 5. **Enemy materials are shared per type** (`SHARED_MATS`). Never mutate them per instance — per-instance
@@ -152,6 +159,18 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
     built once at boot. Spare slots stay `visible` at intensity 0 — `projectObject()` skips invisible
     objects before it ever reaches the `isLight` branch, so hiding a spare would change the count and
     defeat the whole scheme. `tools/lighttest.mjs` asserts the invariant.
+13. **Uploaded skill effects borrow, they never own.** `fxpack.spawnFX()` clones a bank subtree out of a
+    per-file free list, applies a *cached* material set, shares one `<video>` + `VideoTexture` per clip file
+    (refcounted) and borrows a light from `G.lights`. So `disposeObj()` on a spawned effect would destroy the
+    bank's geometry for every later cast — call `inst.kill()` instead. It is idempotent, and every FX
+    coroutine carries `dispose() { inst.kill() }`, because a run reset truncates `G.effects`; skipping that
+    strands a video decoder and a pooled light slot. A cast that fades or goes translucent needs material of
+    its own, and even those come from a free list keyed by look and are *returned*, never `dispose()`d —
+    disposing would drop a shader program's refcount between casts and make the next one recompile.
+14. **Studio tuning is clamped on read, never trusted.** `glbskin.ensureTuning()` + `fxpack.clampFX()` bound
+    every value in `hero_tuning.json` — scale, offsets, motion and all eleven FX parameters. That file is a
+    hand-editable input now, not a build input, and one unclamped NaN scale goes straight into the bloom chain
+    and blacks out the frame (trap #1).
 
 ---
 
@@ -170,6 +189,11 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
 | The draft halts the sim | `G.drafting` gates the whole update block. A test that spawns enemies after a wave clear must dismiss the draft (`Escape`) first. |
 | String replace in `build.mjs` | Minified output contains `$&`. Use a function replacer. |
 | A `PointLight` per entity | Looked free, was not. Every enemy *and* every dropped shard carried one, so 45 enemies meant 45+ point lights, and the count moved on every spawn, death and pickup. three.js keys its shader programs on that count, so each change recompiled every material — and the fragment shader looped over all of them per pixel. Completely invisible under swiftshader, where every frame is already 250 ms. |
+| Effect bank keyed by hero id | v1.9 stored one effect per hero (`fxBank[heroId]`), so every skill cast the same burst and a second file could not be assigned. The bank is keyed by **file URL** now (`fxpack` resolves `fxSlots[i]` → shared `fx`), which is what lets Q / E / R each hold a different effect — and lets one file serve several heroes without re-parsing. |
+| One `<video>` per cast | v1.9 built a new element + `VideoTexture` (and a `PlaneGeometry`) for every cast and disposed them on fade. Two casts of the same clip meant two decoders. `fxpack.acquireVideo()` refcounts one element per file instead, and the quads come from a free list. |
+| `disposeObj()` on an effect clone | Clones share the bank template's `BufferGeometry` and materials, so disposing a spawned effect deletes the model for every later cast (the next one renders nothing). `kill()` returns it to the pool; only materials a cast had to *own* (fade / opacity) are disposed. |
+| Fading a shared material | The obvious way to fade an effect is `cachedMat.opacity = …`. If two allies cast the same tuned effect, they fight over one number and both flicker. `needsOwn()` clones per-instance materials only when a look actually fades or goes translucent, and disposes them on kill. |
+| Studio save does nothing | The studio writes through the `:8081` dropbox (`tools/upload_server.py`). Without it running, `SAVE` 404s — the panel now says so instead of looking like it worked. |
 | Pool budget key names | `LightPool.setBudget()` reads `lightsEnemy` / `lightsPickup` / `lightsEffect` straight out of `BALANCE.perf`. Pass it `{enemy: 8}` and it silently builds **zero** lights — the game still runs, just unlit. `tools/lighttest.mjs` catches it. |
 | `?.` on a pooled light | `G.lights.acquire()` returns `null` when the kind is exhausted (four ultimates at once). Every `light.intensity = …` in an ability must be guarded `if (light) …`. Four were missed on the first pass and would have thrown on the first Trinity chain. |
 
@@ -185,6 +209,8 @@ context):
 node tools/lighttest.mjs  # 35 assertions: the point-light count never moves (v1.8 invariant)
 node tools/geocheck.mjs   # per-enemy draw calls / verts / bbox / lights / materials + pooling leak check
 node tools/glbtest.mjs    # 10 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+node tools/skintest.mjs   # 118 assertions: uploaded skins, hero_tuning.json v1->v2, FX slots, pooling, clamps
+node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB sitting in models/uploads/
 
 # headless ART loop — see the characters without a browser (v1.9)
 node tools/charpreview.mjs [aegis|lyra|nyx|all]   # run the REAL rig/animator, dump world-space tris to JSON
@@ -241,11 +267,44 @@ damage-number toggle, gamepad, personal best — all persisted.
 
 ---
 
+## 7a. The Hero Studio (v1.10) — uploaded skins and skill effects
+
+The `concept/*.jpg` → image-to-3D route is in the proposal's long-run plan; the studio is what makes it
+practical. `hero-studio.html` boots the real `Hero` class against `models/uploads/*.glb`, and
+`tools/upload_server.py` (`:8081`) is its save/load dropbox. Everything lands in
+`models/uploads/hero_tuning.json`, which `startGame()` re-reads on every restart (`ensureTuning(true)`,
+cache-bypassed, already-parsed files reused) — so the loop is **tune → SAVE → restart the run**, no page
+reload. Nothing in the shipped build depends on the studio: a missing file means default tuning.
+
+**Three editing surfaces, one config file:**
+
+* **SIZE + PLACEMENT** (`scale`, `pos{x,y,z}`, `yawDeg`) — the fix for rebuilders that sink or rotate a body.
+* **ACTION MOTION** (`motion`) — the nine `DEFAULT_MOTION` coefficients that give an unrigged statue walk,
+  lunge, twist, cast lean, recoil, sway and topple.
+* **SKILL EFFECT** — one effect slot per skill (`Q` / `E` / `R`) plus a shared `ALL` slot, each holding a
+  `.glb` prop or a video billboard with eleven tuning parameters (`scale y dur grow spin rise fade opacity
+  light tint blend`, plus `rate vblend face loop` for video). Assign by drop, by `● REC` (the studio records
+  its own canvas while the slot plays and saves `<id>-s<n>-fx.webm`), or from the LIBRARY list of
+  `models/uploads/` — the last one needs no re-upload because the bank is keyed by URL.
+
+The runtime path is deliberately short: `useSkill(i)` → `Hero.playFX(G, i)` → `fxpack.fxFor()` resolves the
+slot (per-skill, else shared, else nothing) → `fxpack.spawnFX()` builds it from pooled parts. Both the studio
+preview and the match go through `spawnFX`, so "it looked right in the studio" is a real claim. The shape, the
+clamping and the pooling are covered by `tools/skintest.mjs` (118 assertions, no browser needed).
+
+---
+
 ## 8. What I would do next — in order
 
 > **Landed since this list was written (v1.8): the point-light blowup.** It was not on this list — it was
 > found by measuring. Enemy instancing below is still the right next task, and it is now cheaper: the
 > enemy lights are already gone, so instancing only has to deal with meshes.
+>
+> **Landed since then (v1.9–v1.10): the character hard-surface pass and the Hero Studio** — uploaded GLB
+> skins, placement/motion tuning, and a per-skill effect editor (§7a). Two things from that work belong on
+> the list below: **an FX budget** (a cloned prop is 1 draw call per mesh per cast — the studio warns above
+> 24 meshes, but decimating in the DCC is the only real fix) and **re-sourcing `nyx.glb`**, which is still a
+> byte-identical copy of `aegis.glb` (same md5), so NYX currently wears AEGIS's armour.
 
 ### 1. Enemy instancing ⭐ *the recommended next task*
 
@@ -316,7 +375,7 @@ tests are meaningless; draw calls and triangle counts are accurate.
 | Doc | Read it for |
 |---|---|
 | `HANDOFF.md` | this file — orientation, invariants, traps, backlog |
-| `NEON-VANGUARD-PROPOSAL.md` | engine comparison, full game design, VFX/audio architecture, roadmap, and a per-version changelog (v1.0 → v1.7) |
+| `NEON-VANGUARD-PROPOSAL.md` | engine comparison, full game design, VFX/audio architecture, roadmap, and a per-version changelog (v1.0 → v1.10) |
 | `NEON-VANGUARD-REVIEW.md` | the critical review that drove the last four passes; the P2 items are still open and still valid |
 | `README.md` | developer quick reference: controls, build, module map, subsystem notes |
 

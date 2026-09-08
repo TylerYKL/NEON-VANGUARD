@@ -5,6 +5,7 @@ import {
 } from './rig.js';
 import { addMat, metalMat, TAU, rand, clamp, damp, lerp, flatDist, angleTo, shortAngle, disposeObj } from './util.js';
 import { DEFAULT_MOTION } from './glbskin.js';
+import { clampFX, fxFor, spawnFX } from './fxpack.js';
 import { ARENA } from './world.js';
 import { SFX } from './audio.js';
 import { BALANCE as B } from './balance.js';
@@ -439,7 +440,7 @@ export class Hero {
     if (sk.ult) { this.energy = 0; this.ultMul = 1; G.onUltCast(this, sk); }
     else this.cds[i] = sk.cd * (1 - (G.mods ? G.mods.cdr : 0));
     this.castAnim = 1;
-    this.playFX(G);
+    this.playFX(G, i);   // per-skill effect from the Hero Studio
     G.announceSkill(this, sk);
 
     const key = this.def.id + i;
@@ -1265,66 +1266,27 @@ export class Hero {
     this._yaw = (this._baseYaw || 0) + (clamp(d, -180, 180) * Math.PI) / 180;
   }
 
-  /** spawn this hero's uploaded skill effect (GLB or video, studio-assigned).
-     GLB clones share the bank template's buffers, so never dispose them. */
-  playFX(G) {
-    const t = (G.glbTuning || {})[this.def.id];
-    const entry = G.fxBank && G.fxBank[this.def.id];
-    if (!entry || !t || t.fxOn === false) return null;
-
-    if (entry.kind === 'video') {
-      // billboard video burst: additive plane facing the camera, one play
-      const vid = document.createElement('video');
-      vid.src = entry.url;
-      vid.muted = true; vid.playsInline = true; vid.loop = false;
-      const tex = new THREE.VideoTexture(vid);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const mat = new THREE.MeshBasicMaterial({
-        map: tex, transparent: true, blending: THREE.AdditiveBlending,
-        depthWrite: false, side: THREE.DoubleSide,
-      });
-      const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 2.8), mat);
-      pl.position.set(this.pos.x, 1.6, this.pos.z);
-      pl.renderOrder = 15;
-      G.scene.add(pl);
-      vid.play().catch(() => {});
-      G.addEffect({
-        t: 0, dur: 2.2,
-        update(dt) {
-          this.t += dt;
-          const k = this.t / this.dur;
-          if (G.camera) pl.lookAt(G.camera.position);
-          pl.scale.setScalar(0.8 + k * 0.6);
-          mat.opacity = k > 0.7 ? (1 - k) / 0.3 : 1;
-          if (this.t >= this.dur || vid.ended) {
-            G.scene.remove(pl);
-            try { vid.pause(); } catch (e) {}
-            tex.dispose(); mat.dispose(); pl.geometry.dispose();
-            return false;
-          }
-          return true;
-        },
-      });
-      return pl;
-    }
-
-    const obj = entry.template.clone(true);
-    obj.position.set(this.pos.x, 0.05, this.pos.z);
-    obj.rotation.y = Math.random() * TAU;
-    G.scene.add(obj);
+  /** Spawn the studio-assigned skill effect for one skill slot (Q / E / R).
+      A per-slot assignment wins; otherwise the hero-wide "shared" one plays,
+      which is what a v1 tuning file only had. Everything heavy — pooled GLB
+      clones, cached material sets, refcounted <video> elements, a borrowed
+      light from the fixed pool — lives in fxpack.js, so the studio preview
+      shows exactly the object the match will show. */
+  playFX(G, slot = -1) {
+    const asg = fxFor(G.glbTuning, this.def.id, slot);
+    if (!asg) return null;
+    const entry = G.fxBank && G.fxBank[asg.src];
+    if (!entry) return null;
+    const p = asg.p || clampFX(null, entry.kind);
+    const inst = spawnFX(G, entry, p, new THREE.Vector3(this.pos.x, p.y, this.pos.z), this.facing);
     G.addEffect({
-      t: 0, dur: 0.9,
-      update(dt) {
-        this.t += dt;
-        const k = this.t / this.dur;
-        obj.scale.setScalar(0.5 + Math.sin(Math.min(1, k * 1.15) * Math.PI) * 0.7);
-        obj.rotation.y += dt * 3.5;
-        obj.position.y = 0.05 + k * 1.4;
-        if (this.t >= this.dur) { G.scene.remove(obj); return false; }
-        return true;
-      },
+      t: 0, dur: p.dur,
+      update(dt) { return inst.update(dt); },
+      // a run reset truncates G.effects, so borrowed resources must be
+      // released from dispose() too (fxpack.kill() is idempotent)
+      dispose() { inst.kill(); },
     });
-    return obj;
+    return inst.obj;
   }
 
   /* ---------------- AI ---------------- */

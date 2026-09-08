@@ -916,12 +916,15 @@ async function startGame(training) {
   G.drafting = false;
   document.getElementById('draft').classList.add('hidden');
   renderBuild();
+  // effects are coroutines, and some borrow pooled resources (fx lights, video
+  // elements). Dropping the array would strand them, so dispose first.
+  for (const e of G.effects) { if (e.dispose) { try { e.dispose(); } catch (err) {} } }
   G.effects.length = 0;
   G.score = 0; G.kills = 0; G.combo = 1; G.wave = 0;
   G.over = false; G.paused = false;
   G.glbSkins = await ensureGLBSkins();   // uploaded hero models (models/uploads/*.glb), if any
-  G.glbTuning = await ensureTuning();    // studio-saved size / motion / skill-fx config
-  G.fxBank = await loadFXBank(G.glbTuning);
+  G.glbTuning = await ensureTuning(true);  // re-read studio config (saved while this tab was open)
+  G.fxBank = await loadFXBank(G.glbTuning);   // skill-effect files, keyed by URL (see fxpack.js)
   createSquad();
   G.running = true;
   G.waveActive = false;

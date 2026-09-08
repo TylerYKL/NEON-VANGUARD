@@ -62,9 +62,23 @@ for (const id of ['aegis', 'lyra', 'nyx']) {
     exporter.parse(dummyHero(), res, rej, { binary: true })
   );
 }
+/* aegis: a v1 file (hero-wide fx, no slots) — must still load.
+   nyx:  v2 per-skill slots, one disabled, one empty.
+   lyra: references an fx that is not in the dropbox -> bank drops it. */
+const FXFILES = ['models/uploads/aegis-fx.glb', 'models/uploads/nyx-shared-fx.glb',
+  'models/uploads/nyx-s1-fx.glb', 'models/uploads/nyx-s2-fx.glb'];
+for (const f of FXFILES) FILES[f] = await new Promise((res, rej) => exporter.parse(dummyHero(), res, rej, { binary: true }));
 FILES['models/uploads/hero_tuning.json'] = new TextEncoder().encode(JSON.stringify({
   aegis: { fx: 'models/uploads/aegis-fx.webm', scale: 1.2, pos: { y: 0.4 }, yawDeg: 45 },
-  nyx: { fx: 'models/uploads/nyx-fx.glb' },
+  lyra: { fx: 'models/uploads/lyra-fx-missing.glb' },
+  nyx: {
+    fx: 'models/uploads/nyx-shared-fx.glb', fxOn: true, fxP: { scale: 0.8 },
+    fxSlots: [
+      null,
+      { src: 'models/uploads/nyx-s1-fx.glb', on: true, p: { scale: 2, dur: 0.5, tint: '#ff0000', light: 0 } },
+      { src: 'models/uploads/nyx-s2-fx.glb', on: false, p: { scale: 3 } },
+    ],
+  },
 })).buffer;
 globalThis.fetch = async (url) => {
   const rel = String(url).replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '');
@@ -145,21 +159,244 @@ check('placement offsets the body',
 ht.setScale(0.7);
 check('setScale live studio edit', Math.abs(ht.body.scale.x / ht._baseScale - 0.7) < 1e-6);
 check('playFX safe without bank', ht.playFX(G3) === null);
-G3.fxBank = { aegis: { kind: 'glb', template: skins.aegis.template } };
+check('playFX safe with an unknown slot', ht.playFX(G3, 99) === null);
+G3.fxBank = { 'models/uploads/aegis-fx.glb': { kind: 'glb', url: 'models/uploads/aegis-fx.glb', template: skins.aegis.template } };
 G3.glbTuning = { aegis: { fx: 'models/uploads/aegis-fx.glb', fxOn: true } };
 const spawned = ht.playFX(G3);
 check('playFX spawns bank clone into scene', !!spawned && G3.scene.children.includes(spawned));
 check('playFX registered an effect', fxList.length === 1);
+check('effect can be released by a run reset', typeof fxList[0].dispose === 'function');
+fxList[0].dispose();
+check('dispose removes it from the scene', !G3.scene.children.includes(spawned));
+fxList[0].dispose();
+check('dispose is idempotent (double kill is safe)', true);
 
-/* config parsing: video fx + placement; fx bank kinds */
+/* ---------------- fxpack: parameter sanitising ---------------- */
+const { clampFX, fxCount, fxEdit, fxFor, fxSources, fxKind, fxDefsFor, spawnFX, fxStats, DEFAULT_FX, FX_SHARED, FX_SLOTS } =
+  await import('../src/fxpack.js');
+check('fxKind splits video from prop', fxKind('a.webm') === 'video' && fxKind('a.glb') === 'glb' && fxKind(null) === 'glb');
+const junk = clampFX({ scale: NaN, dur: 1e9, spin: 'x', tint: 'red', blend: 7, opacity: -4 }, 'glb');
+check('clampFX drops non-finite to defaults', junk.scale === DEFAULT_FX.glb.scale && junk.spin === DEFAULT_FX.glb.spin,
+  JSON.stringify(junk));
+check('clampFX clamps out-of-range', junk.dur === 5 && junk.opacity === 0.05);
+check('clampFX rejects a bad tint', junk.tint === '#ffffff');
+check('clampFX clamps option indices', junk.blend === 2);
+const vidDefaults = clampFX({}, 'video');
+check('video defaults float at chest height, additive', vidDefaults.y === DEFAULT_FX.video.y
+  && vidDefaults.face === 1 && vidDefaults.vblend === 0);
+check('a video block carries no glb-only rows', vidDefaults.blend === undefined && !('blend' in vidDefaults));
+check('a prop block carries no clip rows', !('rate' in junk) && !('vblend' in junk) && junk.blend === 2);
+check('tuned keys survive a kind switch', clampFX({ y: 2, dur: 0.4 }, 'video').y === 2);
+const rows = fxDefsFor('glb');
+check('glb rows hide video-only params', !rows.num.some((r) => r[0] === 'rate')
+  && !rows.opt.some((r) => r[0] === 'vblend'));
+check('video rows expose clip rate', fxDefsFor('video').num.some((r) => r[0] === 'rate'));
+const allRows = [...rows.num, ...rows.opt, ...Object.values(fxDefsFor('video')).flat()].map((r) => r[0]);
+const { FX_COLOR_DEFS } = await import('../src/fxpack.js');
+const panelKeys = [...allRows, ...FX_COLOR_DEFS.map((r) => r[0])];
+check('every tunable has an editor row in at least one kind',
+  Object.keys(DEFAULT_FX.glb).every((k) => panelKeys.includes(k)),
+  Object.keys(DEFAULT_FX.glb).filter((k) => !panelKeys.includes(k)).join(',') || 'all covered');
+check('the glb panel exposes exactly the glb-relevant rows',
+  rows.num.every((r) => !r[5].length || r[5].includes('glb')) && rows.num.length === 9,
+  rows.num.map((r) => r[0]).join(','));
+
+/* ---------------- tuning v2: per-skill slots + legacy migration ---------------- */
 const tunCfg = await ensureTuning();
-check('tuning accepts video fx path', !!tunCfg.aegis.fx && tunCfg.aegis.fx.endsWith('.webm'), String(tunCfg.aegis.fx));
+check('v1 hero-wide fx still parses', tunCfg.aegis.fx.endsWith('.webm'), String(tunCfg.aegis.fx));
+check('v1 hero gets empty slots, not missing ones',
+  Array.isArray(tunCfg.aegis.fxSlots) && tunCfg.fxSlots === undefined && tunCfg.aegis.fxSlots.every((s) => s === null));
 check('tuning parses pos + yawDeg + scale',
   tunCfg.aegis.pos.y === 0.4 && tunCfg.aegis.yawDeg === 45 && tunCfg.aegis.scale === 1.2);
-check('tuning leaves missing fx null', tunCfg.lyra.fx === null);
-const bank2 = await loadFXBank(tunCfg);
-check('video fx bank entry needs no parse', bank2.aegis && bank2.aegis.kind === 'video' && bank2.aegis.url.endsWith('.webm'));
-check('unreachable glb fx dropped from bank', !bank2.nyx);
+check('slot count matches the skill count', tunCfg.nyx.fxSlots.length === FX_SLOTS);
+check('slot 1 keeps its file + params', tunCfg.nyx.fxSlots[1].src.endsWith('nyx-s1-fx.glb')
+  && tunCfg.nyx.fxSlots[1].p.scale === 2 && tunCfg.nyx.fxSlots[1].p.tint === '#ff0000');
+check('slot 0 stays empty', tunCfg.nyx.fxSlots[0] === null);
+check('disabled slot keeps its data', tunCfg.nyx.fxSlots[2] && tunCfg.nyx.fxSlots[2].on === false);
+check('shared params default when absent', tunCfg.nyx.fxP.scale === 0.8 && tunCfg.nyx.fxP.spin === DEFAULT_FX.glb.spin);
+
+check('empty slot falls back to the shared fx', fxFor(tunCfg, 'nyx', 0).src.endsWith('nyx-shared-fx.glb'));
+check('per-slot fx wins for that skill', fxFor(tunCfg, 'nyx', 1).src.endsWith('nyx-s1-fx.glb'));
+check('muted slot falls back too', fxFor(tunCfg, 'nyx', 2).src.endsWith('nyx-shared-fx.glb'));
+check('hero with no fx resolves to null', fxFor(tunCfg, 'nobody', 0) === null);
+check('muted hero-wide fx resolves to null',
+  fxFor({ x: { fx: 'a.glb', fxOn: false, fxSlots: [] } }, 'x', 0) === null);
+check('sources are deduped across heroes', (() => {
+  const s = fxSources({ a: { fx: 'u.glb', fxSlots: [{ src: 'u.glb' }, null, { src: 'v.glb' }] }, b: { fx: 'u.glb', fxSlots: [] } });
+  return s.length === 2 && s.includes('u.glb') && s.includes('v.glb');
+})());
+
+/* ---------------- the bank is keyed by URL, so a file can serve many slots ---------------- */
+const bank = await loadFXBank(tunCfg);
+check('bank keys are fx URLs', Object.keys(bank).every((k) => k.startsWith('models/uploads/')),
+  Object.keys(bank).join(','));
+check('bank holds every referenced file once', Object.keys(bank).length === 4, Object.keys(bank).join(','));
+check('video fx bank entry needs no parse', bank['models/uploads/aegis-fx.webm'].kind === 'video');
+check('glb fx bank entry is a real subtree', (() => {
+  const tpl = bank['models/uploads/nyx-s1-fx.glb'].template;
+  let meshes = 0; tpl.traverse((o) => { if (o.isMesh) meshes++; });
+  return tpl.isObject3D && meshes > 0 && tpl.scale.x > 0;
+})());
+check('unreachable fx dropped from bank', !bank['models/uploads/lyra-fx-missing.glb']);
+check('cast survives a missing bank entry', new Hero(HERO_DEFS[1],
+  { scene: new THREE.Scene(), glbTuning: tunCfg, fxBank: bank, addEffect: () => {} }, 1).playFX(
+  { scene: new THREE.Scene(), glbTuning: tunCfg, fxBank: bank, addEffect: () => {} }, 0) === null);
+
+/* ---------------- fxpack runtime: pooling, shared materials, lights ---------------- */
+function tinyScene() { return new THREE.Scene(); }
+const entry = bank['models/uploads/nyx-s1-fx.glb'];
+let tmesh = null;
+entry.template.traverse((o) => { if (o.isMesh && !tmesh) tmesh = o; });
+const tmat = tmesh.material;
+
+let disposeCalls = 0, disposedTemplate = 0;
+const realDispose = THREE.Material.prototype.dispose;
+THREE.Material.prototype.dispose = function () {
+  disposeCalls++;
+  if (this === tmat) disposedTemplate++;
+  return realDispose.apply(this, arguments);
+};
+function runOut(inst, limit = 60) { let n = 0; while (n++ < limit && inst.update(0.02)); return n; }
+
+const sc1 = tinyScene();
+const G4 = { scene: sc1, camera: null, lights: null };
+const pPlain = clampFX({ scale: 1.5, y: 0.4, dur: 0.3, rise: 1, spin: 4, fade: 0, light: 0, blend: 0 }, 'glb');
+const i1 = spawnFX(G4, entry, pPlain, { x: 1, y: 0.4, z: 2 }, 0);
+check('spawnFX puts the prop in the scene at the anchor', sc1.children.length === 1
+  && Math.abs(i1.obj.position.x - 1) < 1e-9 && Math.abs(i1.obj.position.y - 0.4) < 1e-9);
+check('spawnFX honours the tuned scale', Math.abs(i1.obj.scale.x - 1.5) < 1e-9);
+check('untuned look shares the bank material (zero alloc)', i1.obj && tmesh.material === tmat && i1.obj.userData.fxMats[0] === tmat);
+runOut(i1);
+check('spawnFX expires on its own duration', i1.alive === false);
+check('expiry removes it from the scene', sc1.children.length === 0);
+check('expiry hands the clone back to the entry pool', entry.pool.length === 1 && entry.pool[0] === i1.obj);
+const i2 = spawnFX(G4, entry, pPlain, { x: 0, y: 0, z: 0 }, 0);
+check('a second cast reuses the pooled subtree', i2.obj === i1.obj && entry.pool.length === 0);
+runOut(i2);
+
+const pFade = clampFX({ scale: 1, dur: 0.2, fade: 0.4, opacity: 0.5, tint: '#ff0000', blend: 1, light: 0 }, 'glb');
+const i3 = spawnFX(G4, entry, pFade, { x: 0, y: 0, z: 0 }, 0);
+check('a retinted cast allocates nothing until it dies', disposeCalls === 0);
+const castMat = (() => { let m = null; i3.obj.traverse((o) => { if (o.isMesh && !m) m = o.material; }); return m; })();
+check('override cast gets its own material', castMat !== tmat);
+check('override cast is additive + tinted', castMat.blending === THREE.AdditiveBlending
+  && castMat.color.getHexString() === '880000', castMat.color.getHexString());
+check('template material is untouched', tmat.color.getHexString() === '888888', tmat.color.getHexString());
+const fadeEarly = (() => { i3.update(0.02); let m = null; i3.obj.traverse((o) => { if (o.isMesh && !m) m = o.material; }); return m.opacity; })();
+check('per-instance opacity fades on the tail only', fadeEarly === 0.5, 'opacity ' + fadeEarly);
+runOut(i3);
+check('per-instance materials are recycled, not disposed (no program churn)',
+  disposeCalls === 0 && disposedTemplate === 0, 'disposed ' + disposeCalls);
+const i3b = spawnFX(G4, entry, pFade, { x: 0, y: 0, z: 0 }, 0);
+let reborn = null; i3b.obj.traverse((o) => { if (o.isMesh && !reborn) reborn = o.material; });
+check('the next fade cast reuses the same material set', reborn === castMat && fxStats().pooledMats >= 0);
+i3b.kill();
+check('pooled subtree is restored to its authored material', i3.obj && (() => {
+  let m = null; i3.obj.traverse((o) => { if (o.isMesh && !m) m = o.material; }); return m === tmat;
+})());
+THREE.Material.prototype.dispose = realDispose;
+
+/* a borrowed light must come back, however the cast ends */
+let got = 0, back = 0;
+const sc2 = tinyScene();
+const G5 = {
+  scene: sc2,
+  lights: {
+    acquire() { got++; return new THREE.PointLight(0xffffff, 0, 1, 2); },
+    release() { back++; },
+    set(l, c, i, d, dec) { l.intensity = i; l.distance = d; l.decay = dec; l.color.set(c); },
+  },
+};
+const pLit = clampFX({ dur: 0.3, light: 8, fade: 0 }, 'glb');
+const i4 = spawnFX(G5, entry, pLit, { x: 0, y: 0, z: 0 }, 0);
+check('glow parameter borrows one pooled light', got === 1 && back === 0);
+runOut(i4);
+check('the light is returned when the effect ends', back === 1);
+const i5 = spawnFX(G5, entry, pLit, { x: 0, y: 0, z: 0 }, 0);
+i5.kill();
+check('kill() releases the light too (run reset)', back === 2);
+
+/* video billboards: one element per file, refcounted, never per cast */
+const ventry = bank['models/uploads/aegis-fx.webm'];
+const sc3 = tinyScene();
+const G6 = { scene: sc3, camera: new THREE.PerspectiveCamera(40, 1, 0.1, 10) };
+const pVid = clampFX({ dur: 0.2, scale: 1.2, y: 1.4, fade: 0.3, light: 0 }, 'video');
+const v1 = spawnFX(G6, ventry, pVid, { x: 0, y: 1.4, z: 0 }, 0);
+const v2 = spawnFX(G6, ventry, pVid, { x: 1, y: 1.4, z: 1 }, 0);
+check('two concurrent video casts share one decoder', fxStats().videos === 1 && fxStats().videoUsers === 2,
+  JSON.stringify(fxStats()));
+check('video cast is a textured billboard', !!v1.obj.material.map && v1.obj.material.map.isVideoTexture);
+check('video cast sizes off the scale parameter', v1.obj.scale.x > 3 && v1.obj.scale.x < 5, 'w ' + v1.obj.scale.x);
+v1.obj.updateMatrixWorld();
+check('face-cam billboard turns to the camera', v1.obj.getWorldDirection(new THREE.Vector3()).z > 0.9);
+runOut(v1); runOut(v2);
+check('refcount drops to zero when both casts end', fxStats().videoUsers === 0, JSON.stringify(fxStats()));
+const v3 = spawnFX(G6, ventry, pVid, { x: 0, y: 0, z: 0 }, 0);
+check('billboard meshes are pooled (last one freed is reused)', v3.obj === v2.obj);
+v3.kill();
+check('video element survives for reuse (not disposed)', fxStats().videos === 1);
+
+/* ---------------- the studio editor writes through the same door ---------------- */
+const cfg2 = JSON.parse(JSON.stringify(tunCfg));
+const a0 = fxEdit(cfg2, 'lyra', 1);
+check('an empty slot is materialised with defaults',
+  a0.src === null && a0.p.dur === DEFAULT_FX.glb.dur && a0.p.tint === '#ffffff');
+a0.setSrc('models/uploads/lyra-s1-fx.glb');
+a0.p.scale = 2.5;
+const lit = fxFor(cfg2, 'lyra', 1);
+check('the runtime sees a studio edit immediately', !!lit && lit.p.scale === 2.5 && lit.src.endsWith('lyra-s1-fx.glb'));
+const a0b = fxEdit(cfg2, 'lyra', 1);
+check('params persist across editor calls', a0b.p.scale === 2.5 && a0b.src.endsWith('lyra-s1-fx.glb'));
+a0b.setOn(false);
+check('muting a slot falls back to the hero-wide fx',
+  fxFor(cfg2, 'lyra', 1).src.endsWith('lyra-fx-missing.glb'));
+a0b.setSrc(null);
+check('clearing a slot leaves its look tuned',
+  cfg2.lyra.fxSlots[1].src === null && cfg2.lyra.fxSlots[1].p.scale === 2.5);
+const sh = fxEdit(cfg2, 'aegis', FX_SHARED);
+check('the shared slot reads the legacy hero-wide fx', !!sh.src && sh.src.endsWith('aegis-fx.webm') && sh.on === true);
+sh.setOn(false);
+check('muting ALL takes fx off every skill', fxFor(cfg2, 'aegis', 0) === null && fxFor(cfg2, 'aegis', 2) === null);
+check('fxCount counts files, not slots', fxCount(cfg2) === 5, 'got ' + fxCount(cfg2));
+check('an unknown hero never throws', fxEdit(cfg2, 'nobody', 0) === null && fxEdit(null, 'aegis', 0) === null);
+check('slot count is what the studio renders', FX_SLOTS === 3);
+check('an out-of-range slot still falls back to the shared fx',
+  fxFor(cfg2, 'nyx', FX_SLOTS).src.endsWith('nyx-shared-fx.glb'));
+
+/* hero wiring: useSkill must pick the slot assignment, not the shared one */
+const fxList2 = [];
+const G7 = { scene: tinyScene(), glbTuning: tunCfg, fxBank: bank, time: 0, addEffect: (e) => fxList2.push(e) };
+const hn = new Hero(HERO_DEFS[2], G7, 2);
+hn.pos.set(0, 0, 0);
+const baseChildren = G7.scene.children.length;
+const oShared = hn.playFX(G7, 0);
+const oSlot = hn.playFX(G7, 1);
+check('slot 0 casts the shared fx with shared params', oShared && Math.abs(oShared.scale.x - tunCfg.nyx.fxP.scale) < 1e-9,
+  'scale ' + (oShared && oShared.scale.x));
+check('slot 1 casts its own fx with its own scale', oSlot && Math.abs(oSlot.scale.x - 2) < 1e-9,
+  'scale ' + (oSlot && oSlot.scale.x));
+check('per-slot cast spawns its own object', oShared !== oSlot);
+check('unknown slot index never throws', hn.playFX(G7, 12) === null || true);
+fxList2.forEach((e) => e.dispose());
+check('all hero fx cleaned up by dispose', G7.scene.children.length === baseChildren,
+  G7.scene.children.length + ' vs ' + baseChildren);
+
+/* ---------------- a studio SAVE is picked up by the next run (no page reload) ---------------- */
+check('cached tuning is stable inside a session', (await ensureTuning()) === tunCfg);
+FILES['models/uploads/lyra-s0-fx.glb'] = await new Promise((res, rej) => exporter.parse(dummyHero(), res, rej, { binary: true }));
+FILES['models/uploads/hero_tuning.json'] = new TextEncoder().encode(JSON.stringify({
+  lyra: { fxSlots: [{ src: 'models/uploads/lyra-s0-fx.glb', on: true, p: { scale: 1.75 } }, null, null] },
+})).buffer;
+const fresh = await ensureTuning(true);
+check('refresh re-reads what the studio just saved',
+  !!fresh.lyra.fxSlots[0] && fresh.lyra.fxSlots[0].p.scale === 1.75, JSON.stringify(fresh.lyra.fxSlots[0]));
+check('a hero with nothing saved gets defaults', fresh.aegis.scale === 1 && fresh.aegis.fx === null);
+const bank3 = await loadFXBank({ ...tunCfg, lyra: fresh.lyra });
+check('newly assigned file is parsed on the restart', !!bank3['models/uploads/lyra-s0-fx.glb']);
+check('files already in the bank are not re-parsed',
+  bank3['models/uploads/nyx-s1-fx.glb'] === bank['models/uploads/nyx-s1-fx.glb']);
+check('a restart only pays for what changed', Object.keys(bank3).length === Object.keys(bank).length + 1,
+  Object.keys(bank3).length + ' vs ' + Object.keys(bank).length);
 
 console.log('\n' + (fail ? 'FAILURES: ' + fail : 'ERRORS none') + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail ? 1 : 0);

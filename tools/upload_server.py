@@ -4,6 +4,8 @@
 GET  /            -> drag & drop page
 PUT  /upload/<n>  -> save raw body to models/uploads/<n>
 GET  /list        -> JSON list of uploaded files
+GET  /files       -> same, with byte sizes (Hero Studio library picker)
+GET  /config      -> models/uploads/hero_tuning.json
 
 Run: python3 tools/upload_server.py   (binds 0.0.0.0:8081)
 """
@@ -93,6 +95,15 @@ class H(BaseHTTPRequestHandler):
         elif self.path == "/list":
             files = sorted(os.listdir(UPDIR)) if os.path.isdir(UPDIR) else []
             self._send(200, json.dumps(files).encode())
+        elif self.path == "/files":
+            # richer listing for the Hero Studio library picker: name + size
+            out = []
+            if os.path.isdir(UPDIR):
+                for n in sorted(os.listdir(UPDIR)):
+                    fp = os.path.join(UPDIR, n)
+                    if os.path.isfile(fp):
+                        out.append({"name": n, "bytes": os.path.getsize(fp)})
+            self._send(200, json.dumps(out).encode())
         elif self.path == "/config":
             p = os.path.join(UPDIR, "hero_tuning.json")
             if os.path.isfile(p):
