@@ -4,6 +4,7 @@ import {
   buildMedGloves, buildRailPistol, buildDrone,
 } from './rig.js';
 import { addMat, metalMat, TAU, rand, clamp, damp, lerp, flatDist, angleTo, shortAngle, disposeObj } from './util.js';
+import { DEFAULT_MOTION } from './glbskin.js';
 import { ARENA } from './world.js';
 import { SFX } from './audio.js';
 import { BALANCE as B } from './balance.js';
@@ -107,6 +108,12 @@ export class Hero {
       this.body = skin.template.clone(true);
       this._yaw = skin.yaw || 0;
       this.body.rotation.y = this._yaw;
+      // studio tuning: size multiplier on top of the normalised template
+      const tun = (this.G.glbTuning || {})[d.id] || {};
+      this._baseScale = this.body.scale.x;
+      this.tunScale = tun.scale || 1;
+      this.body.scale.multiplyScalar(this.tunScale);
+      this.motion = Object.assign({}, DEFAULT_MOTION, tun.motion || {});
       hips.add(this.body);
       this.group.add(hips);
       this.rig = { root: this.group, hips, glb: true };
@@ -119,6 +126,8 @@ export class Hero {
       });
       this.group = this.rig.root;
       this.hipsRest = 0.95;
+      this.motion = Object.assign({}, DEFAULT_MOTION);
+      this.tunScale = 1;
       this.G.scene.add(this.group);
     }
 
@@ -423,6 +432,7 @@ export class Hero {
     if (sk.ult) { this.energy = 0; this.ultMul = 1; G.onUltCast(this, sk); }
     else this.cds[i] = sk.cd * (1 - (G.mods ? G.mods.cdr : 0));
     this.castAnim = 1;
+    this.playFX(G);
     G.announceSkill(this, sk);
 
     const key = this.def.id + i;
@@ -1221,20 +1231,52 @@ export class Hero {
     if (this.shield > 0) this.overshieldMesh.rotation.y += dt * 0.8;
   }
 
-  /* ---------- GLB skin motion: unrigged statues get game-feel transforms ---------- */
+  /* ---------- GLB skin motion: unrigged statues get game-feel transforms.
+     Every coefficient is a studio-tunable motion parameter. ---------- */
   animateGLB(dt, G, spd) {
-    const b = this.body;
+    const b = this.body, M = this.motion;
     const move = clamp(spd, 0, 1.4);
-    this._stepT = (this._stepT || 0) + dt * (2 + 7 * move);
-    this._fall = damp(this._fall || 0, this.downed ? 1 : 0, 6, dt);
+    this._stepT = (this._stepT || 0) + dt * (2 + M.stepRate * move);
+    this._fall = damp(this._fall || 0, this.downed ? 1 : 0, M.fallSpeed, dt);
     const f = this._fall;
     // topple when downed; else walk-lean, cast-lean-back, hurt recoil
-    b.rotation.x = -f * 1.45 + move * 0.06 + this.castAnim * 0.10 - this.hurtAnim * 0.16;
+    b.rotation.x = -f * 1.45 + move * M.walkLean + this.castAnim * M.castLean - this.hurtAnim * M.hurtLean;
     b.rotation.z = Math.sin(this._stepT) * 0.035 * move + Math.sin(G.time * 40) * 0.05 * this.hurtAnim;
-    b.rotation.y = (this._yaw || 0) + this.attackAnim * 0.22;
-    const bob = Math.abs(Math.sin(this._stepT)) * 0.06 * move + Math.sin(G.time * 2.1) * 0.012;
-    b.position.y = bob - f * 0.15 + this.castAnim * 0.08;
-    b.position.z = this.attackAnim * 0.45;   // step into the swing
+    b.rotation.y = (this._yaw || 0) + this.attackAnim * M.twist;
+    const bob = Math.abs(Math.sin(this._stepT)) * M.bob * move + Math.sin(G.time * 2.1) * M.idleSway;
+    b.position.y = bob - f * 0.15 + this.castAnim * M.castLean * 0.8;
+    b.position.z = this.attackAnim * M.lunge;   // step into the swing
+  }
+
+  /** live size edit from the Hero Studio (persisted via hero_tuning.json) */
+  setScale(v) {
+    this.tunScale = clamp(v, 0.5, 2);
+    if (this.body) this.body.scale.setScalar((this._baseScale || 1) * this.tunScale);
+  }
+
+  /** spawn this hero's uploaded skill-effect GLB (studio-assigned) at their feet.
+     Clones share the bank template's buffers, so never dispose them. */
+  playFX(G) {
+    const t = (G.glbTuning || {})[this.def.id];
+    const tpl = G.fxBank && G.fxBank[this.def.id];
+    if (!tpl || !t || t.fxOn === false) return null;
+    const obj = tpl.clone(true);
+    obj.position.set(this.pos.x, 0.05, this.pos.z);
+    obj.rotation.y = Math.random() * TAU;
+    G.scene.add(obj);
+    G.addEffect({
+      t: 0, dur: 0.9,
+      update(dt) {
+        this.t += dt;
+        const k = this.t / this.dur;
+        obj.scale.setScalar(0.5 + Math.sin(Math.min(1, k * 1.15) * Math.PI) * 0.7);
+        obj.rotation.y += dt * 3.5;
+        obj.position.y = 0.05 + k * 1.4;
+        if (this.t >= this.dur) { G.scene.remove(obj); return false; }
+        return true;
+      },
+    });
+    return obj;
   }
 
   /* ---------------- AI ---------------- */

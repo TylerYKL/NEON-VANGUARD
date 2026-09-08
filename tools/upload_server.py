@@ -70,10 +70,22 @@ refresh();
 class H(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         self.send_response(code)
+        # the studio page lives on the :8080 origin — allow cross-origin saves
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
@@ -81,10 +93,34 @@ class H(BaseHTTPRequestHandler):
         elif self.path == "/list":
             files = sorted(os.listdir(UPDIR)) if os.path.isdir(UPDIR) else []
             self._send(200, json.dumps(files).encode())
+        elif self.path == "/config":
+            p = os.path.join(UPDIR, "hero_tuning.json")
+            if os.path.isfile(p):
+                with open(p, "rb") as f:
+                    self._send(200, f.read())
+            else:
+                self._send(404, b"{}")
         else:
             self._send(404, b'{"error":"not found"}')
 
     def do_PUT(self):
+        if self.path == "/config":
+            length = int(self.headers.get("Content-Length", 0))
+            if length <= 0 or length > 1024 * 1024:
+                self._send(413, json.dumps({"error": "bad size"}).encode())
+                return
+            try:
+                cfg = json.loads(self.rfile.read(length))
+                if not isinstance(cfg, dict):
+                    raise ValueError("not an object")
+            except Exception:
+                self._send(400, json.dumps({"error": "invalid json"}).encode())
+                return
+            os.makedirs(UPDIR, exist_ok=True)
+            with open(os.path.join(UPDIR, "hero_tuning.json"), "wb") as f:
+                f.write(json.dumps(cfg, indent=2).encode())
+            self._send(200, json.dumps({"ok": True}).encode())
+            return
         m = re.match(r"^/upload/(.+)$", self.path)
         name = os.path.basename(unquote(m.group(1))) if m else ""
         if not SAFE.match(name):

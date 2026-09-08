@@ -82,6 +82,7 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
     ├── viewer.js     —    model viewer: GLB drop + procedural rig side-by-side (art tool)
     ├── gltfutil.js   —    DOM-free GLB parse/stats/normalise (viewer + glbtest)
     ├── glbskin.js    —    loads uploaded hero GLB skins (models/uploads/*.glb), procedural fallback
+    ├── studio.js     —    Hero Studio: size / action-motion / skill-FX tuning → hero_tuning.json
     ├── fx.js         431  pooled particles/rings/beams/sparks/telegraphs, shake, flash
     ├── world.js      311  arena, floor shader, baked skyline, billboards, rain, cover pylons
     ├── rig.js        331  faceted humanoid rig (chamfer/seg + flat shading) + animator + weapons

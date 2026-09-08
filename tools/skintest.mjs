@@ -75,7 +75,7 @@ function check(name, cond, detail = '') {
   else { fail++; console.log('  FAIL  ' + name + (detail ? '  -> ' + detail : '')); }
 }
 
-const { ensureGLBSkins } = await import('../src/glbskin.js');
+const { ensureGLBSkins, DEFAULT_MOTION } = await import('../src/glbskin.js');
 const skins = await ensureGLBSkins();
 check('all three skins loaded', ['aegis', 'lyra', 'nyx'].every((id) => skins[id]),
   'got: ' + Object.keys(skins).join(','));
@@ -115,6 +115,27 @@ check('fallback rig is procedural', !hp.rig.glb && !!hp.rig.hips && !hp.body);
 check('fallback hipsRest is 0.95', hp.hipsRest === 0.95, 'got ' + hp.hipsRest);
 animateRig(hp.rig, 0.016, { speed: 1, time: 1, attack: 0, cast: 0, dead: false, hurt: 0, style: 'fist', block: true });
 check('animateRig still drives fallback rig', true);
+
+/* studio tuning: size multiplier, motion overrides, playFX safety */
+const tun = { aegis: { scale: 1.3, motion: { lunge: 0.9, fallSpeed: 9 } }, lyra: {}, nyx: {} };
+const fxList = [];
+const G3 = { scene: new THREE.Scene(), glbSkins: skins, glbTuning: tun, fxBank: null, time: 0, addEffect: (e) => fxList.push(e) };
+const ht = new Hero(HERO_DEFS[0], G3, 0);
+check('tuning scale multiplies body', Math.abs(ht.body.scale.x / ht._baseScale - 1.3) < 1e-6,
+  'got ' + (ht.body.scale.x / ht._baseScale).toFixed(3));
+check('tuning motion override + defaults merged',
+  ht.motion.lunge === 0.9 && ht.motion.fallSpeed === 9 && ht.motion.bob === DEFAULT_MOTION.bob);
+ht.attackAnim = 1;
+ht.animateGLB(0.016, { time: 1 }, 0);
+check('overridden lunge drives motion', Math.abs(ht.body.position.z - 0.9) < 1e-6, 'z ' + ht.body.position.z);
+ht.setScale(0.7);
+check('setScale live studio edit', Math.abs(ht.body.scale.x / ht._baseScale - 0.7) < 1e-6);
+check('playFX safe without bank', ht.playFX(G3) === null);
+G3.fxBank = { aegis: skins.aegis.template };
+G3.glbTuning = { aegis: { fx: 'models/uploads/aegis-fx.glb', fxOn: true } };
+const spawned = ht.playFX(G3);
+check('playFX spawns bank clone into scene', !!spawned && G3.scene.children.includes(spawned));
+check('playFX registered an effect', fxList.length === 1);
 
 console.log('\n' + (fail ? 'FAILURES: ' + fail : 'ERRORS none') + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail ? 1 : 0);

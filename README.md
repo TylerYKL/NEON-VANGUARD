@@ -117,6 +117,7 @@ src/showcase.js  Character Bay entry point (studio lighting, turntable, pose dri
 src/viewer.js    Model Viewer entry point (GLB drop + procedural rig side-by-side)
 src/gltfutil.js  DOM-free GLB parse / stats / normalise (shared by viewer + glbtest)
 src/glbskin.js   loads uploaded hero GLBs (models/uploads/*.glb); procedural fallback per hero
+src/studio.js    Hero Studio entry: size / action-motion / skill-FX tuning, saved as hero_tuning.json
 src/ui.js        HUD binding (DOM overlay)
 src/util.js      math / material / procedural-texture helpers
 ```

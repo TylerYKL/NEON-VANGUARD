@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NEON VANGUARD — Hero Studio</title>
+<style>
+  :root{--c:#ff8a2b;--c2:#18e0ff;--cy:#18e0ff;--font:'Rajdhani','Chakra Petch','Segoe UI',system-ui,sans-serif}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:#04050b;color:#dff;font-family:var(--font);
+            letter-spacing:.05em;text-transform:uppercase;user-select:none}
+  canvas{display:block}
+  #app{position:fixed;inset:0}
+  .panel{background:linear-gradient(160deg,rgba(8,14,28,.88),rgba(4,7,16,.78));
+         border:1px solid rgba(24,224,255,.22);backdrop-filter:blur(8px);
+         clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)}
+
+  #title{position:fixed;top:18px;left:24px;z-index:5}
+  #title .t1{font-size:11px;letter-spacing:.42em;opacity:.45}
+  #title .t2{font-size:16px;font-weight:800;letter-spacing:.2em;
+             background:linear-gradient(90deg,#fff,var(--cy));-webkit-background-clip:text;background-clip:text;color:transparent}
+  #back{display:inline-block;margin-top:8px;font-size:8.5px;letter-spacing:.2em;color:#8fd8ff;text-decoration:none;
+        border-bottom:1px solid rgba(140,216,255,.3);padding-bottom:2px}
+
+  #head{position:fixed;top:20px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:5}
+  .tab{cursor:pointer;border:none;font-family:var(--font);text-transform:uppercase;
+       padding:9px 18px;background:rgba(8,14,28,.75);border:1px solid rgba(255,255,255,.10);
+       color:#8fb;filter:grayscale(.7);opacity:.6;transition:all .18s;text-align:left;
+       clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+  .tab b{display:block;font-size:13px;letter-spacing:.1em;color:var(--c)}
+  .tab span{display:block;font-size:8px;opacity:.55;letter-spacing:.16em;color:#cff}
+  .tab.on{opacity:1;filter:none;border-color:var(--c);transform:translateY(2px)}
+
+  #right{position:fixed;right:24px;top:96px;width:310px;max-height:calc(100% - 190px);overflow-y:auto;
+         padding:16px 20px;z-index:4;scrollbar-width:thin}
+  .lbl{font-size:8px;letter-spacing:.26em;opacity:.55;margin:14px 0 6px;color:#9ff}
+  #gname{font-size:15px;font-weight:800;color:#fff;letter-spacing:.05em}
+  .st{display:flex;justify-content:space-between;font-size:10.5px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+  .st i{font-style:normal;opacity:.5;letter-spacing:.14em}
+  .st b{color:#eaffff}
+  input[type=range]{width:100%;accent-color:var(--c2);height:18px;cursor:ew-resize}
+  .mrow{display:grid;grid-template-columns:86px 1fr 44px;gap:8px;align-items:center;font-size:8.5px;letter-spacing:.12em;opacity:.95}
+  .mrow b{color:#eaffff;text-align:right;font-size:9px}
+  #fxdrop{border:1.5px dashed rgba(61,255,176,.45);padding:12px 10px;text-align:center;font-size:8.5px;
+          letter-spacing:.18em;color:#7fd8b8;cursor:pointer}
+  #fxdrop.hot{border-color:#3dffb0;color:#3dffb0;background:rgba(61,255,176,.07)}
+  #fxname{font-size:9px;color:#8fb;letter-spacing:.12em;margin-top:6px;word-break:break-all}
+  #fxrow{display:flex;gap:8px;margin-top:8px}
+  #note{font-size:8.5px;line-height:1.7;opacity:.5;letter-spacing:.1em}
+
+  #bottom{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+  .act{cursor:pointer;font-family:var(--font);text-transform:uppercase;letter-spacing:.14em;
+       font-size:9px;padding:10px 15px;color:#9ff;background:rgba(8,14,28,.8);
+       border:1px solid rgba(24,224,255,.25);transition:all .15s}
+  .act:hover{color:#fff;border-color:rgba(24,224,255,.75)}
+  .act.on{color:#04070f;background:var(--c2);border-color:var(--c2);font-weight:700}
+  .act.load{background:linear-gradient(90deg,var(--c),#fff);color:#04070f;font-weight:800;border:none;
+            clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)}
+  .sep{width:1px;height:26px;background:rgba(255,255,255,.14);margin:0 4px}
+  #msg{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:.16em;z-index:6}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="title"><div class="t1">NEON VANGUARD</div><div class="t2">HERO STUDIO</div>
+  <a id="back" href="./index.html">◂ hub</a> &nbsp; <a id="back" href="./neon-vanguard.html">▶ play</a></div>
+<div id="head"></div>
+
+<div id="right" class="panel">
+  <div id="gname">—</div>
+  <div class="st"><i>triangles</i><b id="tris">—</b></div>
+  <div class="st"><i>height</i><b id="hgt">—</b></div>
+  <div class="lbl">SIZE</div>
+  <input type="range" id="sz" min="0.5" max="2" step="0.01" value="1">
+  <div class="lbl">ACTION MOTION</div>
+  <div id="mot"></div>
+  <div class="lbl">SKILL EFFECT · GLB</div>
+  <div id="fxdrop">DROP .GLB HERE · OR CLICK TO BROWSE<input id="fxfile" type="file" accept=".glb" hidden></div>
+  <div id="fxname">none assigned</div>
+  <div id="fxrow">
+    <button class="act" id="fxplay">▶ play fx</button>
+    <button class="act on" id="fxon">fx on</button>
+  </div>
+  <div class="lbl">PIPELINE</div>
+  <div id="note">Edits apply live in this studio. SAVE writes hero_tuning.json into models/uploads/ — the game reads it on START, so your size, motion and skill-fx choices land in the real match.</div>
+</div>
+
+<div id="bottom">
+  <button class="act on" data-a="idle">idle</button>
+  <button class="act" data-a="walk">walk</button>
+  <button class="act" data-a="attack">attack</button>
+  <button class="act" data-a="cast">cast</button>
+  <button class="act" data-a="hurt">hurt</button>
+  <button class="act" data-a="down">down</button>
+  <div class="sep"></div>
+  <button class="act" id="spin">auto-spin</button>
+  <button class="act load" id="save">save</button>
+</div>
+<div id="msg"></div>
+<script type="module" src="../src/studio.js"></script>
+</body>
+</html>

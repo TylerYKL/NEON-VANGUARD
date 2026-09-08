@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildWorld, ARENA } from './world.js';
 import { FX } from './fx.js';
 import { Hero, HERO_DEFS } from './heroes.js';
-import { ensureGLBSkins } from './glbskin.js';
+import { ensureGLBSkins, ensureTuning, loadFXBank } from './glbskin.js';
 import { Enemy, ENEMY_TYPES, ProjectileSystem, ELITES } from './entities.js';
 import { UI } from './ui.js';
 import { SFX } from './audio.js';
@@ -920,6 +920,8 @@ async function startGame(training) {
   G.score = 0; G.kills = 0; G.combo = 1; G.wave = 0;
   G.over = false; G.paused = false;
   G.glbSkins = await ensureGLBSkins();   // uploaded hero models (models/uploads/*.glb), if any
+  G.glbTuning = await ensureTuning();    // studio-saved size / motion / skill-fx config
+  G.fxBank = await loadFXBank(G.glbTuning);
   createSquad();
   G.running = true;
   G.waveActive = false;
