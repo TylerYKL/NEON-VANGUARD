@@ -6,6 +6,7 @@ import { ensureGLBSkins, ensureTuning, loadFXBank } from './glbskin.js';
 import { parseGLB, normalizeToStage, gatherStats } from './gltfutil.js';
 import { animateRig } from './rig.js';
 import { clampFX, fxCount, fxDefsFor, fxEdit, fxKind, fxPreviewFor, FX_SHARED, FX_SLOTS, spawnFX } from './fxpack.js';
+import { createSim, SIM_TARGETS, SIM_SPEEDS } from './sim.js';
 import { clamp } from './util.js';
 
 /* ============================================================
@@ -658,6 +659,24 @@ $('sz').oninput = () => {
   measureFit();          // size moves the feet unless the base rides with it
 };
 $('save').onclick = save;
+$('simon').onclick = () => simToggle();
+$('simbasic').onclick = doBasic;
+$('simq').onclick = () => doCast(0);
+$('sime').onclick = () => doCast(1);
+$('simr').onclick = () => doCast(2);
+$('simauto').onclick = () => { $('simauto').classList.toggle('on'); simNext = G.time + 0.2; };
+$('sp1').onclick = () => setSpeed(0);
+$('sp2').onclick = () => setSpeed(1);
+$('sp3').onclick = () => setSpeed(2);
+$('tg0').onclick = () => setTargets(0);
+$('tg3').onclick = () => setTargets(3);
+$('tg6').onclick = () => setTargets(6);
+$('simreset').onclick = () => { sim.reset(); flash('SIM RESET — TARGETS BACK IN PLACE, EFFECTS KILLED', '#7cf9ff'); };
+$('fxhelphide').onclick = () => {
+  const h = $('fxhelp');
+  h.style.display = h.style.display === 'none' ? '' : 'none';
+  $('fxhelphide').textContent = h.style.display === 'none' ? 'how fx work' : 'hide';
+};
 $('pclift').onclick = () => nudgePlacementTo((k) => {
   const before = measureFit();
   return k === 'y' ? cfg[heroId()].pos.y - (before ? before.min : 0) : cfg[heroId()].pos[k];
@@ -722,6 +741,85 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+/* ---------- CAST SIM (src/sim.js) ----------
+   Everything below is glue: buttons in, caption out. The behaviour lives in the
+   real Hero.useSkill, so a cast here is a cast in the match. */
+const sim = createSim(G, {
+  hero: () => heroes[active],
+  allies: () => heroes,
+  effects: () => effects,
+  announce: (h, sk) => saySkill(sk),
+  caption: (t) => {
+    const el = $('simcap');
+    el.textContent = t;
+    el.className = sim.faults ? 'bad' : (sim.stats.blocked || sim.stats.forced ? 'warn' : '');
+  },
+  fault: (msg) => { flash(msg, '#ff3b5c'); const el = $('simcap'); el.textContent = msg; el.className = 'bad'; },
+});
+G.timeScale = 1;
+let simOn = false, simNext = 0, simSeq = 1;
+
+function saySkill(sk) {
+  const el = $('simsay');
+  el.textContent = (sk.key || '') + ' · ' + sk.name;
+  el.classList.add('on');
+  saySkill.t = G.time + (sk.ult ? 1.6 : 1.1);
+}
+
+function simToggle(force) {
+  simOn = force === undefined ? !simOn : !!force;
+  $('simon').textContent = simOn ? 'on' : 'off';
+  $('simon').classList.toggle('on', simOn);
+  if (simOn) { if (!sim.on) sim.setTargets(sim.n); sim.setFXVisible(true); stopPreview(); }
+  else { sim.setTargets(0); sim.setFXVisible(false); sim.reset(); }
+  sim.tickCaption();
+}
+
+/* simSeq: what auto fires next — 0 = basic, 1..3 = skills Q,E,R — so auto always
+   continues from the button you just pressed instead of restarting on it. */
+function doCast(i) {
+  if (!simOn) simToggle(true);
+  stopPreview();
+  sim.cast(i);
+  simSeq = (i + 2) % 4;
+  simNext = G.time + 0.45;
+  sim.tickCaption();
+}
+function doBasic() {
+  if (!simOn) simToggle(true);
+  stopPreview();
+  sim.basic();
+  simSeq = 1;
+  simNext = G.time + 0.3;
+  sim.tickCaption();
+}
+
+/* auto = re-cast when the stage is clear, so long abilities (an 8 s dome) hold
+   the queue instead of stacking on top of themselves */
+function tickSim(dt, rdt) {
+  const say = $('simsay');
+  if (say.classList.contains('on') && G.time > (saySkill.t || 0)) say.classList.remove('on');
+  if (!sim.on) return;
+  sim.update(dt);
+  if ($('simauto').classList.contains('on') && !effects.length && G.time > simNext) {
+    if (simSeq === 0) sim.basic(); else sim.cast(simSeq - 1);
+    simSeq = (simSeq + 1) % 4;
+    simNext = G.time + 0.5;
+    sim.tickCaption();
+  }
+  if (G.time - (sim.tick || 0) > 0.25) { sim.tick = G.time; sim.tickCaption(); }
+}
+function setSpeed(i) {
+  G.timeScale = SIM_SPEEDS[i] || 1;
+  sim.speed = G.timeScale;                 // the caption quotes this, so it must not drift
+  for (let k = 0; k < 3; k++) $('sp' + (k + 1)).classList.toggle('on', k === i);
+}
+function setTargets(n) {
+  sim.setTargets(n);
+  for (const k of SIM_TARGETS) $('tg' + k).classList.toggle('on', k === n);
+  sim.tickCaption();
+}
+
 function syncPanel() {
   const h = heroes[active], d = HERO_DEFS[active], c = cfg[d.id];
   document.documentElement.style.setProperty('--c', '#' + d.color.toString(16).padStart(6, '0'));
@@ -775,7 +873,11 @@ function syncPanel() {
 
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
-    const dt = Math.min(clock.getDelta(), 0.05);
+    const rdt = Math.min(clock.getDelta(), 0.05);
+    /* Slow motion scales dt ONCE, here, so the hero, the effects, the sim and the
+       camera all slow together — a bench that slows only the FX would lie about
+       timing, and timing is most of what an effect is. */
+    const dt = rdt * G.timeScale;
     G.time += dt;
     controls.update();
     const h = heroes[active];
@@ -801,7 +903,11 @@ function syncPanel() {
     }
     if (G.time - (measureFit.t || 0) > 0.3) { measureFit.t = G.time; measureFit(); }
     tickPreview(dt);
+    tickSim(dt, rdt);
+    sim.applyShake(camera);
     renderer.render(scene, camera);
+    sim.clearShake(camera);
+    $('simflash').style.opacity = (sim.flash() * 0.55).toFixed(3);
   });
   flash('STUDIO READY — TUNE & SAVE', '#7cf9ff');
 })();

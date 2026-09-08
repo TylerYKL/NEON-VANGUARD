@@ -3,9 +3,9 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-08 (v1.10.1, hero GLBs stand on the deck) · `neon-vanguard.html` 795 KB ·
-20 modules in `src/`. Headless suites all pass: `lighttest` 35/35, `geocheck` clean, `glbtest` 12/12,
-`skintest` 138/138, `herofit` 18/18, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
+Last verified: 2026-09-08 (v1.11, Hero Studio cast-sim) · `neon-vanguard.html` 795 KB ·
+21 modules in `src/`. Headless suites all pass: `lighttest` 35/35, `geocheck` clean, `glbtest` 12/12,
+`skintest` 138/138, `herofit` 18/18, `simtest` 40/40, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
 before trusting anything visual, and say so plainly in the commit. See §6.
 
@@ -80,13 +80,14 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
     ├── main.js      1474  bootstrap, post FX, input, gamepad, camera, wave director, draft,
     │                      hazards, settings, dev-tool wiring, the shared context object `G`
     ├── heroes.js    1368  hero data, all 12 abilities, buffs, damage/heal, squad AI, playFX per skill slot
+    ├── sim.js         404  CAST SIM: the studio bench — real useSkill against stand-in targets + hooks
     ├── entities.js   704  projectile pool, enemy types + AI, elites, telegraph driver, pooling
     ├── audio.js      587  WebAudio synth toolkit, 38 SFX cues, adaptive music sequencer
     ├── showcase.js   459  character bay (separate entry point)
     ├── viewer.js     215  model viewer: GLB drop + procedural rig side-by-side (art tool)
     ├── gltfutil.js    78  DOM-free GLB parse/stats/normalise + the stage stamp a clone keeps (viewer/herofit)
-    ├── studio.js     686  Hero Studio: size / placement / motion / per-skill FX editor → hero_tuning.json
-    ├── fxpack.js     428  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
+    ├── studio.js     908  Hero Studio: size / placement / motion / per-skill FX editor / CAST SIM → hero_tuning.json
+    ├── fxpack.js     449  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
     ├── glbskin.js    159  uploaded hero skins + hero_tuning.json reader (v2) + URL-keyed effect bank
     ├── fx.js         431  pooled particles/rings/beams/sparks/telegraphs, shake, flash
     ├── world.js      311  arena, floor shader, baked skyline, billboards, rain, cover pylons
@@ -220,6 +221,7 @@ node tools/geocheck.mjs   # per-enemy draw calls / verts / bbox / lights / mater
 node tools/glbtest.mjs    # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
 node tools/skintest.mjs   # 138 assertions: uploaded skins, hero_tuning.json v1->v2, FX slots, pooling, clamps
 node tools/herofit.mjs    # 18 assertions: the REAL models/uploads/*.glb stand fully on the deck (invariant 15)
+node tools/simtest.mjs    # 40 assertions: the studio cast bench — all 9 abilities + basics run, expire, leak nothing
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB sitting in models/uploads/
 node tools/fxsample.mjs   # writes + self-validates the AEGIS skill-FX samples in models/uploads/ (see FX-AEGIS.md)
 
@@ -312,6 +314,18 @@ clamping and the pooling are covered by `tools/skintest.mjs` (138 assertions) an
 `tools/herofit.mjs` (18), both headless. **`FX-AEGIS.md`** is the worked art-side walkthrough: four sample
 effects for AEGIS, written and self-validated by `node tools/fxsample.mjs`, how to assign one per skill, and
 what `● REC` actually captures (a canvas grab with no alpha — hence additive blending).
+
+**CAST SIM (`src/sim.js`) — the bench that makes the panel honest.** `▶ play` shows one prop; the sim runs the
+real `Hero.useSkill(i, G)` — leap, impact timing, the ability's own rings/particles/shake, knockback — against
+three or six stand-in dummies, with `½×`/`¼×` slow motion applied to `dt` *once* at the top of the studio loop
+so nothing is timed twice. It installs the handful of `G` hooks an ability touches (`enemies barriers mods fx
+projectiles damageEnemy popText groundAim nearestEnemy absorbedByBarrier explode aimEnemy panOf announceSkill
+onUltCast world`) and puts them back on teardown. Two rules keep it from becoming a fake game: a bench target
+exposes *only* the fields the abilities actually read (`dead pos radius stun pull slow slowPow center()`), and
+`sim.update()` must never tick the page's effect list (double-advance — `simtest` asserts the contract). It
+also counts particles by wrapping `fx.spawn`, because `FX.alive` is vestigial in `fx.js`: set once, never
+maintained. `G.aimEnemy` and `G.explode` are verbatim copies of `main.js`, so a cast here cannot drift from a
+cast there — if those change, change both (the comment in `sim.js` says so).
 
 ---
 

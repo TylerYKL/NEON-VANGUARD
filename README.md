@@ -85,6 +85,7 @@ node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materi
 node tools/glbtest.mjs   # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
 node tools/skintest.mjs  # 138 assertions: uploaded skins, hero_tuning.json, per-skill FX slots + pooling
 node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
+node tools/simtest.mjs   # 40 assertions: the cast bench — 9 abilities + basics run, expire and leak nothing
 node tools/fxsample.mjs  # writes + validates the AEGIS sample skill FX (see FX-AEGIS.md)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB in models/uploads/
 
@@ -124,6 +125,7 @@ src/gltfutil.js  DOM-free GLB parse / stats / normalise (shared by viewer + glbt
 src/glbskin.js   loads uploaded hero GLBs + models/uploads/hero_tuning.json (size / motion / skill FX)
 src/fxpack.js    skill-effect layer: per-skill slots, parameter clamping, pooled clones, video + light reuse
 src/studio.js    Hero Studio entry: size / placement / action-motion / per-skill FX editor → hero_tuning.json
+src/sim.js       CAST SIM — the studio bench: real useSkill() + real FX against stand-in targets, slow-mo
 src/ui.js        HUD binding (DOM overlay)
 src/util.js      math / material / procedural-texture helpers
 ```
@@ -185,6 +187,9 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 GLBs from `models/uploads/`, so what you see is what the match will draw. Everything is written to
 `models/uploads/hero_tuning.json`, which the game re-reads on every `startGame()` — tune, SAVE, then
 restart the run; no page reload. Files already parsed are reused, so a restart only pays for what changed.
+The panel ends in a **CAST SIM**: `basic · Q · E · R · ⟳ auto`, 0/3/6 targets and `1× · ½× · ¼×` slow motion.
+It calls the real `Hero.useSkill`, so you judge an uploaded effect against the ability's own rings, particles,
+shake and knockback instead of on an empty stage.
 
 Placement needs that framing: a GLB exported around its own centre is *fitted* by the loader (centred, lifted
 by half its height), and `pos` is an **adjustment** on top of it — not an absolute position. The same lift is

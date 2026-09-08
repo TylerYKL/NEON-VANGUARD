@@ -641,7 +641,7 @@ person can actually look at. Before/after captures are in `screenshots/rig-befor
 `rig-after-*.png`. This loop is now the sanctioned way to iterate on character art without a browser —
 image diffs of the live game remain meaningless, but a controlled posed dump is not.
 
-### Hero Studio: skins and skill effects (v1.9.1 → v1.10.1)
+### Hero Studio: skins, skill effects and a cast bench (v1.9.1 → v1.11)
 
 The proposal's long-run plan says the asset pipeline is where this goes next: concept sheet → image-to-3D →
 GLB. That only works if someone can *fit* the result into the game without rebuilding it, so the art tools got
@@ -681,6 +681,17 @@ borrowed from the fixed pool in `lights.js` so the scene's light count still nev
 `disposeObj()` — releases the effect, and every FX coroutine carries a `dispose()` hook so the run reset that
 truncates `G.effects` cannot strand one. The studio also prints the tri/mesh cost of whatever you drop and
 warns above 24 meshes, because that is draw calls **per cast**.
+
+**A bench inside the editor (v1.11).** An effect is only 90% of the picture: what it *reads* against is the
+cast — the leap, the impact frame, the ability's own rings and shake, bodies flying. `src/sim.js` gives the
+studio a stand-in arena (0/3/6 targets with only the fields the abilities read) and runs the **real**
+`Hero.useSkill(i, G)` in it, with `½×`/`¼×` slow motion applied once to `dt` so the whole page slows together.
+`tools/simtest.mjs` (40 assertions) drives all nine abilities plus the basic attacks through it headlessly and
+checks the things nobody could check without a browser: that every cast expires, that the scene is left
+*identical* (same visible set, same total children — a planted per-cast leak turns it red), that the light pool
+balances, that no non-finite transform reaches the frame, and that the bench never double-ticks the page's own
+effect list. The studio also gained an in-panel **HOW FX WORK IN THIS BUILD** explainer, because the six-step chain
+(`useSkill → playFX → fxFor → spawnFX → coroutine → kill`) is exactly the thing people get lost on.
 
 **Judging a file before you spend a slot.** The LIBRARY list got its own preview: every row ends in `▶`,
 which fires that file at the hero through the same `spawnFX` a real cast uses, with the params the file would

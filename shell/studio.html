@@ -55,6 +55,31 @@
   #pcfit span.bad{color:#ff3b5c}
   #pcfit .act{padding:5px 8px;font-size:7.5px}
   #pcnote{font-size:7.5px;line-height:1.6;opacity:.45;letter-spacing:.1em;margin-top:5px}
+  /* CAST SIM */
+  #simrow{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:6px}
+  #simrow .act{padding:8px 11px;font-size:8.5px}
+  #simrow #simbasic{min-width:62px}
+  #simrow #simq,#simrow #sime,#simrow #simr{min-width:38px}
+  #simspd,#simtgt,#simtools,#fxlibtools,#fxlibfilter{display:flex;gap:3px;align-items:center}
+  #simrow span>.act{padding:6px 8px;font-size:7.5px}
+  #simrow .act.on,#simtools .act.on{border-color:var(--c2);color:#eaffff;background:rgba(24,224,255,.18)}
+  #simrow .act:active{transform:translateY(1px)}
+  #simcap{font-size:7.5px;line-height:1.6;letter-spacing:.08em;opacity:.6;margin-top:6px;color:#8fe8c8}
+  #simcap.warn{color:#ffb14a;opacity:1}
+  #simcap.bad{color:#ff3b5c;opacity:1}
+  #simsay{position:fixed;left:50%;top:22%;transform:translateX(-50%);pointer-events:none;
+          font-size:15px;letter-spacing:.22em;color:#eaffff;opacity:0;transition:opacity .18s;
+          text-shadow:0 0 12px rgba(24,224,255,.8)}
+  #simsay.on{opacity:.95}
+  #simflash{position:fixed;inset:0;pointer-events:none;background:#fff;opacity:0;mix-blend-mode:screen}
+  /* in-panel explainer — the studio is where people get lost about FX */
+  #fxhelp{margin-top:6px;font-size:7.5px;line-height:1.75;letter-spacing:.06em;opacity:.72}
+  #fxhelp b{color:#7cf9ff}
+  #fxhelp code{color:#ffd9a8;background:rgba(255,138,43,.08);padding:0 3px}
+  #fxhelp ol{margin:4px 0 0 13px;padding:0}
+  #fxhelp li{margin:2px 0}
+  #fxhelphide{float:right;padding:3px 7px;font-size:7px}
+  .lbl{position:relative}
   #fxdrop{border:1.5px dashed rgba(61,255,176,.45);padding:12px 10px;text-align:center;font-size:8.5px;
           letter-spacing:.18em;color:#7fd8b8;cursor:pointer}
   #fxdrop.hot{border-color:#3dffb0;color:#3dffb0;background:rgba(61,255,176,.07)}
@@ -127,6 +152,37 @@
   <div id="pcnote"></div>
   <div class="lbl">ACTION MOTION</div>
   <div id="mot"></div>
+  <div class="lbl">CAST SIM · run the real ability here
+    <span id="simtools"><button class="act mini" id="simon" title="install the bench (targets + hooks)">off</button></span>
+  </div>
+  <div id="simrow">
+    <button class="act" id="simbasic">basic</button>
+    <button class="act" id="simq">Q</button>
+    <button class="act" id="sime">E</button>
+    <button class="act" id="simr">R</button>
+    <button class="act mini" id="simauto" title="re-cast as soon as the last one finishes">⟳ auto</button>
+    <span id="simspd"><button class="act mini on" id="sp1">1×</button><button class="act mini" id="sp2">½×</button><button class="act mini" id="sp3">¼×</button></span>
+    <span id="simtgt"><button class="act mini" id="tg0">0</button><button class="act mini on" id="tg3">3</button><button class="act mini" id="tg6">6</button></span>
+    <button class="act mini" id="simreset" title="kill live effects, re-place the targets">reset</button>
+  </div>
+  <div id="simcap">bench idle — cast a skill to install it</div>
+  <div id="simsay"></div>
+  <div id="simflash"></div>
+
+  <div class="lbl">HOW FX WORK IN THIS BUILD
+    <button class="act mini" id="fxhelphide" title="fold it away">hide</button>
+  </div>
+  <div id="fxhelp">
+    <ol>
+      <li>You press <b>Q / E / R</b> → <code>Hero.useSkill(i, G)</code> runs the ability (damage, knockback, its own rings and particles).</li>
+      <li>That method calls <code>Hero.playFX(G, i)</code> — one line: <i>what did the studio put in this skill's slot?</i></li>
+      <li><code>fxpack.fxFor()</code> answers: this slot's file → else the hero's <b>ALL</b> file → else nothing. Muted slots are skipped.</li>
+      <li><code>fxpack.spawnFX()</code> builds it from a <b>pool</b>: a clone of your .glb, or a billboard fed by one shared <code>&lt;video&gt;</code>, plus a light borrowed from the fixed pool.</li>
+      <li>Your <b>FX LOOK</b> numbers drive that instance (scale, rise, spin, fade…) and a coroutine ticks it; at the end <code>kill()</code> returns everything. Nothing is created or destroyed per cast.</li>
+      <li><b>CAST SIM</b> (above) runs steps 1–5 for real, so an effect can be judged against the shake, the knockback and the ability's own burst — not on a blank stage.</li>
+    </ol>
+  </div>
+
   <div class="lbl">SKILL EFFECT · PER SKILL</div>
   <div id="fxslots"></div>
   <div id="fxdrop" style="margin-top:8px">DROP .GLB OR VIDEO (.MP4/.WEBM) INTO THIS SLOT · OR CLICK<input id="fxfile" type="file" accept=".glb,.mp4,.webm,.ogv" hidden></div>

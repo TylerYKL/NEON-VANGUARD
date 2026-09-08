@@ -121,6 +121,49 @@ so a preview cannot dirty a save. `tools/skintest.mjs` asserts both halves of th
 * A muted slot still previews — preview is not a cast, and `on` only governs whether the *skill* plays it.
 * Video rows preview too, through the refcounted `<video>` + `VideoTexture` path.
 
+## 4a. CAST SIM — judge the effect against the ability
+
+`▶ play` and the LIBRARY preview both show **one prop on an empty stage**. Most FX are not one prop: a slam is a
+leap, an impact frame, rings, bodies flying. The **CAST SIM** row (bottom of the panel: `basic · Q · E · R · ⟳ auto · 1× ½× ¼× · 0 3 6 · reset`) runs the
+real thing. If the panel itself has become unreadable, **HOW FX WORK IN THIS BUILD** (next to it) folds out the
+six-step chain — press `hide` to put it away:
+
+1. press **Q** / **E** / **R** (or **basic**). `Hero.useSkill` is the *game's* function, so the damage numbers, the
+   rings and particles, the camera shake and the knockback all fire — your uploaded prop rides on top of them.
+2. set **targets** to 0 / 3 / 6. Three is the default; at 0 you see the effect alone, at 6 you see it in a crowd.
+3. drop to **½×** or **¼×** while you tune, then back to **1×** to decide. It is real time: at `¼×` the slam
+   takes four times as long, so judge the *shape* slow and the *feel* at 1×.
+4. **⟳ auto** loops basic → Q → E → R (it resumes from whichever button you last pressed), which is the fastest
+   way to watch the same prop ride four different abilities. `reset` kills live effects and re-places the targets.
+5. read the caption — every number in it is measured on the bench, never remembered from the last cast:
+
+   ```
+   Q · SEISMIC SLAM · 3 targets · 0 hits for 0 · fx 0p live/0 spawned/0r/0b · in flight 1 · no fx yet
+   Q · SEISMIC SLAM · 3 targets · 3 hits for 136 · fx 0p live/186 spawned/0r/0b · in flight 0 · fx@0.25s
+   ```
+
+   The first line is nine frames into the leap: nothing has landed yet, so `no fx yet` is the truth. The second
+   is after impact — three dummies hit for 136, 186 particles spawned, and `fx@0.25s` is the delay between the
+   press and the first frame your effect existed. `in flight` is the page's own effect list, so `0` means the
+   cast has fully unwound; `targets` after it (`3 targets`) is how many dummies are standing. The live-particle
+   count is a scan of `fx.life`, because `FX.alive` in `fx.js` is vestigial: set once, never maintained.
+6. press **Q** twice in a row and a third line appears:
+
+   ```
+   Q · SEISMIC SLAM · 3 targets · 0 hits for 0 · fx 0p live/0 spawned/0r/0b · in flight 2 · no fx yet · 1 forced
+   ```
+
+   `1 forced` means the bench stepped over a cooldown that would still be running in a match. It is there so the
+   speed of the bench never becomes a lie about the game. `reset` clears the tally.
+7. a white screen flash + a `!!` fault line means a transform went non-finite — that cast cannot reach a frame.
+
+**A bench, not a wave.** Buttons force the cast and label it `N forced` (above), so a cooldown never hides your
+effect; the gates themselves are still real code paths — `sim.cast(i, false)` against a cold ult answers
+`R · MAGNETRON PULSE · BLOCKED — ULT ENERGY 0/100`, which is what `simtest` pins. Between casts the bench refills
+the ult meter 1.2 s later, the one thing it does on purpose, because a bench you cannot loop is a bench you stop
+using. A bench target exposes only the fields the abilities actually read. If a prop looks right here but wrong in
+`neon-vanguard.html`, the difference is real gameplay state (barriers, `mods`, a crowd that dies) — worth knowing.
+
 ## 5. ● REC — record a video effect
 
 What the button actually does (`recordFX()` in `src/studio.js`):
@@ -200,6 +243,10 @@ keys fall back to the defaults rather than poisoning the bloom chain.
 | Pressing `▶` in the list does nothing | Look at the flash: `PREVIEW FAILED: …` means the dropbox could not serve the file or `parseGLB` rejected it (a `.gltf` with sidecars, or a truncated upload). |
 | Lower half of the FX is missing in the match | The deck plate is opaque and the anchor is the prop's *centre*: raise `height` until the span clears it. `node tools/fxsample.mjs` prints each sample's measured span, and the same measurement is what the studio's PLACEMENT row shows for hero bodies (feet / head, `BURIED`). |
 | Hero itself looks half-buried | Not an FX problem: that was the placement bug fixed in v1.10.1 (`HANDOFF.md` invariant 15). In the studio, PLACEMENT → `reset`, then save. |
+| the caption says `2 forced` | You are casting faster than the match allows — the bench overrode live cooldowns to show you the effect anyway. Judge the timing at `1×`, not from a forced cast. |
+| the caption says `no fx yet` | Your cast is mid-flight (the slam leaps first). Wait for `fx@0.25s` — that number *is* your timing. |
+| It looks different in CAST SIM than under `▶ play` | Expected and useful: `▶ play` is the prop alone, the bench is the prop inside the ability. Decide in the bench. |
+| The bench says `!! non-finite transform` | The FX put a NaN on a mesh — usually `dur` or `rate` typed as a non-number in the JSON, or a target whose position went bad. `↺ clear` and re-load. |
 
 ---
 
@@ -211,6 +258,7 @@ keys fall back to the defaults rather than poisoning the bloom chain.
 | `node tools/skintest.mjs` | 126 assertions: slot resolution + fallback, `clampFX`, URL-keyed bank reuse, free-list recycling, `dispose()`-free material handling, video refcounting, run-reset cleanliness |
 | `node tools/herofit.mjs` | 18 assertions: the hero GLBs themselves still stand on the deck |
 | `node tools/uploadstats.mjs` | tri / mesh / texture cost of everything in `models/uploads/` |
+| `node tools/simtest.mjs` | 40 assertions: the CAST bench — all 9 abilities + the three basics driven headlessly; every cast must expire, leave the scene *identical*, balance the light pool and stay finite |
 
 Related reading: `HANDOFF.md` §7a (the studio's design + invariants 12–15) and `README.md`
 → *Hero Studio — skins and skill effects*.
