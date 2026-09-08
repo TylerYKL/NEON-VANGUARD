@@ -3,9 +3,10 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-08 (v1.11, Hero Studio cast-sim) · `neon-vanguard.html` 795 KB ·
-21 modules in `src/`. Headless suites all pass: `lighttest` 35/35, `geocheck` clean, `glbtest` 12/12,
-`skintest` 138/138, `herofit` 18/18, `simtest` 41/41, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
+Last verified: 2026-09-09 (v1.11.1, hero motion fixes: hips baseline + slam restore) ·
+`neon-vanguard.html` 795 KB · 21 modules in `src/`. Headless suites all pass: `lighttest` 35/35,
+`geocheck` clean, `glbtest` 12/12, `skintest` 143/143, `herofit` 18/18, `simtest` 41/41,
+`animcheck` 21/21, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
 before trusting anything visual, and say so plainly in the commit. See §6.
 
@@ -179,6 +180,19 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
     `position.set(x, y, z)` from a config throws the lift away — that is how every uploaded hero ended up
     buried to the waist. `Hero` therefore caches the fit as `_basePos` and writes `base * tunScale + offset`;
     the scale belongs in that product because scaling a body scales its offset from the root as well (§7a).
+16. **A rest pose is measured once and read thereafter, never repeated as a literal.** The hips baseline used
+    to live in three places that disagreed — `buildHumanoid` wrote `0.95 * scale` (a double-applied scale: the
+    root is scaled too), `animateRig` overwrote it with a flat `0.95` every frame, and `Hero.hipsRest` carried
+    a third copy nobody read. Net effect: every procedural hero stood ~15 cm *into* the deck, and a GLB-skinned
+    AEGIS ended a slam **floating 0.95 m** above it, because a GLB rig's rest is 0 and the slam "restored" 0.95.
+    `buildHumanoid` now solves `rig.hipsRest` from the leg bounds (soles land on y = 0) and every writer reads
+    it; a shim rig with no builder must still *declare* its rest (`heroes.js:136`, `hipsRest: 0`). A stride's
+    bob is one-sided for the same reason: a ±bob costs twice its amplitude in clearance at the trough.
+17. **An effect that edits a transform it does not own every frame must restore it from `dispose()` too.**
+    `startGame()` disposes what it drops (`main.js:921`) *before* truncating `G.effects`, so a restore written
+    only at the end of `update()` leaves the world edited mid-flight — a reset during the leap used to leave the
+    body at whatever height the arc was at, up to 2.45 m, with nothing per-frame to bring it back down.
+    `fxpack.kill()` releasing lights and video refs is the same rule.
 
 ---
 

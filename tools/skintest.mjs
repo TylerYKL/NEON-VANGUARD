@@ -118,7 +118,10 @@ for (let i = 0; i < 3; i++) {
   const h = new Hero(HERO_DEFS[i], G, i);
   const id = h.def.id;
   check(id + ' built with GLB rig', !!h.rig.glb && !!h.body);
-  check(id + ' hipsRest is 0 for GLB', h.hipsRest === 0, 'got ' + h.hipsRest);
+  /* F1's root cause was two writers on `hips.position.y` with different rests: the GLB
+     rig's rest is 0 (the stage stamp owns the feet) and animateGLB must stay off it. */
+  check(id + ' hips rest at 0 for a GLB skin, on hero and rig alike',
+    h.rig.hipsRest === 0 && h.hipsRest === 0, 'hero ' + h.hipsRest + ' / rig ' + h.rig.hipsRest);
   const p = h.handPos();
   check(id + ' handPos falls back to anchor, finite', [p.x, p.y, p.z].every(Number.isFinite),
     `${p.x},${p.y},${p.z}`);
@@ -136,15 +139,38 @@ for (let i = 0; i < 3; i++) {
   h.downed = false;
   for (let k = 0; k < 60; k++) h.animateGLB(0.05, { time: 5 + k * 0.05 }, 0);
   check(id + ' stands back up on revive', Math.abs(h.body.rotation.x) < 0.2, 'rot.x ' + h.body.rotation.x.toFixed(2));
+  check(id + ' animateGLB never writes hips, so the slam always has a rest to return to',
+    h.rig.hips.position.y === h.rig.hipsRest, 'hips ' + h.rig.hips.position.y + ' vs rest ' + h.rig.hipsRest);
 }
 
 /* procedural fallback: no skins on G */
 const G2 = { scene: new THREE.Scene() };
 const hp = new Hero(HERO_DEFS[0], G2, 0);
 check('fallback rig is procedural', !hp.rig.glb && !!hp.rig.hips && !hp.body);
-check('fallback hipsRest is 0.95', hp.hipsRest === 0.95, 'got ' + hp.hipsRest);
-animateRig(hp.rig, 0.016, { speed: 1, time: 1, attack: 0, cast: 0, dead: false, hurt: 0, style: 'fist', block: true });
-check('animateRig still drives fallback rig', true);
+/* F2: the baseline is now MEASURED from the legs, so the soles land on the deck. The
+   literal it replaced (0.95) was 15 cm too low at this hero's scale. */
+check('procedural hipsRest is measured, not the 0.95 literal it replaced',
+  hp.hipsRest === hp.rig.hipsRest && Math.abs(hp.hipsRest - 0.95) > 0.05 && hp.hipsRest > 0.8 && hp.hipsRest < 1.4,
+  'got ' + hp.hipsRest.toFixed(3));
+{
+  const soleY = () => {
+    hp.rig.root.updateMatrixWorld(true);
+    let m = 0;
+    for (const side of ['L', 'R']) {
+      const b = new THREE.Box3().setFromObject(hp.rig.legs[side].hip);
+      if (Number.isFinite(b.min.y)) m = Math.min(m, b.min.y);
+    }
+    return m;
+  };
+  const rest = soleY();
+  let lowest = rest;
+  for (let i = 0; i < 90; i++) { animateRig(hp.rig, 1 / 60, { speed: 1, time: i / 60, style: 'fist', block: true }); lowest = Math.min(lowest, soleY()); }
+  check('the built rig puts its soles on the deck', Math.abs(rest) < 0.02, 'sole y ' + rest.toFixed(3));
+  check('90 frames of walking never dip under the deck', lowest > -0.02,
+    'lowest ' + lowest.toFixed(3) + ' (a symmetric bob costs 2x its amplitude at the trough)');
+  check('animateRig still drives fallback rig', Number.isFinite(hp.rig.hips.position.y) && hp.rig.hips.position.y >= hp.rig.hipsRest - 1e-9,
+    'hips ' + hp.rig.hips.position.y.toFixed(3) + ' rest ' + hp.rig.hipsRest.toFixed(3));
+}
 
 /* studio tuning: size multiplier, motion overrides, playFX safety */
 const tun = { aegis: { scale: 1.3, motion: { lunge: 0.9, fallSpeed: 9 }, pos: { x: 0.25, y: 0.5 }, yawDeg: 90 }, lyra: {}, nyx: {} };

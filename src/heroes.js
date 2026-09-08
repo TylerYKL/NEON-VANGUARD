@@ -129,8 +129,12 @@ export class Hero {
       this._yaw = this._baseYaw + ((tun.yawDeg || 0) * Math.PI) / 180;
       hips.add(this.body);
       this.group.add(hips);
-      this.rig = { root: this.group, hips, glb: true };
-      this.hipsRest = 0;
+      /* A GLB skin's hips exist only as the leap's lever: the model's own feet are put
+         on the deck by `normalizeToStage`, whose lift lives in `body.position`. So the
+         rest height here is 0 — and `animateGLB` never touches `hips`, which is exactly
+         why a hardcoded restore (MOTION-AUDIT F1) left the whole body floating. */
+      this.rig = { root: this.group, hips, hipsRest: 0, glb: true };
+      this.hipsRest = this.rig.hipsRest;
       this.G.scene.add(this.group);
     } else {
       this.rig = buildHumanoid({
@@ -138,7 +142,7 @@ export class Hero {
         pauldrons: d.pauldrons, hood: d.hood, crest: d.crest, plate: d.plate,
       });
       this.group = this.rig.root;
-      this.hipsRest = 0.95;
+      this.hipsRest = this.rig.hipsRest;   // measured by buildHumanoid, never a literal
       this.motion = Object.assign({}, DEFAULT_MOTION);
       this.tunScale = 1;
       this.offset = { x: 0, y: 0, z: 0 };
@@ -474,7 +478,7 @@ export class Hero {
       t: 0, dur: 0.34, fired: false,
       update(dt) {
         this.t += dt;
-        self.rig.hips.position.y = 0.95 + Math.sin(Math.min(1, this.t / 0.24) * Math.PI) * 1.5;
+        self.rig.hips.position.y = self.rig.hipsRest + Math.sin(Math.min(1, this.t / 0.24) * Math.PI) * 1.5;
         if (!this.fired && this.t > 0.22) {
           this.fired = true;
           const p = self.pos.clone();
@@ -509,9 +513,14 @@ export class Hero {
             }
           }
         }
-        if (this.t >= this.dur) { self.rig.hips.position.y = 0.95; return false; }
+        // back to the rig's OWN rest — 1.05-ish for a procedural body, 0 for a GLB skin
+        if (this.t >= this.dur) { self.rig.hips.position.y = self.rig.hipsRest; return false; }
         return true;
       },
+      // and the same restore from dispose(): startGame() truncates G.effects (main.js:921
+      // disposes what it drops), so a reset DURING the leap used to leave the body at
+      // whatever height the arc was at — up to 2.45 m — with nothing left to write it back
+      dispose() { self.rig.hips.position.y = self.rig.hipsRest; },
     });
   }
 

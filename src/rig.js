@@ -54,7 +54,9 @@ export function buildHumanoid(cfg) {
   const scale = cfg.scale ?? 1;
 
   // hips
-  const hips = new THREE.Group(); hips.position.y = 0.95 * scale; bodyG.add(hips);
+  // the resting height is set at the END of this builder, from measured geometry
+  // (`hipsRest` below) — no literal here, or the two would disagree again
+  const hips = new THREE.Group(); bodyG.add(hips);
   const pelvis = chamfer(0.52 * bulk, 0.3, 0.36 * bulk, plate); hips.add(pelvis);
   // hip tassets break up the boxy pelvis silhouette
   for (let s = -1; s <= 1; s += 2) {
@@ -144,8 +146,27 @@ export function buildHumanoid(cfg) {
 
   root.scale.setScalar(scale);
 
+  /* ONE hips baseline, MEASURED instead of guessed.
+     It used to live in three places that disagreed: the builder wrote 0.95 * scale
+     (a double-applied scale, since the root is scaled too), animateRig wrote a flat
+     0.95 every frame, and Hero.hipsRest carried a third copy that nobody read. The
+     net of that argument was that every procedural hero stood ~15 cm INTO the deck
+     (MOTION-AUDIT F2). So: park the hips at 0, find how far the legs hang below it,
+     and lift by exactly that — the soles land on y = 0 and every animation that owns
+     `hips.position.y` (the slam in heroes.js) has a real rest value to return to. */
+  hips.position.y = 0;
+  root.updateMatrixWorld(true);
+  let sole = 0;
+  for (const side of ['L', 'R']) {
+    const b = new THREE.Box3().setFromObject(legs[side].hip);
+    if (Number.isFinite(b.min.y)) sole = Math.min(sole, b.min.y);
+  }
+  const hipsRest = -sole / scale;
+  hips.position.y = hipsRest;
+
   return {
     root, bodyG, hips, torso, neck, head, visor, arms, legs, core, coreLight, disc,
+    hipsRest,
     mats: { plate, dark, glowM, visorM },
     _phase: Math.random() * 10,
   };
@@ -171,8 +192,10 @@ export function animateRig(rig, dt, o) {
   }
   rig.bodyG.rotation.x = damp(rig.bodyG.rotation.x, 0, 8, dt);
 
-  const bob = Math.sin(p * 2) * 0.035 * (0.3 + speed);
-  rig.hips.position.y = 0.95 + bob + (speed > 0.05 ? 0.02 : 0);
+  // one-sided by design: a stride lifts the body, it never pushes the feet through
+  // the floor (a ±bob costs 2 × the amplitude of clearance at the trough)
+  const bob = (0.5 - 0.5 * Math.cos(p * 2)) * 0.07 * (0.3 + speed);
+  rig.hips.position.y = rig.hipsRest + bob + (speed > 0.05 ? 0.02 : 0);
   rig.hips.rotation.z = Math.sin(p) * 0.04 * speed;
   rig.torso.rotation.y = damp(rig.torso.rotation.y, -Math.sin(p) * 0.16 * speed, 12, dt);
   rig.torso.rotation.x = damp(rig.torso.rotation.x, speed * 0.12 + cast * -0.15, 10, dt);

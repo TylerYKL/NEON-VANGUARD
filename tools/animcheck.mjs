@@ -1,22 +1,20 @@
 /* ============================================================
-   ANIMCHECK — read-only measurement of the hero motion layer.
+   ANIMCHECK — the motion layer, measured rather than asserted-about.
 
-   This is NOT a test of behaviour: it measures what the shipped code actually
-   does to a hero's body, so the findings in MOTION-AUDIT.md stay checkable
-   instead of being folklore. It never writes a file and never imports main.js.
+   Written first as the evidence for MOTION-AUDIT.md (F1/F2/F3), and kept as the
+   gate so the fixes cannot quietly slide back: the old numbers were folklore
+   ("the heroes just look like that"), so every check here measures a shipped
+   asset or a shipped rig and compares against the deck at y = 0.
 
-   Three groups, printed in order:
+   Three groups:
+     1. procedural rig   — buildHumanoid's baseline vs what animateRig leaves the
+                          soles doing, and a walk cycle must never dip under 0
+     2. GLB skin + Q     — the slam's leap still happens, and the hero comes back
+                          down to the rig's own rest (F1's bug was the restore)
+     3. the asset census — bones / skinned meshes / clips per file, i.e. whether
+                          there is anything for an AnimationMixer to play
 
-     1. procedural rig   — where do the feet end up once animateRig takes over
-                           (buildHumanoid and animateRig disagree about the hips)
-     2. GLB skin + Q     — does a GLB-skinned hero come back down after a slam
-     3. the asset census — bones / skinned meshes / clips in models/uploads/*.glb,
-                           i.e. is there anything for a mixer to play
-
-   Defects that are already written up are reported as KNOWN (so the suite stays
-   green today); a NEW breakage exits 1, and one that quietly disappears reports
-   FIXED so the doc and this file get updated together.
-
+   Read-only: it never writes a file and never imports main.js.
      node tools/animcheck.mjs
    ============================================================ */
 import * as fs from 'fs';
@@ -46,114 +44,135 @@ const { parseGLB, normalizeToStage, gatherStats } = await import('../src/gltfuti
 const { SFX } = await import('../src/audio.js');
 SFX.enabled = false;                        // no WebAudio in Node
 
-/* herofit's own threshold, reused so the two suites agree about "on the deck" */
-const FOOT_TOL = 0.06;
-let fail = 0, known = 0, fixed = 0;
-const report = (tag, label, ok, detail) => {
-  if (ok) console.log('  PASS  ' + label + (detail ? '  · ' + detail : ''));
-  else if (tag === 'known') { known++; console.log('  KNOWN ' + label + '  · ' + detail + '  (MOTION-AUDIT.md)'); }
+let pass = 0, fail = 0;
+const check = (label, ok, detail) => {
+  if (ok) { pass++; console.log('  PASS  ' + label); }
   else { fail++; console.log('  FAIL  ' + label + '  · ' + detail); }
 };
-const wasKnown = (label) => console.log('  FIXED ' + label + '  · update MOTION-AUDIT.md');
+const info = (msg) => console.log('  INFO  ' + msg);
+const read = (f) => { const b = fs.readFileSync(f); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 
-/* ---------- 1. procedural heroes: who owns hips.position.y ---------- */
-console.log('\n== procedural rig: feet vs the deck (deck = 0) ==');
-function lowestFoot(rig) {
-  let min = Infinity;
+/* the lowest point of the LEGS only — the ground disc lives on the root at y = 0.03
+   and would mask whatever the feet are doing */
+function soleY(rig) {
+  let m = Infinity;                        // NOT 0: starting at 0 clamps away every lift
   for (const side of ['L', 'R']) {
     const L = rig.legs[side];
-    for (const o of [L.foot, L.knee.children[0]]) {
-      o.updateWorldMatrix(true, true);
-      const b = new THREE.Box3().setFromObject(o);
-      if (Number.isFinite(b.min.y)) min = Math.min(min, b.min.y);
-    }
+    L.hip.updateWorldMatrix(true, true);
+    const b = new THREE.Box3().setFromObject(L.hip);
+    if (Number.isFinite(b.min.y)) m = Math.min(m, b.min.y);
   }
-  return min;
-}
-for (const d of HERO_DEFS) {
-  const rig = buildHumanoid({ accent: d.color, visor: d.color2, bulk: d.bulk, scale: d.scale, plate: d.plate });
-  rig.root.updateMatrixWorld(true);
-  const built = lowestFoot(rig);
-  for (let i = 0; i < 90; i++) animateRig(rig, 1 / 60, { speed: 0, time: i / 60, style: d.style, block: d.id === 'aegis' });
-  rig.root.updateMatrixWorld(true);
-  const idle = lowestFoot(rig);
-  for (let i = 0; i < 90; i++) animateRig(rig, 1 / 60, { speed: 1, time: i / 60, style: d.style });
-  rig.root.updateMatrixWorld(true);
-  const walk = lowestFoot(rig);
-  const bad = Math.abs(walk) > FOOT_TOL || Math.abs(idle) > FOOT_TOL;
-  const label = d.id + ': procedural feet stand on the deck';
-  const detail = 'built ' + built.toFixed(3) + ' → idle ' + idle.toFixed(3) + ' → walking ' + walk.toFixed(3)
-    + ' (hips built ' + (0.95 * d.scale).toFixed(3) + ', animateRig writes ' + rig.hips.position.y.toFixed(3) + ')';
-  if (bad) report('known', label, false, detail); else if (idle !== built) wasKnown(label); else report('', label, true, detail);
+  return Number.isFinite(m) ? m : 0;
 }
 
-/* ---------- 2. GLB skin + one SEISMIC SLAM ---------- */
-console.log('\n== GLB skin: does AEGIS come back down after Q? ==');
+/* ---------- 1. procedural heroes: one measured baseline ---------- */
+console.log('\n== procedural rig: soles vs the deck (deck = 0) ==');
+for (const d of HERO_DEFS) {
+  const rig = buildHumanoid({ accent: d.color, visor: d.color2, bulk: d.bulk, scale: d.scale, plate: d.plate });
+  const built = soleY(rig);
+  let idleLow = Infinity, walkLow = Infinity, walkHigh = -Infinity;
+  for (let i = 0; i < 90; i++) {
+    animateRig(rig, 1 / 60, { speed: 0, time: i / 60, style: d.style, block: d.id === 'aegis' });
+    idleLow = Math.min(idleLow, soleY(rig));
+  }
+  for (let i = 0; i < 90; i++) {
+    animateRig(rig, 1 / 60, { speed: 1, time: i / 60, style: d.style });
+    const y = soleY(rig); walkLow = Math.min(walkLow, y); walkHigh = Math.max(walkHigh, y);
+  }
+  const label = (m) => d.id + ' · ' + m;
+  check(label('soles sit on the deck at build'), Math.abs(built) < 0.02, 'sole ' + built.toFixed(3));
+  check(label('idle never dips under the deck'), idleLow > -0.02, 'lowest ' + idleLow.toFixed(3));
+  check(label('90 frames of walking never dip under the deck'), walkLow > -0.02,
+    'lowest ' + walkLow.toFixed(3) + ' · highest ' + walkHigh.toFixed(3));
+  check(label('the stride actually lifts'), walkHigh - walkLow > 0.06,
+    'range ' + (walkHigh - walkLow).toFixed(3) + ' (a flat value means the bob was lost, not fixed)');
+  check(label('hipsRest is the value animateRig returns to'),
+    Math.abs(rig.hips.position.y - rig.hipsRest) < 0.13 && rig.hipsRest > 0.5,
+    'hips ' + rig.hips.position.y.toFixed(3) + ' rest ' + rig.hipsRest.toFixed(3));
+}
+
+/* ---------- 2. GLB skin: the leap and the landing ---------- */
+console.log('\n== GLB skin: SEISMIC SLAM takes off and comes back down ==');
 const skinPath = ROOT + 'models/uploads/aegis.glb';
-if (!fs.existsSync(skinPath)) {
-  console.log('  SKIP  no models/uploads/aegis.glb (procedural-only checkout)');
-} else {
-  const buf = fs.readFileSync(skinPath);
+if (!fs.existsSync(skinPath)) info('no models/uploads/aegis.glb — skipping (procedural-only checkout)');
+else {
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1.6, 0.1, 200);
   const effects = [];
   const G = {
     scene, camera, time: 0, addEffect: (e) => effects.push(e),
     lights: { acquire: () => ({ position: new THREE.Vector3(), intensity: 0 }), release: () => {}, set: () => {} },
   };
-  const gltf = await parseGLB(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-  const template = gltf.scene;
+  const template = (await parseGLB(read(skinPath))).scene;
   normalizeToStage(template, 2.4);
   G.glbSkins = { aegis: { template, yaw: 0 } };
   G.glbTuning = { aegis: { scale: 1, motion: {}, pos: { x: 0, y: 0, z: 0 }, yawDeg: 0, fx: null, fxOn: true, fxP: null, fxSlots: [null, null, null] } };
   const hero = new Hero(HERO_DEFS[0], G, 0);
-  const sim = createSim(G, { hero: () => hero, allies: () => [hero], effects: () => effects, caption: () => {}, fault: (m) => console.log('  FAULT', m) });
-  const tick = (n) => {
+  const sim = createSim(G, { hero: () => hero, allies: () => [hero], effects: () => effects, caption: () => {}, fault: (m) => info('FAULT ' + m) });
+  const tick = (n, on) => {
     for (let f = 0; f < n; f++) {
-      G.time += 1 / 60; sim.update(1 / 60);
+      G.time += 1 / 60; sim.update(1 / 60); on && on();
       for (let k = effects.length - 1; k >= 0; k--) { const e = effects[k]; if (!e.update(1 / 60)) { if (e.dispose) e.dispose(); effects.splice(k, 1); } }
     }
   };
   const feet = () => { hero.body.updateWorldMatrix(true, true); return new THREE.Box3().setFromObject(hero.body).min.y; };
   sim.setTargets(3);
   const before = feet();
-  sim.cast(0); tick(300);
+  let peak = 0;
+  sim.cast(0);
+  tick(30, () => { peak = Math.max(peak, hero.rig.hips.position.y - hero.rig.hipsRest); });
+  tick(300);
   const after = feet();
-  const rest = hero.rig.hips.position.y, hipsRest = hero.hipsRest;
-  const label = 'aegis (GLB skin): feet still on the deck after one Q';
-  const detail = 'feet ' + before.toFixed(3) + ' → ' + after.toFixed(3)
-    + ' · hips.y left at ' + rest.toFixed(2) + ' but its rest is ' + hipsRest
-    + ' (hero.hipsRest is read by nobody)';
-  if (Math.abs(after - before) > FOOT_TOL) report('known', label, false, detail);
-  else { wasKnown(label); report('', label, true, detail); }
-
-  /* the leap: the bench never integrates move(), so the cast cannot travel here */
+  check('aegis (GLB): feet on the deck before the slam', Math.abs(before) < 0.02, 'feet ' + before.toFixed(3));
+  check('aegis (GLB): the leap is real — the hips leave their rest by ~1.5 m', peak > 0.9,
+    'peak lift ' + peak.toFixed(2) + ' m (a hard-coded 0.95 baseline used to make this a float, not a jump)');
+  check('aegis (GLB): ONE slam leaves the feet exactly where they were (MOTION-AUDIT F1)',
+    Math.abs(after - before) < 0.02, 'feet ' + before.toFixed(3) + ' → ' + after.toFixed(3));
+  check('aegis (GLB): the restore returns to the rig’s own rest, not a literal',
+    hero.rig.hips.position.y === hero.rig.hipsRest && hero.hipsRest === hero.rig.hipsRest,
+    'hips ' + hero.rig.hips.position.y + ' rest ' + hero.rig.hipsRest);
+  /* main.js:921 — startGame() disposes every live effect and only then truncates the
+     array. That dispose is the ONLY thing standing between a reset mid-leap and a hero
+     permanently drawn at the arc's height, because no per-frame code owns `hips` for a
+     GLB skin. So the test drives the reset exactly the way the game does. */
+  sim.cast(0); tick(4);
+  const stranded = hero.rig.hips.position.y;
+  for (const e of effects) if (e.dispose) e.dispose();
+  effects.length = 0;
+  tick(120);
+  check('aegis (GLB): a reset MID-LEAP hands the body back (dispose, then truncate)',
+    Math.abs(feet() - before) < 0.02,
+    'was caught mid-leap at hips ' + stranded.toFixed(3) + ', now ' + hero.rig.hips.position.y.toFixed(3)
+    + ' (rest ' + hero.rig.hipsRest + ')');
+  check('aegis (GLB): …which only works because the leap owns a dispose()',
+    stranded > 0.5, 'the leap never left its rest, so this proves nothing: ' + stranded.toFixed(3));
   const p0 = hero.pos.clone(); sim.cast(0); tick(30);
   const moved = Math.hypot(hero.pos.x - p0.x, hero.pos.z - p0.z);
-  console.log('  INFO  bench travel during Q = ' + moved.toFixed(2) + ' m   (the bench never calls move())'
-    + '\n        · the match moves AEGIS 1.18 m during the same cast (heroes.js:297 dashT override,'
-    + '\n          all of it before the impact frame at t=0.22 s), and Hero.playFX anchors the prop at the'
-    + '\n          CAST position (heroes.js:1298) → in play your uploaded ground FX lands ~1.2 m behind the slam.');
+  info('bench travel during Q = ' + moved.toFixed(2) + ' m');
+  info('the match moves AEGIS 1.18 m in the same cast (heroes.js:297), and Hero.playFX anchors the');
+  info('prop at the CAST position (heroes.js:1297) → in play a ground FX lands ~1.2 m behind the slam (F3)');
 }
 
 /* ---------- 3. the asset census (what a mixer would have to work with) ---------- */
 console.log('\n== models/uploads/*.glb: is there anything to animate? ==');
-const files = fs.readdirSync(ROOT + 'models/uploads').filter((f) => /\.glb$/i.test(f)).sort();
-if (!files.length) console.log('  SKIP  nothing in models/uploads/');
-let rigged = 0;
+const dir = ROOT + 'models/uploads';
+const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /\.glb$/i.test(f)).sort() : [];
+if (!files.length) info('nothing in models/uploads/');
+let rigged = 0, clipFiles = 0;
 for (const f of files) {
-  const g = await parseGLB((() => { const b = fs.readFileSync(ROOT + 'models/uploads/' + f); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); })());
+  const g = await parseGLB(read(dir + '/' + f));
   const s = gatherStats(g.scene);
   const clips = (g.animations || []).length;
-  if (s.bones || clips) rigged++;
-  console.log('  ' + f.padEnd(20) + ' bones ' + String(s.bones).padStart(3)
+  if (s.bones) rigged++;
+  if (clips) clipFiles++;
+  console.log('  ' + f.padEnd(22) + ' bones ' + String(s.bones).padStart(3)
     + ' · skinned ' + String(s.skinned).padStart(2) + ' · clips ' + clips
     + (clips ? ' → ' + (g.animations || []).map((c) => c.name).slice(0, 4).join(', ') : '')
-    + (s.bones && !clips ? '  (rigged but no clips: retarget or author them)' : '')
+    + (s.bones && !clips ? '  (rigged, no clips: retarget or author them)' : '')
     + (!s.bones ? '  (static mesh — animateGLB transforms are all it can do)' : ''));
 }
-if (!rigged) {
-  console.log('  INFO  no file in models/uploads/ has bones or clips, so GLB animation-clip'
-    + '\n        support has nothing to play yet: it must land WITH a rigged hero file.');
-}
-console.log('\n' + (fail ? 'ANIMCHECK: ' + fail + ' NEW breakage(s)' : 'ANIMCHECK clean — ' + known + ' known defect(s) reported, nothing new'));
+if (!clipFiles) info('no uploaded file has a clip yet, so clip playback is verified against the'
+  + '\n        generated fixture in tools/ (MOTION-AUDIT §4), not against models/uploads/');
+else info(rigged + ' rigged file(s), ' + clipFiles + ' with clips — the hero path can play them');
+
+console.log('\n' + (fail ? 'ANIMCHECK: ' + fail + ' failure(s) of ' + (pass + fail) : 'ANIMCHECK done — ' + pass + ' measurements, nothing stranded'));
 process.exit(fail ? 1 : 0);

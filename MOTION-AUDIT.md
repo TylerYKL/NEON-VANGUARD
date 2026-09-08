@@ -5,7 +5,8 @@ how an attack starts and lands. Read `FX-AEGIS.md` for effects; this is the audi
 answers "and what about the body?". Six findings, each with a measured number, plus the
 plan for GLB animation clips.
 
-**Nothing here is changed yet.** `node tools/animcheck.mjs` re-measures every number in
+**Status: F1 and F2 are fixed (invariants 16–17 in `HANDOFF.md` record the rules they broke); F3–F7 are
+open, in the order at §5.** `node tools/animcheck.mjs` re-measures every number in
 §2 and §3 and stays green until a *new* problem appears (`KNOWN` lines = written-up defects,
 `FIXED` = a defect went away and this doc needs updating). Line refs are against
 `2e2357e…4875a16`, `src/heroes.js` = 1368 ln, `src/rig.js` = 431 ln.
@@ -51,7 +52,14 @@ timing live in `balance.js` and `heroes.js`, which is why the studio cannot prev
 
 ## 2. Findings
 
-### F1 · `SEISMIC SLAM` leaves a GLB-skinned hero **floating 0.95 m above the deck** — P0
+### F1 · `SEISMIC SLAM` left a GLB-skinned hero **floating 0.95 m above the deck** — P0 · ✅ FIXED
+
+> **Fixed** by making the rig own its rest height: `buildHumanoid` measures `rig.hipsRest` from the leg bounds,
+> the GLB shim declares `hipsRest: 0`, and the slam reads it on the way up, on the way down **and from
+> `dispose()`** (a reset mid-leap used to strand the body at the arc's height). `animcheck` now asserts all
+> three: the leap still lifts ~1.5 m, one slam leaves the feet where they were, and dispose-then-truncate hands
+> the body back. What was written here stays, because the *shape* of the bug — two writers, one transform, no
+> owner — is the thing to remember.
 
 The slam owns the leap by writing the hips bone directly, and restores it to a hardcoded
 number (`heroes.js:477, 512`):
@@ -85,7 +93,12 @@ rig.hipsRest = 0.95 * scale;              // procedural
 self.rig.hips.position.y = self.rig.hipsRest + arc;
 ```
 
-### F2 · every **procedural** hero stands ~15 cm into the deck — P1
+### F2 · every **procedural** hero stood ~15 cm into the deck — P1 · ✅ FIXED
+
+> **Fixed** by the same measurement (`hipsRest` solves soles → y = 0 instead of trusting `0.95`), plus a
+> one-sided stride bob in `animateRig`: a ±bob costs *twice* its amplitude in clearance at the trough, which is
+> how a 0.035 bob put 0.145 m of shin under the floor at this hero's scale. `skintest` gained the same
+> measurement (build / idle / 90 frames of walking) so the invariant is pinned in two suites.
 
 Same root cause, opposite direction. `buildHumanoid` scales the root *and* puts the hips at
 `0.95 * scale` (`rig.js:54,57`) → double-applied; `animateRig` then writes a flat `0.95`
@@ -255,8 +268,8 @@ and the visual payoff is zero until the asset has bones. Two decisions needed fr
 
 ## 5. Suggested order
 
-1. **F1 + F2 together** (one `hipsRest` baseline + a procedural case in `herofit`) — the only
-   items a player can see today; small, and the second one has a test gap.
+1. ~~**F1 + F2 together**~~ ✅ done — one measured `hipsRest` baseline, read by `animateRig`, `animateGLB`,
+   the slam and its `dispose()`; `animcheck` (21 measurements) is the gate, `skintest` pins the rig side.
 2. **Phase A** (`SkeletonUtils.clone`) — cheap, independent, and every later step is unsafe without it.
 3. **F4 + F5** (`CAST SIM` calls `Hero.update`; hoist the per-frame/per-cast allocations) — makes the
    bench a real bench and satisfies §4.4.
