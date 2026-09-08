@@ -85,6 +85,7 @@ node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materi
 node tools/glbtest.mjs   # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
 node tools/skintest.mjs  # 126 assertions: uploaded skins, hero_tuning.json, per-skill FX slots + pooling
 node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
+node tools/fxsample.mjs  # writes + validates the AEGIS sample skill FX (see FX-AEGIS.md)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB in models/uploads/
 
 # headless art loop — look at the characters without a browser
@@ -175,6 +176,10 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 `applyBalance()` pushes values into `HERO_DEFS` / `ENEMY_TYPES`.
 
 ### Hero Studio — skins and skill effects
+
+> Want a worked example with real files? **[`FX-AEGIS.md`](FX-AEGIS.md)** — four sample skill effects for
+> AEGIS (in `models/uploads/`), the assign → tune → save loop, what `● REC` records, and every FX slider with
+> its range. Regenerate them with `node tools/fxsample.mjs`.
 
 `hero-studio.html` is the art-direction side of the upload pipeline. It boots the real `Hero` class with the
 GLBs from `models/uploads/`, so what you see is what the match will draw. Everything is written to

@@ -691,6 +691,12 @@ out-of-range / hand-edited JSON, URL-keyed bank de-duplication, free-list reuse,
 (proved by hooking `Material.prototype.dispose`), light acquire/release balance, video refcounting, and that a
 run-reset `dispose()` leaves the scene clean.
 
+**An onboarding path for the art side.** Because the whole loop is file-based, the repo ships four sample AEGIS
+skill effects and the guide that walks a non-programmer through them (`FX-AEGIS.md`, generated and validated by
+`node tools/fxsample.mjs`). Each sample is 3–11 meshes / 184–568 tris and the generator spawns every one
+through the real `fxpack` path before calling it good — so the examples double as a regression fixture for the
+effect layer, and the "too heavy to be a per-cast prop" guard has something to be measured against.
+
 **Not done, on purpose.** `hero_tuning.json` is a sandbox-only artefact (the dropbox server writes it, and the
 game re-reads it on each restart), so deployment needs a checked-in copy or a real backend; `nyx.glb` is still a byte-identical copy of
 `aegis.glb`; and the studio cannot retarget an *animated* GLB (no skinning/clip support yet — see the
