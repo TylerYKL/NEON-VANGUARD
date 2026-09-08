@@ -528,5 +528,83 @@ check('files already in the bank are not re-parsed',
 check('a restart only pays for what changed', Object.keys(bank3).length === Object.keys(bank).length + 1,
   Object.keys(bank3).length + ' vs ' + Object.keys(bank).length);
 
+/* ---------- MOTION-AUDIT §4 phase A: a skeleton per instance, hero and FX ----------
+   Every uploaded hero in this repo is a static mesh, so `template.clone(true)` was
+   never caught deforming from the shared template skeleton. The fixture in
+   tools/lib/rigged.mjs is rigged on purpose: these are the assertions that keep
+   `cloneRig` in `heroes.js` and `fxpack.js` from being "simplified" back. */
+{
+  const { parseGLB } = await import('../src/gltfutil.js');
+  const { riggedGLB } = await import('./lib/rigged.mjs');
+  const { clone: cloneRig } = await import('three/addons/utils/SkeletonUtils.js');
+  const rigGltf = await parseGLB(await riggedGLB());
+  const rigTpl = rigGltf.scene;
+
+  const Gr = { scene: new THREE.Scene(), glbSkins: { aegis: { template: rigTpl, yaw: 0 } }, time: 0 };
+  const h1 = new Hero(HERO_DEFS[0], Gr, 0);
+  const h2 = new Hero(HERO_DEFS[0], Gr, 1);
+  const m1 = h1.body.getObjectByName('body'), m2 = h2.body.getObjectByName('body');
+  check('two heroes off one uploaded GLB own different skeletons',
+    m1 && m2 && m1.skeleton !== m2.skeleton, 'shared skeleton object');
+  check('…each bound to its OWN bones, not the template’s',
+    m1.skeleton.bones[0] === h1.body.getObjectByName('hips') &&
+    m2.skeleton.bones[0] === h2.body.getObjectByName('hips') &&
+    h1.body !== rigTpl && h2.body !== rigTpl, 'bound to foreign bones');
+  {
+    const mixer = new THREE.AnimationMixer(h1.body);
+    const before = h2.body.getObjectByName('hips').getWorldPosition(new THREE.Vector3()).clone();
+    /* the clip from the LOADER output, played on hero 1's own cloned skeleton:
+       track names are bone names, so they resolve inside any clone of the rig */
+    const act = mixer.clipAction(rigGltf.animations[1]);      // 'Walk'
+    act.play(); mixer.update(0.4);
+    h1.body.updateMatrixWorld(true); h2.body.updateMatrixWorld(true);
+    const moved = Math.abs(h1.body.getObjectByName('hips').rotation.x);
+    const dragged = h2.body.getObjectByName('hips').getWorldPosition(new THREE.Vector3()).distanceTo(before);
+    check('an animation on hero 1 leaves hero 2 at rest (the four-hero case)',
+      moved > 0.02 && dragged < 1e-6, 'h1 moved ' + moved.toFixed(3) + ', h2 dragged ' + dragged.toFixed(7));
+    mixer.stopAllAction();
+  }
+  /* the stamp does not ride along a skeleton clone, so heroes.js copies it forward —
+     studio.js:199 reads `h.body.userData.stage` for the PLACEMENT row and would show `—` */
+  normalizeToStage(rigTpl, 2.4);
+  {
+    const Gst = { scene: new THREE.Scene(), glbSkins: { aegis: { template: rigTpl, yaw: 0 } }, time: 0 };
+    const hs = new Hero(HERO_DEFS[0], Gst, 0);
+    check('a hero built on a skeleton clone still carries the stage stamp (PLACEMENT row)',
+      hs.body.userData.stage && hs.body.userData.stage.lift === rigTpl.userData.stage.lift &&
+      Math.abs(hs.body.position.y - rigTpl.position.y) < 1e-9,
+      'stamp ' + JSON.stringify(hs.body.userData.stage) + ' / body.y ' + hs.body.position.y);
+    /* the clone must not shift the model either — that is what herofit measures per hero */
+    hs.body.updateWorldMatrix(true, true); rigTpl.updateMatrixWorld(true);
+    const yClone = new THREE.Box3().setFromObject(hs.body).min.y;
+    const yTpl = new THREE.Box3().setFromObject(rigTpl).min.y;
+    check('…and cloning through the skeleton path does not shift the fit off the deck',
+      Math.abs(yClone - yTpl) < 1e-9 && hs._basePos && Math.abs(hs._basePos.y - rigTpl.position.y) < 1e-9,
+      'clone sole ' + yClone.toFixed(5) + ' vs template ' + yTpl.toFixed(5));
+  }
+  check('hero clones still share the template material (tint/override caches rely on it)',
+    m1.material === m2.material && m1.material === rigTpl.getObjectByName('body').material,
+    'material was deep-copied — overrides would stop reaching new heroes');
+
+  /* the FX side: pooled clones of a skinned file must not animate as one object */
+  const Gsk = { scene: new THREE.Scene(), camera: null, lights: null };
+  const skEntry = { kind: 'glb', url: 'models/uploads/_skinned-fx.glb', template: cloneRig(rigTpl) };
+  const pSk = clampFX({ dur: 0.4 }, 'glb');
+  const a = spawnFX(Gsk, skEntry, pSk, { x: 0, y: 0, z: 0 }, 0);
+  const b = spawnFX(Gsk, skEntry, pSk, { x: 2, y: 0, z: 0 }, 0);
+  const skOf = (o) => { let sk = null; o.traverse((x) => { if (x.isSkinnedMesh && !sk) sk = x.skeleton; }); return sk; };
+  check('two concurrent casts of a skinned FX file get their own skeletons',
+    skOf(a.obj) && skOf(b.obj) && skOf(a.obj) !== skOf(b.obj), 'both casts would deform together');
+  check('…and neither borrows the bank template’s', skOf(a.obj) !== skOf(skEntry.template), 'template skeleton reused');
+  let n = 0; while (n++ < 60 && a.update(0.02)); a.kill();
+  n = 0; while (n++ < 60 && b.update(0.02)); b.kill();
+  check('the skinned clones return to the pool and are re-used with their skeletons intact',
+    (skEntry.pool || []).length === 2 && skOf(skEntry.pool[0]) !== skOf(skEntry.pool[1]),
+    'pool ' + (skEntry.pool || []).length);
+  check('a skinned FX clone never disposes the template material',
+    skEntry.template.getObjectByName('body').material !== null, 'template material gone');
+
+}
+
 console.log('\n' + (fail ? 'FAILURES: ' + fail : 'ERRORS none') + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail ? 1 : 0);

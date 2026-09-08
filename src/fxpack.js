@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import { clamp } from './util.js';
 
 /* ============================================================
@@ -357,7 +358,11 @@ export function spawnFX(G, entry, p, at, facing = 0) {
     } catch (e) { /* autoplay refused: the decoded frame still shows */ }
   } else {
     const pool = entry.pool || (entry.pool = []);
-    obj = pool.pop() || entry.template.clone(true);
+    /* skeleton-isolated for the same reason hero bodies are (MOTION-AUDIT §4 phase A):
+       a skinned FX file cloned with `template.clone(true)` would deform from the
+       template's bones, so every concurrent cast would animate together. For the static
+       meshes every FX file is today, `cloneRig` behaves exactly like a deep clone. */
+    obj = pool.pop() || cloneRig(entry.template);
     if (!obj.userData.fxMats) obj.userData.fxMats = collectMats(obj);   // authored set, for hand-back
     if (needsOverride(p)) base = overrideMats(entry, p);
     if (needsOwn(p)) {

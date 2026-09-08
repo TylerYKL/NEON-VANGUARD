@@ -3,9 +3,9 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-09 (v1.11.1, hero motion fixes: hips baseline + slam restore) ·
-`neon-vanguard.html` 795 KB · 21 modules in `src/`. Headless suites all pass: `lighttest` 35/35,
-`geocheck` clean, `glbtest` 12/12, `skintest` 143/143, `herofit` 18/18, `simtest` 41/41,
+Last verified: 2026-09-09 (v1.11.2, MOTION-AUDIT phase A: skeleton-isolated clones) ·
+`neon-vanguard.html` 796 KB · 21 modules in `src/`. Headless suites all pass: `lighttest` 35/35,
+`geocheck` clean, `glbtest` 25/25, `skintest` 153/153, `herofit` 18/18, `simtest` 41/41,
 `animcheck` 21/21, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
 before trusting anything visual, and say so plainly in the commit. See §6.
@@ -80,19 +80,19 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
 └── src/
     ├── main.js      1474  bootstrap, post FX, input, gamepad, camera, wave director, draft,
     │                      hazards, settings, dev-tool wiring, the shared context object `G`
-    ├── heroes.js    1368  hero data, all 12 abilities, buffs, damage/heal, squad AI, playFX per skill slot
-    ├── sim.js         404  CAST SIM: the studio bench — real useSkill against stand-in targets + hooks
+    ├── heroes.js    1389  hero data, all 12 abilities, buffs, damage/heal, squad AI, playFX per skill slot
+    ├── sim.js         411  CAST SIM: the studio bench — real useSkill against stand-in targets + hooks
     ├── entities.js   704  projectile pool, enemy types + AI, elites, telegraph driver, pooling
     ├── audio.js      587  WebAudio synth toolkit, 38 SFX cues, adaptive music sequencer
     ├── showcase.js   459  character bay (separate entry point)
     ├── viewer.js     215  model viewer: GLB drop + procedural rig side-by-side (art tool)
     ├── gltfutil.js    78  DOM-free GLB parse/stats/normalise + the stage stamp a clone keeps (viewer/herofit)
-    ├── studio.js     908  Hero Studio: size / placement / motion / per-skill FX editor / CAST SIM → hero_tuning.json
-    ├── fxpack.js     449  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
+    ├── studio.js     913  Hero Studio: size / placement / motion / per-skill FX editor / CAST SIM → hero_tuning.json
+    ├── fxpack.js     454  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
     ├── glbskin.js    159  uploaded hero skins + hero_tuning.json reader (v2) + URL-keyed effect bank
     ├── fx.js         431  pooled particles/rings/beams/sparks/telegraphs, shake, flash
     ├── world.js      311  arena, floor shader, baked skyline, billboards, rain, cover pylons
-    ├── rig.js        331  faceted humanoid rig (chamfer/seg + flat shading) + animator + weapons
+    ├── rig.js        354  faceted humanoid rig (chamfer/seg + flat shading) + animator + weapons
     ├── ui.js         205  HUD binding (DOM overlay)
     ├── devtools.js   180  the dev overlay (backtick): sliders, cheats, perf, JSON round-trip
     ├── pickups.js    169  charge shards + Charge Cores
@@ -180,6 +180,10 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
     `position.set(x, y, z)` from a config throws the lift away — that is how every uploaded hero ended up
     buried to the waist. `Hero` therefore caches the fit as `_basePos` and writes `base * tunScale + offset`;
     the scale belongs in that product because scaling a body scales its offset from the root as well (§7a).
+    **Trap found while adding `SkeletonUtils.clone`** (phase A of MOTION-AUDIT §4, now used for every hero body
+    and every pooled FX clone): it deep-copies the skeleton but does **not** carry `userData`, so a stamped
+    `userData.stage` does not ride along. `heroes.js` copies it forward by hand; `glbtest` pins both halves —
+    the stamp is absent on a raw skeleton clone, and present (with the same fit) on a built `Hero`.
 16. **A rest pose is measured once and read thereafter, never repeated as a literal.** The hips baseline used
     to live in three places that disagreed — `buildHumanoid` wrote `0.95 * scale` (a double-applied scale: the
     root is scaled too), `animateRig` overwrote it with a flat `0.95` every frame, and `Hero.hipsRest` carried

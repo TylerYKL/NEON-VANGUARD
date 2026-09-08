@@ -221,7 +221,9 @@ envelopes.
 **You already have half of it.** `model-viewer.html` parses and plays clips
 (`viewer.js:110-113`: `mixer = new THREE.AnimationMixer(obj); mixer.clipAction(clips[0]).play()`
 plus a button per clip), and `tools/uploadstats.mjs` already reports `bones / skinned / clips`
-per file. `parseGLB` returns the full gltf, so `gltf.animations` is *in hand* at every call
+per file. `parseGLB` returns the full gltf, so `gltf.animations` is *in hand* at every call *(and
+`glbtest` now proves the round trip survives it: 3 bones, 1 skinned mesh, both clip names, every track
+resolving to a node of the re-parsed scene, a mixer visibly driving `hips.quaternion`)*.
 site and thrown away by `ensureGLBSkins` (`glbskin.js:29-33`) and `loadFXBank` (`:146`), which
 keep `{ template, yaw }` only.
 
@@ -241,7 +243,7 @@ one, assert the other's world matrix is unchanged.
 
 | Phase | Work | Notes |
 |---|---|---|
-| **A** | `SkeletonUtils.clone` in `glbskin.js` + `fxpack.js`; isolation test | no behaviour change today; do it regardless of whether clips ship |
+| **A** ✅ done | `cloneRig` (that is `SkeletonUtils.clone`) for hero bodies (`heroes.js:116`) and pooled FX clones (`fxpack.js:363`); a rigged fixture in `tools/lib/rigged.mjs`; 13 new assertions across `glbtest` + `skintest` | Two surprises worth keeping. (1) The hazard was **not** "all four heroes share one skeleton" — `clone(true)` does copy the bones; what it keeps is the **template's `Skeleton`**, so each clone deforms from bones no hero owns and its own copies are inert decoration. (2) `SkeletonUtils.clone` **drops `userData`**, so `normalizeToStage`'s stage stamp stopped riding along — which is exactly what `studio.js:199` reads for the PLACEMENT row. `heroes.js` copies it forward; invariant 15 records the trap and `glbtest` pins both halves. |
 | **B** | carry `animations` through `ensureGLBSkins`; `Hero` gains `mixer`, `actions{}`; a `clipFor(name)` resolver matching `idle walk run attack1-3 cast hurt death` (case-insensitive, substring, first hit) | one mixer per hero, `timeScale` from `spd` |
 | **C** | blend from the **same four envelopes**: cross-fade `attack1/2/3` off `attackAnim`, `cast` off `castAnim`, `hurt` off `hurtAnim`, `death` off `downed`; keep `animateGLB` as the additive layer (bob/lunge/twist on top of the clip) | zero new state; a rigged file animates, an unrigged one behaves exactly as now |
 | **D** | studio `ANIMATION` row: clips found in this file (0 → `NO CLIPS IN THIS FILE`), a bind per state, `animRate` / `animBlend` sliders, `hero_tuning.json` **v3** `anim: { idle: "Clip 0", walk: "Walk", … }` | the bench is already there to judge it: `CAST SIM` + `⟳ auto` is the loop you want for reviewing a cycle |

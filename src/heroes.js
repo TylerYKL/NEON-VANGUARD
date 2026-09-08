@@ -3,6 +3,7 @@ import {
   buildHumanoid, animateRig, buildIonGauntlets, buildRiotShield,
   buildMedGloves, buildRailPistol, buildDrone,
 } from './rig.js';
+import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import { addMat, metalMat, TAU, rand, clamp, damp, lerp, flatDist, angleTo, shortAngle, disposeObj } from './util.js';
 import { DEFAULT_MOTION } from './glbskin.js';
 import { clampFX, fxFor, spawnFX } from './fxpack.js';
@@ -108,7 +109,18 @@ export class Hero {
       // two hooks the rest of the code expects (root + hips for the slam).
       this.group = new THREE.Group();
       const hips = new THREE.Group();
-      this.body = skin.template.clone(true);
+      /* NOT `template.clone(true)`: that copies the bones but leaves
+         `SkinnedMesh.skeleton` pointing at the TEMPLATE's skeleton, so a hero's mesh
+         deforms from bones no hero owns — and the first clip anyone plays would move
+         all four squad members at once (or none, since nothing writes a bone today).
+         `cloneRig` deep-copies the skeleton and rebinds it, while still sharing
+         materials and geometry by pointer, which is what the material caches rely on.
+         MOTION-AUDIT §4 phase A; `glbtest` pins both halves of that contract. */
+      this.body = cloneRig(skin.template);
+      /* …but SkeletonUtils.clone does NOT carry `userData`, and the stage stamp is the
+         one thing every consumer of a fitted body reads (`studio.js` PLACEMENT row,
+         herofit). Losing it silently turned that readout into `—`. Copy it forward. */
+      if (skin.template.userData && skin.template.userData.stage) this.body.userData.stage = skin.template.userData.stage;
       this._yaw = skin.yaw || 0;
       this.body.rotation.y = this._yaw;
       // studio tuning: size multiplier on top of the normalised template
