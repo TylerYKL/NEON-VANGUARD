@@ -16,7 +16,7 @@ from urllib.parse import unquote
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPDIR = os.path.join(REPO, "models", "uploads")
 PORT = 8081
-SAFE = re.compile(r"^[\w][\w.\-]{0,120}\.(glb|gltf)$", re.I)
+SAFE = re.compile(r"^[\w][\w.\-]{0,120}\.(glb|gltf|mp4|webm|ogv)$", re.I)
 MAX = 200 * 1024 * 1024
 
 PAGE = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">

@@ -114,6 +114,10 @@ export class Hero {
       this.tunScale = tun.scale || 1;
       this.body.scale.multiplyScalar(this.tunScale);
       this.motion = Object.assign({}, DEFAULT_MOTION, tun.motion || {});
+      // studio placement: rebuilders sometimes sink or rotate the body
+      this.offset = Object.assign({ x: 0, y: 0, z: 0 }, tun.pos || {});
+      this._baseYaw = skin.yaw || 0;
+      this._yaw = this._baseYaw + ((tun.yawDeg || 0) * Math.PI) / 180;
       hips.add(this.body);
       this.group.add(hips);
       this.rig = { root: this.group, hips, glb: true };
@@ -128,6 +132,9 @@ export class Hero {
       this.hipsRest = 0.95;
       this.motion = Object.assign({}, DEFAULT_MOTION);
       this.tunScale = 1;
+      this.offset = { x: 0, y: 0, z: 0 };
+      this._baseYaw = 0;
+      this._yaw = 0;
       this.G.scene.add(this.group);
     }
 
@@ -1234,7 +1241,7 @@ export class Hero {
   /* ---------- GLB skin motion: unrigged statues get game-feel transforms.
      Every coefficient is a studio-tunable motion parameter. ---------- */
   animateGLB(dt, G, spd) {
-    const b = this.body, M = this.motion;
+    const b = this.body, M = this.motion, O = this.offset;
     const move = clamp(spd, 0, 1.4);
     this._stepT = (this._stepT || 0) + dt * (2 + M.stepRate * move);
     this._fall = damp(this._fall || 0, this.downed ? 1 : 0, M.fallSpeed, dt);
@@ -1244,8 +1251,7 @@ export class Hero {
     b.rotation.z = Math.sin(this._stepT) * 0.035 * move + Math.sin(G.time * 40) * 0.05 * this.hurtAnim;
     b.rotation.y = (this._yaw || 0) + this.attackAnim * M.twist;
     const bob = Math.abs(Math.sin(this._stepT)) * M.bob * move + Math.sin(G.time * 2.1) * M.idleSway;
-    b.position.y = bob - f * 0.15 + this.castAnim * M.castLean * 0.8;
-    b.position.z = this.attackAnim * M.lunge;   // step into the swing
+    b.position.set(O.x, O.y + bob - f * 0.15 + this.castAnim * M.castLean * 0.8, O.z + this.attackAnim * M.lunge);
   }
 
   /** live size edit from the Hero Studio (persisted via hero_tuning.json) */
@@ -1254,13 +1260,55 @@ export class Hero {
     if (this.body) this.body.scale.setScalar((this._baseScale || 1) * this.tunScale);
   }
 
-  /** spawn this hero's uploaded skill-effect GLB (studio-assigned) at their feet.
-     Clones share the bank template's buffers, so never dispose them. */
+  /** live placement edit from the Hero Studio */
+  setYawDeg(d) {
+    this._yaw = (this._baseYaw || 0) + (clamp(d, -180, 180) * Math.PI) / 180;
+  }
+
+  /** spawn this hero's uploaded skill effect (GLB or video, studio-assigned).
+     GLB clones share the bank template's buffers, so never dispose them. */
   playFX(G) {
     const t = (G.glbTuning || {})[this.def.id];
-    const tpl = G.fxBank && G.fxBank[this.def.id];
-    if (!tpl || !t || t.fxOn === false) return null;
-    const obj = tpl.clone(true);
+    const entry = G.fxBank && G.fxBank[this.def.id];
+    if (!entry || !t || t.fxOn === false) return null;
+
+    if (entry.kind === 'video') {
+      // billboard video burst: additive plane facing the camera, one play
+      const vid = document.createElement('video');
+      vid.src = entry.url;
+      vid.muted = true; vid.playsInline = true; vid.loop = false;
+      const tex = new THREE.VideoTexture(vid);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, blending: THREE.AdditiveBlending,
+        depthWrite: false, side: THREE.DoubleSide,
+      });
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 2.8), mat);
+      pl.position.set(this.pos.x, 1.6, this.pos.z);
+      pl.renderOrder = 15;
+      G.scene.add(pl);
+      vid.play().catch(() => {});
+      G.addEffect({
+        t: 0, dur: 2.2,
+        update(dt) {
+          this.t += dt;
+          const k = this.t / this.dur;
+          if (G.camera) pl.lookAt(G.camera.position);
+          pl.scale.setScalar(0.8 + k * 0.6);
+          mat.opacity = k > 0.7 ? (1 - k) / 0.3 : 1;
+          if (this.t >= this.dur || vid.ended) {
+            G.scene.remove(pl);
+            try { vid.pause(); } catch (e) {}
+            tex.dispose(); mat.dispose(); pl.geometry.dispose();
+            return false;
+          }
+          return true;
+        },
+      });
+      return pl;
+    }
+
+    const obj = entry.template.clone(true);
     obj.position.set(this.pos.x, 0.05, this.pos.z);
     obj.rotation.y = Math.random() * TAU;
     G.scene.add(obj);

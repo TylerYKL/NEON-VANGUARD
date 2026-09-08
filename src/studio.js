@@ -66,7 +66,7 @@ const effects = [];
 let heroes = [], active = 0, action = 'idle';
 let cfg = null, fxBank = null;
 const G = {
-  scene, time: 0,
+  scene, time: 0, camera,
   addEffect: (e) => effects.push(e),
   glbSkins: null, glbTuning: null, fxBank: null,
 };
@@ -81,6 +81,14 @@ const MOT_DEFS = [
   ['hurtLean', 'hurt recoil', 0, 0.5, 0.005],
   ['idleSway', 'idle sway', 0, 0.05, 0.002],
   ['fallSpeed', 'fall speed', 1, 12, 0.1],
+];
+
+/* placement: fix rebuilder sinks / rotations (the "half body" fix) */
+const PL_DEFS = [
+  ['x', 'offset x', -2, 2, 0.01],
+  ['y', 'offset y', -2, 2, 0.01],
+  ['z', 'offset z', -2, 2, 0.01],
+  ['yawDeg', 'yaw deg', -180, 180, 1],
 ];
 
 function buildSliders() {
@@ -98,6 +106,21 @@ function buildSliders() {
     };
     $('mot').appendChild(row);
   }
+  $('plc').innerHTML = '';
+  for (const [k, label, min, max, step] of PL_DEFS) {
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    row.innerHTML = `<span>${label}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}"><b></b>`;
+    const inp = row.querySelector('input');
+    inp.oninput = () => {
+      const v = +inp.value;
+      const c = cfg[HERO_DEFS[active].id], h = heroes[active];
+      if (k === 'yawDeg') { c.yawDeg = v; h.setYawDeg(v); }
+      else { c.pos[k] = v; h.offset[k] = v; }
+      row.querySelector('b').textContent = v.toFixed(step < 1 ? 2 : 0);
+    };
+    $('plc').appendChild(row);
+  }
 }
 
 function syncPanel() {
@@ -111,6 +134,12 @@ function syncPanel() {
     const k = row.querySelector('input').dataset.k;
     row.querySelector('input').value = c.motion[k];
     row.querySelector('b').textContent = (+c.motion[k]).toFixed(2);
+  }
+  for (const row of $('plc').children) {
+    const k = row.querySelector('input').dataset.k;
+    const v = k === 'yawDeg' ? c.yawDeg : c.pos[k];
+    row.querySelector('input').value = v;
+    row.querySelector('b').textContent = (+v).toFixed(k === 'yawDeg' ? 0 : 2);
   }
   syncFX();
 }
@@ -146,16 +175,22 @@ function setAction(a) {
 
 async function uploadFX(file) {
   if (!file) return;
-  if (!/\.glb$/i.test(file.name)) { flash('ONLY .GLB EFFECTS', '#ff3b5c'); return; }
-  const id = HERO_DEFS[active].id, name = id + '-fx.glb';
+  const mVid = file.name.match(/\.(mp4|webm|ogv)$/i);
+  if (!/\.glb$/i.test(file.name) && !mVid) { flash('USE .GLB OR VIDEO', '#ff3b5c'); return; }
+  const id = HERO_DEFS[active].id;
+  const name = id + '-fx.' + (mVid ? mVid[1].toLowerCase() : 'glb');
   flash('UPLOADING ' + file.name + '…');
   try {
     const r = await fetch(UP + '/upload/' + name, { method: 'PUT', body: file });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const gltf = await parseGLB(await file.arrayBuffer());
-    const tpl = gltf.scene || gltf.scenes[0];
-    normalizeToStage(tpl, 1.8);
-    fxBank[id] = tpl;
+    if (mVid) {
+      fxBank[id] = { kind: 'video', url: 'models/uploads/' + name };
+    } else {
+      const gltf = await parseGLB(await file.arrayBuffer());
+      const tpl = gltf.scene || gltf.scenes[0];
+      normalizeToStage(tpl, 1.8);
+      fxBank[id] = { kind: 'glb', template: tpl };
+    }
     G.fxBank = fxBank;
     cfg[id].fx = 'models/uploads/' + name;
     cfg[id].fxOn = true;
@@ -164,6 +199,44 @@ async function uploadFX(file) {
   } catch (e) {
     flash('FX UPLOAD FAILED: ' + (e.message || e), '#ff3b5c');
   }
+}
+
+/* record ~2.4s of the studio canvas while the current effect plays,
+   then assign the recording as the hero's video skill effect */
+let rec = null;
+function recordFX() {
+  if (rec) return;
+  if (!renderer.domElement.captureStream || typeof MediaRecorder === 'undefined') {
+    flash('RECORDING NOT SUPPORTED IN THIS BROWSER', '#ff3b5c');
+    return;
+  }
+  const chunks = [];
+  rec = new MediaRecorder(renderer.domElement.captureStream(30));
+  rec.ondataavailable = (e) => chunks.push(e.data);
+  rec.onstop = async () => {
+    rec = null;
+    $('fxrec').classList.remove('on');
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const id = HERO_DEFS[active].id, name = id + '-fx.webm';
+    flash('SAVING RECORDING…');
+    try {
+      const r = await fetch(UP + '/upload/' + name, { method: 'PUT', body: blob });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      fxBank[id] = { kind: 'video', url: 'models/uploads/' + name };
+      G.fxBank = fxBank;
+      cfg[id].fx = 'models/uploads/' + name;
+      cfg[id].fxOn = true;
+      syncFX();
+      flash('RECORDED + ASSIGNED ' + name + ' — SAVE TO KEEP', '#3dffb0');
+    } catch (e) {
+      flash('RECORD SAVE FAILED: ' + (e.message || e), '#ff3b5c');
+    }
+  };
+  $('fxrec').classList.add('on');
+  rec.start();
+  setAction('cast');
+  heroes[active].playFX(G);   // capture the current effect mid-play
+  setTimeout(() => { if (rec) rec.stop(); }, 2400);
 }
 
 async function save() {
@@ -194,8 +267,9 @@ $('spin').onclick = () => {
   controls.autoRotate = on; controls.autoRotateSpeed = 2.2;
 };
 $('fxplay').onclick = () => {
-  if (!heroes[active].playFX(G)) flash('NO FX ASSIGNED — DROP A .GLB', '#ffb14a');
+  if (!heroes[active].playFX(G)) flash('NO FX ASSIGNED — DROP A .GLB OR VIDEO', '#ffb14a');
 };
+$('fxrec').onclick = recordFX;
 $('fxon').onclick = () => {
   const c = cfg[HERO_DEFS[active].id];
   c.fxOn = !c.fxOn; syncFX();
@@ -225,7 +299,10 @@ addEventListener('resize', () => {
   G.fxBank = fxBank;
 
   heroes = HERO_DEFS.map((d, i) => new Hero(d, G, i));
-  heroes.forEach((h) => { h.motion = cfg[h.def.id].motion; });
+  heroes.forEach((h) => {
+    h.motion = cfg[h.def.id].motion;
+    h.offset = cfg[h.def.id].pos;
+  });
 
   const tabs = $('head');
   HERO_DEFS.forEach((d, i) => {

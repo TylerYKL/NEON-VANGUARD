@@ -80,10 +80,18 @@ export function ensureTuning() {
             motion[k] = Number.isFinite(v) && v >= 0 && v < 100 ? v : dv;
           }
           const scale = Number(t.scale);
+          const pos = {};
+          for (const k of ['x', 'y', 'z']) {
+            const v = Number(t.pos && t.pos[k]);
+            pos[k] = Number.isFinite(v) ? Math.min(3, Math.max(-3, v)) : 0;
+          }
+          const yawDeg = Number(t.yawDeg);
           out[id] = {
             scale: Number.isFinite(scale) ? Math.min(2, Math.max(0.5, scale)) : 1,
             motion,
-            fx: typeof t.fx === 'string' && /\.glb$/i.test(t.fx) ? t.fx : null,
+            pos,
+            yawDeg: Number.isFinite(yawDeg) ? Math.min(180, Math.max(-180, yawDeg)) : 0,
+            fx: typeof t.fx === 'string' && /\.(glb|gltf|mp4|webm|ogv)$/i.test(t.fx) ? t.fx : null,
             fxOn: t.fxOn !== false,
           };
         }
@@ -100,13 +108,15 @@ export function loadFXBank(tuning) {
     fxPromise = Promise.all(
       Object.entries(tuning || {}).map(async ([id, t]) => {
         if (!t.fx) return null;
+        // video effects need no parsing — the player streams them at cast time
+        if (/\.(mp4|webm|ogv)$/i.test(t.fx)) return [id, { kind: 'video', url: t.fx }];
         try {
           const res = await fetch(t.fx);
           if (!res.ok) throw new Error('HTTP ' + res.status);
           const gltf = await parseGLB(await res.arrayBuffer());
           const template = gltf.scene || gltf.scenes[0];
           normalizeToStage(template, 1.8);
-          return [id, template];
+          return [id, { kind: 'glb', template }];
         } catch (e) {
           console.warn('[glbskin] skill fx for ' + id + ' unavailable: ' + (e.message || e));
           return null;

@@ -72,13 +72,16 @@
   <div class="st"><i>height</i><b id="hgt">—</b></div>
   <div class="lbl">SIZE</div>
   <input type="range" id="sz" min="0.5" max="2" step="0.01" value="1">
+  <div class="lbl">PLACEMENT · X / Y / Z / YAW</div>
+  <div id="plc"></div>
   <div class="lbl">ACTION MOTION</div>
   <div id="mot"></div>
   <div class="lbl">SKILL EFFECT · GLB</div>
-  <div id="fxdrop">DROP .GLB HERE · OR CLICK TO BROWSE<input id="fxfile" type="file" accept=".glb" hidden></div>
+  <div id="fxdrop">DROP .GLB OR VIDEO (.MP4/.WEBM) · OR CLICK<input id="fxfile" type="file" accept=".glb,.mp4,.webm,.ogv" hidden></div>
   <div id="fxname">none assigned</div>
   <div id="fxrow">
     <button class="act" id="fxplay">▶ play fx</button>
+    <button class="act" id="fxrec">● record fx</button>
     <button class="act on" id="fxon">fx on</button>
   </div>
   <div class="lbl">PIPELINE</div>
