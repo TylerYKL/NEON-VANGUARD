@@ -126,7 +126,8 @@ src/gltfutil.js  DOM-free GLB parse / stats / normalise (shared by viewer + glbt
 src/glbskin.js   loads uploaded hero GLBs + models/uploads/hero_tuning.json (size / motion / skill FX)
 src/fxpack.js    skill-effect layer: per-skill slots, parameter clamping, pooled clones, video + light reuse
 src/studio.js    Hero Studio entry: size / placement / action-motion / per-skill FX editor → hero_tuning.json
-src/sim.js       CAST SIM — the studio bench: real useSkill() + real FX against stand-in targets, slow-mo
+src/sim.js       CAST SIM — the studio bench: real useSkill() + real move()/update() + real FX against stand-in
+                 targets, MOVE + dash, slow-mo
 src/ui.js        HUD binding (DOM overlay)
 src/util.js      math / material / procedural-texture helpers
 ```
@@ -185,15 +186,19 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 > its range. Regenerate them with `node tools/fxsample.mjs`.
 >
 > The layer *under* the FX — how a hero is posed, how it walks, how an attack starts — is reviewed in
-> **[`MOTION-AUDIT.md`](MOTION-AUDIT.md)**; `node tools/animcheck.mjs` re-measures its numbers.
+> **[`MOTION-AUDIT.md`](MOTION-AUDIT.md)**; `node tools/animcheck.mjs` re-measures its numbers (and refuses to
+> pass if a per-frame path starts allocating again).
 
 `hero-studio.html` is the art-direction side of the upload pipeline. It boots the real `Hero` class with the
 GLBs from `models/uploads/`, so what you see is what the match will draw. Everything is written to
 `models/uploads/hero_tuning.json`, which the game re-reads on every `startGame()` — tune, SAVE, then
 restart the run; no page reload. Files already parsed are reused, so a restart only pays for what changed.
-The panel ends in a **CAST SIM**: `basic · Q · E · R · ⟳ auto`, 0/3/6 targets and `1× · ½× · ¼×` slow motion.
-It calls the real `Hero.useSkill`, so you judge an uploaded effect against the ability's own rings, particles,
-shake and knockback instead of on an empty stage.
+The panel ends in a **CAST SIM**: `basic · Q · E · R · ⟳ auto`, 0/3/6 targets, `1× · ½× · ¼×` slow motion and a
+**MOVE** row (`idle · walk · strafe · circle` + `dash`). It calls the real `Hero.useSkill` *and* the real
+`Hero.move`/`Hero.update`, so you judge an uploaded effect against the ability's own rings, particles, shake,
+knockback and footwork instead of on an empty stage — a slam that carries the hero 1.18 m carries your FX along
+with it if its `anchor` row says *follow hero*. Turning the bench on hands the body over to the hero: the `ACTION`
+buttons can only overlay a pose, and walk speed is measured off real velocity rather than assumed.
 
 Placement needs that framing: a GLB exported around its own centre is *fitted* by the loader (centred, lifted
 by half its height), and `pos` is an **adjustment** on top of it — not an absolute position. The same lift is

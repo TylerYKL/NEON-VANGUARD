@@ -641,7 +641,7 @@ person can actually look at. Before/after captures are in `screenshots/rig-befor
 `rig-after-*.png`. This loop is now the sanctioned way to iterate on character art without a browser —
 image diffs of the live game remain meaningless, but a controlled posed dump is not.
 
-### Hero Studio: skins, skill effects and a cast bench (v1.9.1 → v1.11)
+### Hero Studio: skins, skill effects and a cast bench (v1.9.1 → v1.11.3)
 
 The proposal's long-run plan says the asset pipeline is where this goes next: concept sheet → image-to-3D →
 GLB. That only works if someone can *fit* the result into the game without rebuilding it, so the art tools got
@@ -701,7 +701,21 @@ above the deck for the rest of the run after one Q; `animateRig` writes a flat `
 built `0.95 * scale`, so every procedural hero stands ~15 cm inside the deck) and states why
 `template.clone(true)` must become `SkeletonUtils.clone` *before* anyone wires a mixer: today the four heroes
 share one skeleton because nothing writes a bone. `tools/animcheck.mjs` re-measures all of it and stays green
-until something new breaks — the report came first, the fixes are queued behind it.
+until something new breaks — the report came first, the fixes followed it.
+
+**v1.11.3** landed phase A's skeleton-isolated clones (`cloneRig`, so a hero body and a pooled FX prop never deform from the
+same bones). The pass after it gave the bench a body: `CAST SIM` now runs the game's own order — `Hero.move` then
+`Hero.update` — behind a **MOVE** row and a `dash` button, so walk, drift, dash, the 1.1 s combo clock and every
+envelope decay are previewable at all, and the studio stops hand-decaying the envelopes while the bench owns them.
+Three consequences worth stating: the panel can no longer *lie* about a timing (it is ticking the same state
+machine), the per-frame paths were stripped down to zero allocations and are now gated statically so they stay
+that way, and — the reason the change was worth making — the first cast through the new loop failed the "no leak"
+assertion and exposed a shipping bug nothing had ever been able to see: `railshot` wrote its charge ramp every
+frame and cleared it in the fire branch, so its own coroutine wrote `1` back over the clear and NYX kept the
+overcharge aura, a maxed coil and a particle per frame **for the rest of the run**. One gate fixed it (F8).
+`FX LOOK` also gained an `anchor` row — *cast point* (unchanged default) or *follow hero* — because the slam turns
+out to move the caster 1.18 m past where its uploaded effect was planted (F3), and that is a choice for the person
+making the effect, not one a bug fix should make for them.
 
 **Judging a file before you spend a slot.** The LIBRARY list got its own preview: every row ends in `▶`,
 which fires that file at the hero through the same `spawnFX` a real cast uses, with the params the file would

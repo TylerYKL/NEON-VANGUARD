@@ -3,10 +3,10 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-09 (v1.11.2, MOTION-AUDIT phase A: skeleton-isolated clones) ·
-`neon-vanguard.html` 796 KB · 21 modules in `src/`. Headless suites all pass: `lighttest` 35/35,
-`geocheck` clean, `glbtest` 25/25, `skintest` 153/153, `herofit` 18/18, `simtest` 41/41,
-`animcheck` 21/21, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
+Last verified: 2026-09-09 (v1.11.3, MOTION-AUDIT F3–F8: the bench drives the body) ·
+`neon-vanguard.html` 797 KB · 21 modules in `src/`. Headless suites all pass: `lighttest` 35/35,
+`geocheck` clean, `glbtest` 25/25, `skintest` 153/153, `herofit` 18/18, `simtest` 56/56,
+`animcheck` 30/30, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
 before trusting anything visual, and say so plainly in the commit. See §6.
 
@@ -197,6 +197,16 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
     only at the end of `update()` leaves the world edited mid-flight — a reset during the leap used to leave the
     body at whatever height the arc was at, up to 2.45 m, with nothing per-frame to bring it back down.
     `fxpack.kill()` releasing lights and video refs is the same rule.
+18. **One owner per state field, per tick context.** Whoever decays a field is the only thing allowed to
+    decay it. `CAST SIM` runs the real `Hero.move` + `Hero.update`, so while the bench is installed the studio's
+    frame loop must not decay `attackAnim/castAnim/hurtAnim` by hand (`studio.js:914`) — a double-advance looks
+    *fine* one frame at a time and makes every timing read in the panel wrong by 2×. `simtest` asserts both
+    directions: stub `Hero.update` and nothing may drift; let it run and the envelope must fall.
+19. **A write that runs every frame must be gated against the branch that clears it.** `railshot` set
+    `charge = min(1, t/0.3)` unconditionally and cleared it inside `if (!this.fired && t >= 0.3)` — so the last
+    ~0.15 s of its own coroutine wrote `1` back over the clear and NYX kept the overcharge aura, a max coil and a
+    60-per-second particle spawn for the rest of the run (MOTION-AUDIT F8). Gate the write (`if (!this.fired)`);
+    and if a field has no consumer at all, delete it (F7 was that, and is now wired instead).
 
 ---
 
@@ -214,6 +224,8 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
 | `mergeGeometries` returning null | All inputs must agree on index state. De-indexing to force agreement triples vertex counts — only do it when they genuinely disagree. |
 | The draft halts the sim | `G.drafting` gates the whole update block. A test that spawns enemies after a wave clear must dismiss the draft (`Escape`) first. |
 | String replace in `build.mjs` | Minified output contains `$&`. Use a function replacer. |
+| A state field written per frame and cleared in a branch | The clear loses. `railshot` wrote `charge = min(1, t/0.3)` every frame of its own 0.45 s effect and zeroed it on the fire frame, so the effect's tail re-stamped `1` and NYX kept the aura + a particle per frame forever (MOTION-AUDIT F8). Gate the write with the same condition the clear uses. Invisible until something *outside* the hero ticked the flourish it feeds — the bench is that something. |
+| Two tickers, one decay | `studio.js` hand-decayed the animation envelopes while `CAST SIM` was also running `Hero.update`: 2× every duration, in a panel whose whole job is judging durations. Neither side looked broken (invariant 18). |
 | Uploaded hero shows only its upper half | Not the model, not the camera: the animation loop rewrote the root position that `normalizeToStage()` had used to lift the body, so the lower half sat under the deck (invariant 15). `node tools/herofit.mjs` measures it. If you already dialled `pos.y` ≈ +1.2 to fight it, that value now double-lifts — **RESET** the placement. |
 | `Box3.setFromObject` on a moving preview | In the studio it reads whatever the *previous* frame's bob left there. `measureFit()` re-applies the rest maths, measures, then restores — otherwise the readout and auto-lift are one frame stale. |
 | A `PointLight` per entity | Looked free, was not. Every enemy *and* every dropped shard carried one, so 45 enemies meant 45+ point lights, and the count moved on every spawn, death and pickup. three.js keys its shader programs on that count, so each change recompiled every material — and the fragment shader looped over all of them per pixel. Completely invisible under swiftshader, where every frame is already 250 ms. |
@@ -239,8 +251,10 @@ node tools/geocheck.mjs   # per-enemy draw calls / verts / bbox / lights / mater
 node tools/glbtest.mjs    # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
 node tools/skintest.mjs   # 138 assertions: uploaded skins, hero_tuning.json v1->v2, FX slots, pooling, clamps
 node tools/herofit.mjs    # 18 assertions: the REAL models/uploads/*.glb stand fully on the deck (invariant 15)
-node tools/simtest.mjs    # 41 assertions: the studio cast bench — all 9 abilities + basics run, expire, leak nothing
-node tools/animcheck.mjs    # read-only: measures the motion layer (feet vs deck, GLB slam float, bones/clips per file)
+node tools/simtest.mjs    # 56 assertions: the studio cast bench — abilities + basics run, expire, leak nothing,
+                        #   the body stays owned by Hero.update, MOVE/dash work, uninstall gives the page back
+node tools/animcheck.mjs  # 30 measurements: the motion layer (feet vs deck, GLB slam float, FX anchor, bones/clips
+                        #   per file) — and it statically gates that the per-frame paths allocate nothing
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB sitting in models/uploads/
 node tools/fxsample.mjs   # writes + self-validates the AEGIS skill-FX samples in models/uploads/ (see FX-AEGIS.md)
 
@@ -357,6 +371,12 @@ exposes *only* the fields the abilities actually read (`dead pos radius stun pul
 also counts particles by wrapping `fx.spawn`, because `FX.alive` is vestigial in `fx.js`: set once, never
 maintained. `G.aimEnemy` and `G.explode` are verbatim copies of `main.js`, so a cast here cannot drift from a
 cast there — if those change, change both (the comment in `sim.js` says so).
+**Since v1.11.3 the bench also owns the body**: `sim.update` runs `h.move(dt, moveDir)` then `h.update(dt, G)` in
+the game's order, which is what makes movement, dash, the combo clock and every envelope decay previewable — and
+what caught F8. `SIM_MOVE` (`idle · walk · strafe · circle`) + `sim.dash()` are the inputs; `dash` reports
+`BLOCKED (cd …)` rather than forcing, because forcing a cooldown would misrepresent the one movement ability whose
+timing is its whole feel. `sim.reset()` (and `uninstall`) walk the hero back to the position *and* facing it was
+found at: the bench moves the page's hero, so it owes it back.
 
 ---
 
@@ -445,7 +465,7 @@ tests are meaningless; draw calls and triangle counts are accurate.
 | `NEON-VANGUARD-REVIEW.md` | the critical review that drove the last four passes; the P2 items are still open and still valid |
 | `README.md` | developer quick reference: controls, build, module map, subsystem notes |
 | `FX-AEGIS.md` | worked example for an art non-programmer: the AEGIS sample skill FX, the assign / tune / ● REC loop, and the tuning cheat sheet |
-| `MOTION-AUDIT.md` | the layer under the FX: how a hero is posed/moved/attacked, 7 findings with measured numbers (2 are shipping bugs, deliberately not yet fixed), and the plan for GLB animation clips — `tools/animcheck.mjs` re-measures it |
+| `MOTION-AUDIT.md` | the layer under the FX: how a hero is posed/moved/attacked, 8 findings with measured numbers (7 fixed, incl. a shipping bug the bench itself caught), and the plan for GLB animation clips — `tools/animcheck.mjs` re-measures it |
 
 **Open questions still owed by the stakeholder** (§9 of the proposal): monetisation/platform, whether co-op
 is the product or a nice-to-have (this changes the architecture *now*), art budget, and final roster size.

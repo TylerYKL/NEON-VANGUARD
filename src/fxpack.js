@@ -51,6 +51,12 @@ export const FX_OPT_DEFS = [
   ['vblend', 'video blend', ['additive', 'alpha'], ['video'], 0],
   ['face', 'facing', ['skill dir', 'face cam'], ['video'], 1],
   ['loop', 'clip', ['play once', 'loop'], ['video'], 0],
+  /* MOTION-AUDIT F3. An ability can move the body AFTER its effect was anchored —
+     AEGIS's slam drifts 1.18 m — so a ground FX could end up stranded behind the hit
+     that made it. 'follow' lets the effect ride the hero that cast it. Default is the
+     old behaviour: a slam mark left where you planted it is a choice, not a bug, so the
+     row exists for the tuner instead of me deciding it in a bug fix. */
+  ['follow', 'anchor', ['cast point', 'follow hero'], [], 0],
 ];
 
 export const FX_COLOR_DEFS = [['tint', 'tint']];
@@ -68,11 +74,11 @@ for (const row of FX_OPT_DEFS) OPT_SET[row[0]] = row[2].length;
 export const DEFAULT_FX = {
   glb: {
     scale: 1, y: 0.05, dur: 1.1, grow: 0.4, spin: 2.4, rise: 0.8, fade: 0.35,
-    opacity: 1, light: 6, blend: 0, tint: '#ffffff',
+    opacity: 1, light: 6, blend: 0, follow: 0, tint: '#ffffff',
   },
   video: {
     scale: 1, y: 1.15, dur: 1.6, grow: 0.55, spin: 0, rise: 0.35, fade: 0.3,
-    opacity: 1, light: 4, rate: 1, vblend: 0, face: 1, loop: 0, tint: '#ffffff',
+    opacity: 1, light: 4, rate: 1, vblend: 0, face: 1, loop: 0, follow: 0, tint: '#ffffff',
   },
 };
 
@@ -332,7 +338,9 @@ const VID_SIZE = 3.2;                    // world units at scale = 1
  *   update(dt) -> alive,   kill() -> release everything borrowed.
  * kill() is idempotent so a run reset can clean up live effects.
  */
-export function spawnFX(G, entry, p, at, facing = 0) {
+/** `owner` is only read when p.follow says so — a prop anchored to the cast point
+    *   never touches it, and never allocates for the option (MOTION-AUDIT F3). */
+export function spawnFX(G, entry, p, at, facing = 0, owner = null) {
   const dur = Math.max(0.05, p.dur);
   const video = entry.kind === 'video';
   let obj, own = null, ownSig = '', base = null, vid = null, light = null;
@@ -374,6 +382,7 @@ export function spawnFX(G, entry, p, at, facing = 0) {
   }
 
   const anchor = { x: at.x, y: at.y, z: at.z };
+  const live = p.follow === 1 && !!(owner && owner.pos);   // follow the caster's ground position
   /* sizeAt(k) is used at spawn too, so a billboard never shows one wrong frame */
   const sizeAt = (k) => p.scale * (1 + p.grow * easeOut(k));
   obj.visible = true;
@@ -432,6 +441,11 @@ export function spawnFX(G, entry, p, at, facing = 0) {
       } else {
         obj.scale.setScalar(sizeAt(k));
         obj.rotation.y = facing + p.spin * t;
+      }
+      if (live) {                       // the caster moved; so does the effect
+        anchor.x = owner.pos.x; anchor.z = owner.pos.z;
+        obj.position.x = anchor.x; obj.position.z = anchor.z;
+        if (light) { light.position.x = anchor.x; light.position.z = anchor.z; }
       }
       obj.position.y = anchor.y + p.rise * k;
       const fade = p.fade > 0 && k > 1 - p.fade ? (1 - k) / p.fade : 1;

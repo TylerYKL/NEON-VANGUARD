@@ -164,6 +164,12 @@ the ult meter 1.2 s later, the one thing it does on purpose, because a bench you
 using. A bench target exposes only the fields the abilities actually read. If a prop looks right here but wrong in
 `neon-vanguard.html`, the difference is real gameplay state (barriers, `mods`, a crowd that dies) — worth knowing.
 
+**Since v1.11.3 the bench moves the hero too.** `MOVE · walk/strafe/circle` + `dash` drive the real `Hero.move`, so
+a cast is judged while the body travels — which is exactly when an effect anchored at the cast point starts to lag.
+If your prop must stay glued to the hero through a leap, set its `anchor` row to *follow hero* (§6); if it is a
+mark on the ground, leave it, and expect it to stay where you planted it. The four samples above are all ground FX
+and say `follow: 0` out loud, so the file documents the choice rather than inheriting it.
+
 ## 5. ● REC — record a video effect
 
 What the button actually does (`recordFX()` in `src/studio.js`):
@@ -224,6 +230,7 @@ to 200 MB per file — but a video FX is decoded by *every* browser tab that pla
 | `glow light` | 0 – 24 | 9 / 5 / 16 / 7 | borrowed from the fixed `lights.js` pool — 0 means no light is touched at all |
 | `tint` | `#rrggbb` | `#ffd9a8` / `#18e0ff` / `#18e0ff` / `#ffd9a8` | multiplies colour, drives the light colour too |
 | `blend` (glb only) | as authored / additive / alpha | additive / as authored / additive / additive | additive is the fast way to make a prop feel like energy |
+| `anchor` | cast point / follow hero | cast point ×4 | **where the prop is when the body moves.** `seismicSlam` carries AEGIS 1.18 m in the 0.3 s before impact; at *cast point* your prop stays at the take-off mark (a ground shock ring wants that), at *follow hero* it rides the hero (a muzzle or shoulder effect wants that). `spawnFX` re-reads `owner.pos` per frame only in the second case (MOTION-AUDIT F3) |
 | `clip rate`, `facing`, `loop`, `video blend` (video only) | — | — | only shown on video slots, only saved for video slots |
 
 `ensureTuning` re-clamps all of this on read, so hand-editing the JSON is safe: NaN / out-of-range / unknown

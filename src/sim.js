@@ -45,6 +45,8 @@ import { addMat, clamp, flatDist } from './util.js';
 export const SIM_TARGETS = [0, 3, 6];
 export const SIM_SPEEDS = [1, 0.5, 0.25];     // the studio scales dt; this is just the menu
 const DUMMY_H = 1.7, DUMMY_R = 0.5;
+/** what the CAST SIM's MOVE row offers; `idle` is the only one that leaves the hero alone */
+export const SIM_MOVE = ['idle', 'walk', 'strafe', 'circle'];
 
 /** Build the bench. `opts` is the seam to the page: everything UI-ish is a callback. */
 export function createSim(G, opts = {}) {
@@ -57,6 +59,7 @@ export function createSim(G, opts = {}) {
 
   const scene = G.scene;
   const scratch = new THREE.Vector3();
+  const moveDir = new THREE.Vector3();        // the bench's stand-in for the player's input
   const sim = {
     on: false, speed: 1, targets: [], pool: [], n: 3, faults: 0,
     stats: { casts: 0, blocked: 0, forced: 0, hits: 0, parts: 0, dmg: 0, since: 0, last: '—', impact: -1, slot: '', name: '' },
@@ -122,6 +125,7 @@ export function createSim(G, opts = {}) {
   function install() {
     if (sim.hooks) return;
     ensureFX();
+    const h0 = hero();
     const prev = {};
     const set = (k, v) => { prev[k] = G[k]; G[k] = v; };
     // FX.alive is vestigial in fx.js (set once, never maintained), so the bench
@@ -211,6 +215,14 @@ export function createSim(G, opts = {}) {
         G.fx.sparkBurst(pos, color, 8, 16);
       }
     });
+    /* Hero.update and move reach two more members of the page's context; without these
+       the bench would be exercising a crippled hero instead of the shipped one. */
+    set('resolveObstacles', (p) => p);                  // this arena has no props to avoid
+    if (!G.ui) set('ui', { feed() {} });                 // addEnergy() feeds the HUD at 100
+    // the page's hero is the one thing the bench is allowed to MOVE, so remember how it
+    // was standing and put it back exactly (on reset, and on uninstall)
+    if (h0) sim.home = { x: h0.pos.x, y: h0.pos.y, z: h0.pos.z, facing: h0.facing || 0 };
+    sim.mmode = 'idle'; sim.dist = 0;
     set('announceSkill', (h, sk) => { sim.stats.last = sk.name; onAnnounce(h, sk); });
     set('onUltCast', () => { sim.stats.ult = (sim.stats.ult || 0) + 1; });
     sim.hooks = { prev, set };
@@ -225,6 +237,8 @@ export function createSim(G, opts = {}) {
     if (sim.restoreSpawn) { sim.restoreSpawn(); sim.restoreSpawn = null; }
     sim.hooks = null;
     sim.on = false;                       // cast() is inert once the hooks are gone
+    sim.mmode = 'idle';
+    walkHome();
     place(0);
   }
 
@@ -290,9 +304,25 @@ export function createSim(G, opts = {}) {
     if (!sim.on) return;
     const fx = G.fx;
     const h = hero();
-    if (h) {                                  // Hero.update() never runs on this page
-      for (let i = 0; i < 3; i++) h.cds[i] = Math.max(0, h.cds[i] - dt);
-      h.attackCd = Math.max(0, (h.attackCd || 0) - dt);
+    /* One owner per transform (HANDOFF invariants 16–17). Hero.update decays the four
+       animation envelopes AND every cooldown, ticks buffs, `comboT` (the reason a match
+       resets an idle combo) and the weapon flourishes. Decaying any of those here as well
+       would run the page at 2×, so the bench supplies *input* and the hero keeps its own
+       clocks — which is also what makes the slam's leap and a dash actually travel here. */
+    if (h) {
+      moveDir.set(0, 0, 0);
+      if (sim.mmode === 'walk') moveDir.set(Math.sin(h.facing), 0, Math.cos(h.facing));
+      else if (sim.mmode === 'strafe') moveDir.set(Math.cos(h.facing), 0, -Math.sin(h.facing));
+      else if (sim.mmode === 'circle') {
+        h.facing += dt * 0.8;                       // keeps a walking hero inside the arena
+        moveDir.set(Math.sin(h.facing), 0, Math.cos(h.facing));
+      }
+      h.move(dt, moveDir);
+      h.update(dt, G);                              // main.js's order: move, then update
+      if (sim.lastX !== undefined) {
+        sim.dist += Math.hypot(h.pos.x - sim.lastX, h.pos.z - sim.lastZ);
+      }
+      sim.lastX = h.pos.x; sim.lastZ = h.pos.z;
     }
     if (fx) fx.update(dt);
     if (G.projectiles && G.projectiles.update) G.projectiles.update(dt);
@@ -350,6 +380,29 @@ export function createSim(G, opts = {}) {
   }
 
   sim.setTargets = (n) => { if (sim.on) place(n); else sim.n = n; };
+  sim.setMove = (m) => {
+    sim.mmode = SIM_MOVE.includes(m) ? m : 'idle';
+    if (sim.mmode === 'idle') { const hh = hero(); if (hh && hh.vel) hh.vel.set(0, 0, 0); }
+  };
+  /** The dodge is the one piece of movement with its own FX set — afterimages, a ring, a
+      beam — and until now the only way to see it was to survive a wave. */
+  sim.dash = (force) => {
+    const h = hero();
+    if (!sim.on || !h || h.downed) return false;
+    if (h.dashCd > 0 && !force) {
+      sim.stats.blocked++;
+      sim.stats.last = 'DASH · BLOCKED (cd ' + h.dashCd.toFixed(1) + 's)';
+      sim.tickCaption();                     // the page styles its own caption (warn/bad)
+      return false;
+    }
+    if (force) h.dashCd = 0.01;
+    sim.stats.since = 0; sim.stats.impact = -1;
+    sim.stats.hits = 0; sim.stats.dmg = 0; sim.stats.parts = 0;
+    sim.stats.slot = 'dash'; sim.stats.last = 'DASH'; sim.stats.name = 'DASH';
+    h.dash();
+    sim.tickCaption();
+    return true;
+  };
   /** the bench is off, but the particles it made must not hang in the frame */
   sim.setFXVisible = (v) => { if (G.fx) { G.fx.points.visible = v; if (!v && G.fx.pObj) G.fx.pObj.visible = false; } };
   sim.reset = () => {
@@ -358,9 +411,22 @@ export function createSim(G, opts = {}) {
     if (G.fx) { for (const r of G.fx.rings) { r.m.visible = false; G.fx.ringPool.push(r.m); } G.fx.rings.length = 0; }
     if (G.barriers) { for (const b of G.barriers) b.active = false; G.barriers.length = 0; }
     place(sim.n);
-    sim.stats.impact = -1; sim.stats.since = 0;
+    walkHome();
+    sim.stats.impact = -1; sim.stats.since = 0; sim.dist = 0;
     sim.stats.blocked = sim.stats.hits = 0; sim.stats.dmg = 0; sim.stats.forced = 0;
   };
+  /* The bench moves the page's own hero. Leaving it wherever the last circle ended — or
+     still sliding, because velocity survived — is how a tool gets distrusted. */
+  function walkHome() {
+    const hh = hero();
+    if (!hh || !sim.home) return;
+    hh.pos.set(sim.home.x, sim.home.y, sim.home.z);
+    if (hh.vel) hh.vel.set(0, 0, 0);
+    hh.facing = sim.home.facing;
+    if (hh.group) hh.group.position.set(hh.pos.x, hh.pos.y, hh.pos.z);
+    sim.dist = 0; sim.lastX = sim.lastZ = undefined;
+  }
+
   sim.dispose = uninstall;
 
   /* fx.js keeps no live-particle counter, so scan the life buffer — ONLY here, on
@@ -380,6 +446,7 @@ export function createSim(G, opts = {}) {
   sim.readout = () => {
     const fx = G.fx;
     const st = sim.stats;
+    const h = hero();
     return ((st.slot ? st.slot + ' · ' : '') + (st.last || '—') +
       ' · ' + sim.targets.length + ' target' + (sim.targets.length === 1 ? '' : 's') +
       ' · ' + st.hits + ' hit' + (st.hits === 1 ? '' : 's') + ' for ' + Math.round(st.dmg) +
@@ -388,6 +455,9 @@ export function createSim(G, opts = {}) {
       (st.impact >= 0 ? ' · fx@' + st.impact.toFixed(2) + 's' : ' · no fx yet') +
       (st.blocked ? ' · ' + st.blocked + ' blocked' : '') +
       (st.forced ? ' · ' + st.forced + ' forced' : '') +
+      (h && sim.mmode !== 'idle'
+        ? ' · ' + sim.mmode + (sim.dist > 0.5 ? ' ' + sim.dist.toFixed(1) + 'm' : '') : '') +
+      (h && h.dashCd > 0.05 ? ' · dash ' + h.dashCd.toFixed(1) + 's' : '') +
       (sim.speed !== 1 ? ' · ' + (sim.speed === 0.5 ? '½' : sim.speed === 0.25 ? '¼' : sim.speed) + '×' : ''));
   };
   sim.tickCaption = () => onCaption(sim.readout());

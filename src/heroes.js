@@ -16,6 +16,14 @@ import { BALANCE as B } from './balance.js';
    ============================================================ */
 
 const ZERO3 = new THREE.Vector3();
+/* Scratch for the paths that run every frame for every hero (MOTION-AUDIT F5). They are
+   module-level because they are only ever touched from inside one function call at a
+   time, and a Color literal was still a Color literal at 60 Hz. */
+const DRONE_OFF = new THREE.Vector3();
+const DRONE_TO = new THREE.Vector3();
+const DOWN_EMBER = new THREE.Color(0xff3355);
+const FIST_EMBER = new THREE.Color();        // .set() per swing — the value varies, the Color doesn't
+const SLAM_EMBER = new THREE.Color(0xffa03a);
 
 export const HERO_DEFS = [
   {
@@ -90,6 +98,14 @@ export class Hero {
     this.iframe = 0;
     this.dmgBuffT = 0;
     this.dashDir = new THREE.Vector3();
+    /* Reused vectors for the per-frame paths (move, updateAI) — allocated here, once per
+       hero, never per frame (MOTION-AUDIT F5, and the rule in HANDOFF). */
+    this._moveTarget = new THREE.Vector3();
+    this._fxAt = new THREE.Vector3();     // anchor handed to spawnFX, reused every cast
+    this._fistOrigin = new THREE.Vector3();  // swing origin for damageEnemy + the three fx calls
+    this._aiDir = new THREE.Vector3();
+    this._aiSlot = new THREE.Vector3();
+    this._aiTmp = new THREE.Vector3();
     this.combo = 0;
     this.comboT = 0;
     this.buffs = { speed: 0, dr: 0, regen: 0 };
@@ -301,7 +317,10 @@ export class Hero {
   /* ---------------- movement ---------------- */
   move(dt, dir, sprint) {
     const spd = this.def.speed * (1 + this.buffs.speed + (this.G.mods ? this.G.mods.speed : 0)) * (this.downed ? 0 : 1);
-    const target = dir.clone().multiplyScalar(spd);
+    /* This was dir.clone().multiplyScalar(spd) — one Vector3 per hero per frame, the
+       hottest allocation in the hero layer (4 heroes at 60 Hz). Only .x/.z of the target
+       are ever read, so scaling the two axes into a reused vector is the same maths. */
+    const target = this._moveTarget.set(dir.x * spd, 0, dir.z * spd);
     const accel = this.dashT > 0 ? 30 : 14;
     this.vel.x = damp(this.vel.x, target.x, accel, dt);
     this.vel.z = damp(this.vel.z, target.z, accel, dt);
@@ -387,9 +406,11 @@ export class Hero {
     this.comboT = 1.1;
     this.combo = (this.combo + 1) % 3;
     const third = this.combo === 0;
-    const reach = 3.4 + (third ? G.mods.fistCleave : 0), arc = Math.cos(third ? 1.4 : 0.85);
+    /* F6: `G.mods` is read unguarded here while `useSkill` guards it — the bench had to
+       know which abilities assume a live mod set. Guarded, so any caller with a fake G is fine. */
+    const reach = 3.4 + (third && G.mods ? G.mods.fistCleave : 0), arc = Math.cos(third ? 1.4 : 0.85);
     const dmg = third ? 52 : 28;
-    const origin = new THREE.Vector3(this.pos.x + Math.sin(this.facing) * 1.2, 1.1, this.pos.z + Math.cos(this.facing) * 1.2);
+    const origin = this._fistOrigin.set(this.pos.x + Math.sin(this.facing) * 1.2, 1.1, this.pos.z + Math.cos(this.facing) * 1.2);
     let hits = 0;
     for (const e of G.enemies) {
       if (e.dead) continue;
@@ -404,6 +425,7 @@ export class Hero {
     // fx
     SFX.play(third ? 'fistHeavy' : 'fist', { pan: G.panOf(this.pos), gap: 0.05 });
     const c = third ? 0xffd06a : this.def.color;
+    const col = FIST_EMBER.set(c);              // one Color for the whole cone, not 26 (F5)
     G.fx.ring(origin, c, { r0: 0.4, r1: third ? 4.6 : 2.6, dur: third ? 0.45 : 0.28, y: -0.6 });
     G.fx.burst(origin, c, third ? 34 : 14, { speed: third ? 15 : 8, life: 0.4, size: 0.45 });
     G.fx.sparkBurst(origin, c, third ? 18 : 6, third ? 20 : 12);
@@ -414,7 +436,7 @@ export class Hero {
         G.fx.spawn({
           x: this.pos.x, y: rand(1.8, 0.3), z: this.pos.z,
           vx: Math.sin(a) * rand(24, 12), vy: rand(3, 0), vz: Math.cos(a) * rand(24, 12),
-          color: new THREE.Color(c), life: 0.4, size: 0.55, drag: 3.5, grav: -2,
+          color: col, life: 0.4, size: 0.55, drag: 3.5, grav: -2,
         });
       }
       G.fx.addShake(0.35);
@@ -520,7 +542,7 @@ export class Hero {
               G.fx.spawn({
                 x: p.x + Math.cos(a) * k * 0.75, y: 0.15, z: p.z + Math.sin(a) * k * 0.75,
                 vx: rand(1, -1), vy: rand(6, 1), vz: rand(1, -1),
-                color: new THREE.Color(0xffa03a), life: 0.55 - k * 0.02, size: 0.55, drag: 2.5, grav: -8,
+                color: SLAM_EMBER, life: 0.55 - k * 0.02, size: 0.55, drag: 2.5, grav: -8,
               });
             }
           }
@@ -922,7 +944,13 @@ export class Hero {
       t: 0, fired: false,
       update(dt) {
         this.t += dt;
-        self.charge = Math.min(1, this.t / 0.3);
+        /* Gate the charge-up on `!fired`. It sat ahead of the fire block and ran EVERY
+           frame of the 0.45 s effect, so the last thing the cast did was re-set
+           `charge = 1` after the fire frame had cleared it — NYX kept the overcharge
+           aura, a max coil and +8 muzzle light for the rest of the run, refired or not
+           (MOTION-AUDIT F8: invisible until something outside the hero ticked the
+           flourish it feeds). */
+        if (!this.fired) self.charge = Math.min(1, this.t / 0.3);
         if (!this.fired && this.t >= 0.3) {
           this.fired = true;
           const from = self.handPos();
@@ -1121,7 +1149,7 @@ export class Hero {
       if (Math.random() < 0.4) {
         G.fx.spawn({
           x: this.pos.x + rand(0.8, -0.8), y: rand(0.6, 0.05), z: this.pos.z + rand(0.8, -0.8),
-          vx: 0, vy: rand(1.4, 0.4), vz: 0, color: new THREE.Color(0xff3355), life: 0.8, size: 0.3, drag: 1, grav: 0,
+          vx: 0, vy: rand(1.4, 0.4), vz: 0, color: DOWN_EMBER, life: 0.8, size: 0.3, drag: 1, grav: 0,
         });
       }
     } else if (this.def.id === 'lyra') {
@@ -1201,7 +1229,9 @@ export class Hero {
     if (this.rig.glb) {
       this.animateGLB(dt, G, spd);
     } else {
+      /* `recoil` (F7) is handed over here: the gun block in animateRig is what it drives. */
       animateRig(this.rig, dt, {
+        recoil: this.recoil,
         speed: clamp(spd, 0, 1.4), time: G.time, attack: this.attackAnim,
         cast: this.castAnim, dead: this.downed, hurt: this.hurtAnim,
         style: this.def.style, block: this.def.id === 'aegis',
@@ -1248,8 +1278,8 @@ export class Hero {
         d.hull.rotation.x += dt * 2;
       } else {
       d.bob += dt;
-      const off = new THREE.Vector3(Math.sin(this.facing + 2.3) * 1.15, 2.25 + Math.sin(d.bob * 2) * 0.16, Math.cos(this.facing + 2.3) * 1.15);
-      d.group.position.lerp(new THREE.Vector3(this.pos.x + off.x, this.pos.y + off.y, this.pos.z + off.z), Math.min(1, dt * 7));
+      const off = DRONE_OFF.set(Math.sin(this.facing + 2.3) * 1.15, 2.25 + Math.sin(d.bob * 2) * 0.16, Math.cos(this.facing + 2.3) * 1.15);
+      d.group.position.lerp(DRONE_TO.set(this.pos.x + off.x, this.pos.y + off.y, this.pos.z + off.z), Math.min(1, dt * 7));
       d.group.rotation.y += dt * 1.4;
       d.ringA.rotation.z += dt * 3;
       d.hull.rotation.x += dt * 0.8;
@@ -1315,7 +1345,10 @@ export class Hero {
     const entry = G.fxBank && G.fxBank[asg.src];
     if (!entry) return null;
     const p = asg.p || clampFX(null, entry.kind);
-    const inst = spawnFX(G, entry, p, new THREE.Vector3(this.pos.x, p.y, this.pos.z), this.facing);
+    /* Scratch, not a fresh Vector3 per cast (the rule). `spawnFX` copies the anchor out
+       of it immediately, so reusing it is safe — and `this` is passed so a follow-anchored
+       effect can ride the body instead of being stranded at the cast point (F3). */
+    const inst = spawnFX(G, entry, p, this._fxAt.set(this.pos.x, p.y, this.pos.z), this.facing, this);
     G.addEffect({
       t: 0, dur: p.dur,
       update(dt) { return inst.update(dt); },
@@ -1328,15 +1361,15 @@ export class Hero {
 
   /* ---------------- AI ---------------- */
   updateAI(dt, G, leader) {
-    if (this.downed || this.dead) { this.move(dt, new THREE.Vector3()); return; }
+    if (this.downed || this.dead) { this.move(dt, ZERO3); return; }   // move() reads, never writes, dir
     const target = G.nearestEnemy(this.pos, 40);
     const id = this.def.id;
     const preferred = id === 'aegis' ? 3.0 : id === 'lyra' ? 13 : 15;
 
-    let dir = new THREE.Vector3();
+    let dir = this._aiDir.set(0, 0, 0);          // scratch, not fresh — this is 60 Hz
     // formation slot behind leader
     const slotA = leader.facing + (this.index === 0 ? 2.4 : this.index === 1 ? -2.4 : Math.PI);
-    const slot = new THREE.Vector3(
+    const slot = this._aiSlot.set(
       leader.pos.x + Math.sin(slotA) * (id === 'aegis' ? 3.5 : 4.5),
       0,
       leader.pos.z + Math.cos(slotA) * (id === 'aegis' ? 3.5 : 4.5)
@@ -1356,7 +1389,7 @@ export class Hero {
         dir.set(Math.sin(a), 0, Math.cos(a)).multiplyScalar(Math.sin(G.time * 0.7 + this.index) * 0.7);
       }
       // pull back toward leader if straying
-      if (distLeader > 20) dir.add(new THREE.Vector3(slot.x - this.pos.x, 0, slot.z - this.pos.z).normalize().multiplyScalar(1.2));
+      if (distLeader > 20) dir.add(this._aiTmp.set(slot.x - this.pos.x, 0, slot.z - this.pos.z).normalize().multiplyScalar(1.2));
       if (d < (id === 'aegis' ? 3.6 : 34)) this.tryAttack(G);
 
       // skill usage heuristics

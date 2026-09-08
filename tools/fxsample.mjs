@@ -30,6 +30,10 @@ import * as path from 'path';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
+/* `follow` is spelled out on every sample even though 0 is the default: these four are
+   ground FX — a slam mark, a projector dome, a threat plate — and being left behind by the
+   body that cast them is the point. A muzzle or shoulder effect is the case that wants 1
+   (MOTION-AUDIT F3), and the tool fails if a key is missing from a documented block. */
 /* GLTFExporter (and the loader we re-check with) expect a DOM; these stubs are
    the ones tools/skintest.mjs uses. */
 if (typeof globalThis.self === 'undefined') globalThis.self = globalThis;
@@ -158,16 +162,16 @@ function sharedBurst() {
 const SAMPLES = [
   ['aegis-fx.glb', sharedBurst, 'ALL  shared fallback', {
     scale: 1.1, y: 0.6, dur: 1.1, grow: 0.5, spin: 2.2, rise: 0.5, fade: 0.4,
-    opacity: 1, light: 7, blend: 1, tint: '#ffd9a8' }],
+    opacity: 1, light: 7, blend: 1, follow: 0, tint: '#ffd9a8' }],
   ['aegis-s0-fx.glb', seismicSlam, 'Q    SEISMIC SLAM', {
     scale: 1.5, y: 0.02, dur: 0.65, grow: 1.6, spin: 0.6, rise: 0, fade: 0.45,
-    opacity: 1, light: 9, blend: 1, tint: '#ffd9a8' }],
+    opacity: 1, light: 9, blend: 1, follow: 0, tint: '#ffd9a8' }],
   ['aegis-s1-fx.glb', bastionField, 'E    BASTION FIELD', {
     scale: 2.4, y: 0, dur: 2.2, grow: 0.12, spin: 0.35, rise: 0.06, fade: 0.55,
-    opacity: 0.85, light: 5, blend: 0, tint: '#18e0ff' }],
+    opacity: 0.85, light: 5, blend: 0, follow: 0, tint: '#18e0ff' }],
   ['aegis-s2-fx.glb', magnetronPulse, 'R    MAGNETRON PULSE', {
     scale: 2.8, y: 0.85, dur: 1.6, grow: 0.9, spin: 5.5, rise: 0.55, fade: 0.35,
-    opacity: 1, light: 16, blend: 1, tint: '#18e0ff' }],
+    opacity: 1, light: 16, blend: 1, follow: 0, tint: '#18e0ff' }],
 ];
 
 const argv = process.argv.slice(2);

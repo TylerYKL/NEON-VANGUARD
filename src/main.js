@@ -816,6 +816,12 @@ const keys = {};
 let mouseDown = false;
 let mouseHeld = false;
 const raycaster = new THREE.Raycaster();
+/* Scratch for the per-frame aim path (MOTION-AUDIT F5). Safe to reuse: everything
+   downstream copies out of them (aimPoint.copy, damp on .x/.z) and keeps no reference —
+   which is the same contract G.damageEnemy already relies on for borrowed vectors. */
+const AIM_HIT = new THREE.Vector3();
+const AIM_LEAD = new THREE.Vector3();
+const IDLE_DIR = new THREE.Vector3();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 addEventListener('keydown', (e) => {
@@ -860,7 +866,7 @@ addEventListener('blur', () => { mouseDown = false; mouseHeld = false; for (cons
 function updateAim() {
   if (PAD.on && (Math.abs(PAD.aimX) + Math.abs(PAD.aimZ)) > 0.05) return;
   raycaster.setFromCamera(G.mouse, camera);
-  const hit = new THREE.Vector3();
+  const hit = AIM_HIT;                     // scratch (F5): aimPoint.copy reads it immediately
   if (raycaster.ray.intersectPlane(groundPlane, hit)) {
     G.aimPoint.copy(hit);
   }
@@ -874,7 +880,7 @@ function updateCamera(dt) {
   const a = G.active;
   if (!a) return;
   // look slightly toward aim
-  const lead = new THREE.Vector3().subVectors(G.aimPoint, a.pos).clampLength(0, 12).multiplyScalar(0.22);
+  const lead = AIM_LEAD.subVectors(G.aimPoint, a.pos).clampLength(0, 12).multiplyScalar(0.22);
   camTarget.x = damp(camTarget.x, a.pos.x + lead.x, 5, dt);
   camTarget.z = damp(camTarget.z, a.pos.z + lead.z, 5, dt);
   const h = 23.5, back = 15.5;
@@ -1372,7 +1378,7 @@ function frame(now) {
         a.aim.set(G.aimPoint.x - a.pos.x, 0, G.aimPoint.z - a.pos.z).normalize();
         a.move(dt, dir);
         if (mouseDown) a.tryAttack(G);
-      } else a.move(dt, new THREE.Vector3());
+      } else a.move(dt, IDLE_DIR);          // move() reads dir, never writes it (F5)
 
       for (const h of G.heroes) {
         if (h !== a) h.updateAI(dt, G, a);

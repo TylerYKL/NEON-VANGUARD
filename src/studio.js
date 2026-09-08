@@ -626,6 +626,12 @@ function setActive(i) {
 function setAction(a) {
   action = a;
   const h = heroes[active];
+  /* POSE is a preview input; the bench is a real cast. They write the same envelopes, so
+     say which one the eye is looking at (MOTION-AUDIT F4). down is left alone: a
+     deliberately held death pose is the only way to see the death FX at all. */
+  if (sim.on && a !== 'idle' && a !== 'down') {
+    flash('POSE · ' + a.toUpperCase() + ' OVER A LIVE CAST — ENVELOPES COMBINE, MOVE DRIVES THE LEGS', '#ffb14a');
+  }
   if (a === 'attack') h.attackAnim = 1;
   if (a === 'cast') h.castAnim = 1;
   if (a === 'hurt') h.hurtAnim = 1;
@@ -671,7 +677,25 @@ $('sp3').onclick = () => setSpeed(2);
 $('tg0').onclick = () => setTargets(0);
 $('tg3').onclick = () => setTargets(3);
 $('tg6').onclick = () => setTargets(6);
-$('simreset').onclick = () => { sim.reset(); flash('SIM RESET — TARGETS BACK IN PLACE, EFFECTS KILLED', '#7cf9ff'); };
+$('simreset').onclick = () => { sim.reset(); flash('SIM RESET — TARGETS BACK IN PLACE, EFFECTS KILLED', '#7cf9ff'); syncMove(); };
+/* MOVE + DASH — MOTION-AUDIT F4. Motion is a layer no button here used to reach: the
+   game's frame runs `h.move(dt, inputDir)` and only the player's keys set that dir, so
+   a range that could never be seen from the studio. These are PREVIEW inputs (the bench
+   philosophy in sim.js), and dash keeps the real cooldown — an on-cooldown press is
+   reported, not forced, because a dodge you cannot see at full length is a lie. */
+for (const b of $('simmove').querySelectorAll('[data-m]')) b.onclick = () => { if (!simOn) simToggle(true); sim.setMove(b.dataset.m); syncMove(); sayMove(); sim.tickCaption(); };
+$('simdash').onclick = () => { if (!simOn) simToggle(true); sim.dash(); sim.tickCaption(); };
+function syncMove() {
+  const box = $('simmove');
+  if (!box) return;
+  for (const b of box.querySelectorAll('[data-m]')) b.classList.toggle('on', sim.on && b.dataset.m === sim.mmode);
+}
+function sayMove() {
+  const el = $('simsay');
+  el.textContent = 'MOVE · ' + sim.mmode + (sim.mmode === 'idle' ? ' · the hero stands' : ' · ' + sim.dist.toFixed(1) + 'm travelled');
+  el.classList.add('on');
+  saySkill.t = G.time + 1.2;
+}
 $('fxhelphide').onclick = () => {
   const h = $('fxhelp');
   h.style.display = h.style.display === 'none' ? '' : 'none';
@@ -771,7 +795,8 @@ function simToggle(force) {
   $('simon').textContent = simOn ? 'on' : 'off';
   $('simon').classList.toggle('on', simOn);
   if (simOn) { if (!sim.on) sim.setTargets(sim.n); sim.setFXVisible(true); stopPreview(); }
-  else { sim.setTargets(0); sim.setFXVisible(false); sim.reset(); }
+  else { sim.setTargets(0); sim.setFXVisible(false); sim.reset(); }   // reset walks the hero home and drops MOVE
+  syncMove();
   sim.tickCaption();
 }
 
@@ -881,18 +906,28 @@ function syncPanel() {
     G.time += dt;
     controls.update();
     const h = heroes[active];
-    h.attackAnim = Math.max(0, h.attackAnim - dt * 5);
-    h.castAnim = Math.max(0, h.castAnim - dt * 2.2);
-    h.hurtAnim = Math.max(0, h.hurtAnim - dt * 4);
+    /* Who owns the body (MOTION-AUDIT F4/F5). While the bench is installed, sim.update
+       calls the REAL Hero.update, which decays attackAnim/castAnim/hurtAnim and ticks
+       hurtT/comboT — so this loop must not decay them a second time, or every timing
+       read here runs at 2× the match. Off, this loop IS the owner, so it still does. */
+    if (!sim.on) {
+      h.attackAnim = Math.max(0, h.attackAnim - dt * 5);
+      h.castAnim = Math.max(0, h.castAnim - dt * 2.2);
+      h.hurtAnim = Math.max(0, h.hurtAnim - dt * 4);
+    }
     if (action === 'attack' && h.attackAnim <= 0) h.attackAnim = 1;   // loop the preview
     if (action === 'cast' && h.castAnim <= 0) h.castAnim = 1;
     if (action === 'hurt' && h.hurtAnim <= 0) h.hurtAnim = 1;
-    const spd = action === 'walk' ? 1 : 0;
+    /* And the gait rate is measured, not asserted: the bench integrates Hero.move, so
+       walk frequency can finally be judged against a real spd (F5: the match's own
+       stepRate could never be checked from here while the studio hard-coded 1-for-walk / 0-for-everything). */
+    const spd = sim.on ? Math.min(1.4, Math.hypot(h.vel.x, h.vel.z) / (h.def.speed || 6))
+      : (action === 'walk' ? 1 : 0);
     if (h.rig.glb) {
       h.animateGLB(dt, G, spd);
     } else {
       animateRig(h.rig, dt, {
-        speed: clamp(spd, 0, 1.4), time: G.time, attack: h.attackAnim,
+        speed: clamp(spd, 0, 1.4), time: G.time, attack: h.attackAnim, recoil: h.recoil,
         cast: h.castAnim, dead: h.downed, hurt: h.hurtAnim,
         style: h.def.style, block: h.def.id === 'aegis',
       });

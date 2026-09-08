@@ -47,6 +47,7 @@ const check = (name, cond, note) => {
 };
 
 const { HERO_DEFS, Hero } = await import('../src/heroes.js');
+const { ARENA } = await import('../src/world.js');
 const { createSim, SIM_TARGETS, SIM_SPEEDS } = await import('../src/sim.js');
 
 /* ---- a studio-shaped G: scene, camera, effects list, counting light pool ---- */
@@ -226,6 +227,94 @@ active = heroes.findIndex((h) => h.def.id === 'nyx');
 sim.cast(0);
 check('railshot built the real ProjectileSystem on demand', !!G.projectiles && typeof G.projectiles.fire === 'function');
 settle();
+
+/* ---------- 4b. the body: Hero.update owns it, and the bench can move it ---------- */
+{
+  const a0 = heroes.findIndex((h) => h.def.id === 'aegis');
+  active = a0;
+  const h = heroes[active];
+
+  /* Ownership, both directions. The bench must not decay what Hero.update decays —
+     that is the double-advance trap, one frame at a time it looked *fine*. */
+  check('the bench leaves the animation envelopes to Hero.update (it never decays them itself)', (() => {
+    h.attackAnim = 1; const real = h.update; h.update = () => {};
+    step(30);
+    const held = h.attackAnim;
+    h.update = real;
+    return held === 1;
+  })(), 'attackAnim drifted to ' + h.attackAnim);
+  check('…and with Hero.update in the loop the envelope really does release', (() => {
+    h.attackAnim = 1; step(20); return h.attackAnim < 0.05;      // dt × 5 ⇒ gone by 0.2 s
+  })(), 'attackAnim ' + h.attackAnim.toFixed(2));
+
+  /* F4: `comboT` only decays inside Hero.update, which the studio never called — so the
+     bench used to hand out the heavy cleave on press #3 of an idle loop the match resets.
+     The slam's ring radius is the tell: 4.6 heavy, 2.6 light. */
+  const r1s = [];
+  const ring0 = G.fx.ring.bind(G.fx);
+  G.fx.ring = (pos, c, o) => { r1s.push(o && o.r1); return ring0(pos, c, o); };
+  sim.basic(); settle(); step(80);                    // >1.1 s apart
+  r1s.length = 0; sim.basic(); settle();
+  check('an idle gap resets the combo, so a lone press is still the light hit (F4)',
+    r1s.some((r) => Math.abs(r - 2.6) < 0.01) && !r1s.some((r) => Math.abs(r - 4.6) < 0.01),
+    'rings ' + r1s.join(','));
+  r1s.length = 0;
+  sim.basic(); sim.basic(); settle();                 // back to back: presses 2 and 3 of a burst
+  check('…and presses inside the window still build to the heavy cleave',
+    r1s.some((r) => Math.abs(r - 4.6) < 0.01), 'rings ' + r1s.join(','));
+  G.fx.ring = ring0;
+  settle();
+
+  /* movement — the layer no studio control used to reach */
+  const home = { x: sim.home.x, z: sim.home.z, facing: sim.home.facing };
+  const from = { x: h.pos.x, z: h.pos.z };
+  sim.setMove('walk');
+  step(60);
+  const walked = Math.hypot(h.pos.x - from.x, h.pos.z - from.z);
+  const vel = Math.hypot(h.vel.x, h.vel.z);
+  check('MOVE walk: the hero travels, at its own stat speed',
+    walked > 1 && vel > h.def.speed * 0.7, walked.toFixed(2) + ' m · vel ' + vel.toFixed(1) + ' vs def ' + h.def.speed);
+  check('…so MOTION’s stepRate is finally judged against a real spd',
+    Math.hypot(h.vel.x, h.vel.z) / h.def.speed > 0.7, 'spd ' + (vel / h.def.speed).toFixed(2));
+  check('…and the caption says which mode and how far', / · walk [\d.]+m/.test(sim.readout()), sim.readout());
+  step(900);
+  check('…without escaping the arena (move clamps, like the match)',
+    Math.abs(h.pos.x) < ARENA && Math.abs(h.pos.z) < ARENA && Number.isFinite(h.pos.x),
+    h.pos.x.toFixed(1) + ',' + h.pos.z.toFixed(1) + ' (ARENA ' + ARENA + ')');
+  sim.setMove('idle'); step(40);
+  check('MOVE idle stops the hero instead of letting it slide on', Math.hypot(h.vel.x, h.vel.z) < 0.6,
+    'vel ' + Math.hypot(h.vel.x, h.vel.z).toFixed(2));
+
+  sim.reset(); step(2);          // walk home first: a dash into the wall clamps to nothing
+  const d0 = { x: h.pos.x, z: h.pos.z };
+  check('the dodge is previewable at all now', sim.dash() === true && h.dashT > 0, 'dashT ' + h.dashT.toFixed(2));
+  step(24);
+  const dashDist = Math.hypot(h.pos.x - d0.x, h.pos.z - d0.z);
+  check('…and it covers the match distance, not just the FX', dashDist > 1.5, dashDist.toFixed(2) + ' m');
+  check('…with the cooldown reported rather than eaten silently',
+    sim.dash() === false && /DASH · BLOCKED \(cd [\d.]+s\)/.test(sim.stats.last), sim.stats.last);
+  settle();
+
+  sim.reset();
+  check('reset walks the page’s hero back to where the bench found it (position AND facing)',
+    Math.hypot(h.pos.x - home.x, h.pos.z - home.z) < 1e-6 && Math.abs(h.facing - home.facing) < 1e-9,
+    'at ' + h.pos.x.toFixed(2) + ',' + h.pos.z.toFixed(2) + ' facing ' + h.facing.toFixed(2) +
+    ' vs home ' + home.x.toFixed(2) + ',' + home.z.toFixed(2));
+
+  /* F8 — a bug the bench found by ticking the hero the way the game does */
+  const nIdx = heroes.findIndex((x) => x.def.id === 'nyx');
+  active = nIdx;
+  const nyx = heroes[active];
+  sim.cast(0); settle(); step(90);
+  check('railshot RELEASES its overcharge aura — charge is 0 once the cast is done (F8)',
+    nyx.charge === 0 && sim.liveParticles() === 0,
+    'charge ' + nyx.charge.toFixed(2) + ' · live particles ' + sim.liveParticles());
+  check('…and the muzzle light drops with it instead of sitting at +8',
+    nyx.charge === 0, 'charge stuck at ' + nyx.charge);
+
+  active = a0; sim.setMove('idle');
+  settle();
+}
 
 /* ---------- 5. target pooling and the NaN guard ---------- */
 const meshes0 = scene.children.length;

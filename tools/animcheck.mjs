@@ -145,11 +145,84 @@ else {
     + ' (rest ' + hero.rig.hipsRest + ')');
   check('aegis (GLB): …which only works because the leap owns a dispose()',
     stranded > 0.5, 'the leap never left its rest, so this proves nothing: ' + stranded.toFixed(3));
+  /* F4 made the bench integrate the real Hero.move, so the studio now travels the way
+     the match does — which is what makes MOTION-AUDIT F3 *visible* here: playFX anchors
+     the prop at the cast position, and the slam carries the body 1.18 m past it. */
   const p0 = hero.pos.clone(); sim.cast(0); tick(30);
   const moved = Math.hypot(hero.pos.x - p0.x, hero.pos.z - p0.z);
-  info('bench travel during Q = ' + moved.toFixed(2) + ' m');
-  info('the match moves AEGIS 1.18 m in the same cast (heroes.js:297), and Hero.playFX anchors the');
-  info('prop at the CAST position (heroes.js:1297) → in play a ground FX lands ~1.2 m behind the slam (F3)');
+  check('the bench reproduces the match\u2019s slam travel (F4 fidelity)',
+    moved > 0.8 && moved < 1.6, 'bench ' + moved.toFixed(2) + ' m vs 1.18 m in play');
+  /* ---------- F3: an effect can now ride the body that cast it ---------- */
+  {
+    const { clampFX } = await import('../src/fxpack.js');
+    // reuse the normalized template: it already carries the userData.stage stamp a clone copies
+    G.fxBank = { 'test.glb': { kind: 'glb', url: 'test.glb', template, stats: gatherStats(template), matPools: {} } };
+    G.glbTuning.aegis.fxSlots[0] = { src: 'test.glb', on: true, p: clampFX({ dur: 3, light: 0 }, 'glb') };
+    const run = (follow) => {
+      G.glbTuning.aegis.fxSlots[0].p.follow = follow;
+      sim.reset(); tick(4);
+      const prop = hero.playFX(G, 0);
+      const a0 = { x: prop.position.x, z: prop.position.z };
+      const h0 = { x: hero.pos.x, z: hero.pos.z };
+      sim.cast(0); tick(30);
+      return { prop: Math.hypot(prop.position.x - a0.x, prop.position.z - a0.z),
+               hero: Math.hypot(hero.pos.x - h0.x, hero.pos.z - h0.z) };
+    };
+    const f0 = run(1);
+    check('F3 fixed: an effect with anchor=follow hero rides the slam that cast it',
+      f0.hero > 0.8 && Math.abs(f0.prop - f0.hero) < 0.06,
+      'prop travelled ' + f0.prop.toFixed(2) + ' m with the hero\u2019s ' + f0.hero.toFixed(2) + ' m');
+    const f1 = run(0);
+    check('…and the authored default still plants it at the cast point (nothing moved for free)',
+      f1.hero > 0.8 && f1.prop < 0.02, 'prop ' + f1.prop.toFixed(2) + ' m, hero ' + f1.hero.toFixed(2) + ' m');
+    for (const e of effects) if (e.dispose) e.dispose();
+    effects.length = 0;
+    G.fxBank = null; G.glbTuning.aegis.fxSlots[0] = null;
+    sim.reset(); tick(30);
+  }
+  info('the slam drifts ' + moved.toFixed(2) + ' m in 0.3 s; playFX anchors at the cast point unless the');
+  info('effect\u2019s ANCHOR row says follow hero (MOTION-AUDIT F3) — both halves measured above');
+}
+
+/* ---------- 3b. the per-frame paths allocate nothing (MOTION-AUDIT F5, static) ---------- */
+{
+  const hs = fs.readFileSync(ROOT + 'src/heroes.js', 'utf8');
+  const bodyOf = (sig) => {
+    const i = hs.indexOf(sig);
+    if (i < 0) return null;
+    let j = hs.indexOf('{', i), d = 0;
+    for (let k = j; k < hs.length; k++) {
+      if (hs[k] === '{') d++;
+      else if (hs[k] === '}') { d--; if (!d) return hs.slice(j, k + 1); }
+    }
+    return null;
+  };
+  for (const [sig, label] of [
+    ['move(dt, dir, sprint)', 'Hero.move'],
+    ['update(dt, G) {', 'Hero.update (idle flourish, drone hover)'],
+    ['updateAI(dt, G, leader)', 'Hero.updateAI (3 heroes at run rate)'],
+    ['animateGLB(dt, G, spd)', 'Hero.animateGLB'],
+  ]) {
+    const b = bodyOf(sig);
+    const bad = b ? [...b.matchAll(/new THREE\.(Vector3|Color|Quaternion|Euler|Box3|Sphere)/g)].map((m) => m[0]) : null;
+    check(label + ': allocates nothing per frame (F5)', !!b && !bad.length,
+      !b ? 'signature not found — the gate itself is broken' : (bad.length ? bad.join(', ') : 'clean (scratch vectors reused)'));
+  }
+}
+
+/* ---------- 2b. F7: the recoil value reaches the gun arm ---------- */
+{
+  const d = HERO_DEFS.find((x) => x.style === 'gun') || HERO_DEFS[2];
+  const rig = buildHumanoid({ accent: d.color, visor: d.color2, bulk: d.bulk, scale: d.scale, plate: d.plate });
+  const aim = (recoil) => {
+    for (let i = 0; i < 40; i++) animateRig(rig, 1 / 60, { speed: 0, time: i / 60, style: 'gun', attack: 1, recoil });
+    return rig.arms.R.shoulder.rotation.x;
+  };
+  const still = aim(0), kicked = aim(1.6);
+  check('NYX (gun style): the railshot recoil kick moves the shoulder it was written for (F7)',
+    kicked < still - 0.1, 'shoulder.x ' + still.toFixed(3) + ' → ' + kicked.toFixed(3) + ' at recoil 1.6');
+  check('…and a kick decays: 1.6 bleeds to 0 in the hero\u2019s own dt×6', (1.6 / (1 / 60 * 6)) > 15,
+    '≈16 frames, i.e. a 0.27 s snap-back — longer than the shot\u2019s own flash');
 }
 
 /* ---------- 3. the asset census (what a mixer would have to work with) ---------- */

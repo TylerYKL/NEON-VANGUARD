@@ -61,6 +61,9 @@
   #simrow #simbasic{min-width:62px}
   #simrow #simq,#simrow #sime,#simrow #simr{min-width:38px}
   #simspd,#simtgt,#simtools,#fxlibtools,#fxlibfilter{display:flex;gap:3px;align-items:center}
+  #simmove{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:5px}
+  #simmove .mv{font-size:7px;letter-spacing:.16em;opacity:.5;text-transform:uppercase}
+  #simmove .act.on{border-color:var(--c2);color:#eaffff;background:rgba(24,224,255,.18)}
   #simrow span>.act{padding:6px 8px;font-size:7.5px}
   #simrow .act.on,#simtools .act.on{border-color:var(--c2);color:#eaffff;background:rgba(24,224,255,.18)}
   #simrow .act:active{transform:translateY(1px)}
@@ -163,7 +166,15 @@
     <button class="act mini" id="simauto" title="re-cast as soon as the last one finishes">⟳ auto</button>
     <span id="simspd"><button class="act mini on" id="sp1">1×</button><button class="act mini" id="sp2">½×</button><button class="act mini" id="sp3">¼×</button></span>
     <span id="simtgt"><button class="act mini" id="tg0">0</button><button class="act mini on" id="tg3">3</button><button class="act mini" id="tg6">6</button></span>
-    <button class="act mini" id="simreset" title="kill live effects, re-place the targets">reset</button>
+    <button class="act mini" id="simreset" title="kill live effects, re-place the targets, walk the hero home">reset</button>
+  </div>
+  <div id="simmove">
+    <span class="mv">move</span>
+    <button class="act mini on" data-m="idle" title="no input — the hero stands and damps its velocity">idle</button>
+    <button class="act mini" data-m="walk" title="hold the real accel/damp curve and the arena clamp">walk</button>
+    <button class="act mini" data-m="strafe" title="perpendicular to facing">strafe</button>
+    <button class="act mini" data-m="circle" title="orbit the aim point — where the gait has to work under rotation">circle</button>
+    <button class="act mini" id="simdash" title="real Hero.dash(): its own cooldown, iframe and afterimages — on cooldown it says BLOCKED">dash</button>
   </div>
   <div id="simcap">bench idle — cast a skill to install it</div>
   <div id="simsay"></div>
@@ -180,6 +191,10 @@
       <li><code>fxpack.spawnFX()</code> builds it from a <b>pool</b>: a clone of your .glb, or a billboard fed by one shared <code>&lt;video&gt;</code>, plus a light borrowed from the fixed pool.</li>
       <li>Your <b>FX LOOK</b> numbers drive that instance (scale, rise, spin, fade…) and a coroutine ticks it; at the end <code>kill()</code> returns everything. Nothing is created or destroyed per cast.</li>
       <li><b>CAST SIM</b> (above) runs steps 1–5 for real, so an effect can be judged against the shake, the knockback and the ability's own burst — not on a blank stage.</li>
+      <li><b>The bench owns the body while it is on.</b> Its update runs the real <code>Hero.move</code> +
+        <code>Hero.update</code>, so MOVE is what moves the hero, POSE can only <i>overlay</i> an envelope on
+        top of a live cast, and walk frequency is measured off the hero's actual velocity instead of assumed.
+        Turn the bench off and this loop drives the body by itself again (MOTION-AUDIT F4/F5).</li>
     </ol>
   </div>
 

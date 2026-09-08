@@ -123,7 +123,7 @@ one the studio shows when a skin fails to parse. One more loop in `animcheck` co
 mesh bounds (feet at 0) rather than a literal, read by `animateRig`, `seismicSlam` and
 `animateGLB`; then `herofit` gains a procedural case so the number is pinned.
 
-### F3 · a leap-cast's uploaded FX lands **1.18 m behind** where the ability hits — P1
+### F3 · a leap-cast's uploaded FX lands **1.18 m behind** where the ability hits — P1 · ✅ FIXED
 
 `Hero.playFX` anchors the prop at cast time (`heroes.js:1297`):
 
@@ -146,7 +146,17 @@ Three ways to fix it, cheapest first:
 3. let an ability announce `G.fxAnchor(self, 'impact', pos)` — the biggest change, the only
    one that also fixes LYRA's tether and NYX's rail origins.
 
-### F4 · the studio and the bench do not tick `comboT`, so the **combo preview lies** — P2
+**Done: 2, as a per-effect row.** `FX LOOK` gained `anchor · cast point | follow hero`
+(`FX_OPT_DEFS` in `fxpack.js`), `spawnFX` takes the caster as `owner`, and when `p.follow === 1`
+it re-reads `owner.pos` into its anchor each frame — four writes, no allocation, and the light moves
+with it. **Default 0**, i.e. today's behaviour, because "the slam mark stays where I planted it" is a
+legitimate look and I am not the one who decides that; what was unacceptable was that no one could
+decide it. `animcheck` measures both halves on the real slam: follow=1 puts the prop exactly on the
+hero's 1.18 m of travel, follow=0 leaves it at 0.00 m. `tools/fxsample.mjs` states `follow: 0` on
+all four AEGIS samples so the documented block lists every row. Option 1 is still the right answer
+for a *projectile-ish* skill and option 3 is still what a tether needs; neither is blocked by this.
+
+### F4 · the studio and the bench do not tick `comboT`, so the **combo preview lies** — P2 · ✅ FIXED
 
 `attackFist` sets `comboT = 1.1` and cycles `combo = (combo + 1) % 3`; `Hero.update` is the
 only place `comboT` decays (`heroes.js:1091-1092`). The studio decays three envelopes by hand
@@ -163,7 +173,19 @@ The honest fix is structural, and it is the same fix as F5: **the bench must cal
 `update` touches are exactly those) and buys walk, dash, knockback and every envelope decay
 for free.
 
-### F5 · allocation rule violations in the per-frame path — P2
+**Done, and it found F8 on the way.** `sim.update` now runs the game's own order —
+`h.move(dt, moveDir)` then `h.update(dt, G)` — and the hand-ticked cooldown block is gone;
+two more hooks went in to cover what `Hero.update` touches (`resolveObstacles` identity, `ui.feed`)
+and `G.ui` was already stubbed. The studio's loop no longer decays `attackAnim/castAnim/hurtAnim`
+while the bench is installed (`studio.js`): one owner per tick context, which is invariant 18.
+`sim` also owns the *inputs* now — `SIM_MOVE` (`idle · walk · strafe · circle`) and `sim.dash()` —
+so the bench has a movement layer for the first time, and `reset`/`uninstall` walk the hero back to
+the position and facing it was found at, because a bench that moves the page's hero owes it back.
+`simtest` pins all of it: the envelope decay is *absent* when `Hero.update` is stubbed and *present*
+when it runs, and AEGIS's heavy cleave only appears inside the 1.1 s window (the ring radius is the
+tell: 2.6 light, 4.6 heavy).
+
+### F5 · allocation rule violations in the per-frame path — P2 · ✅ FIXED (and statically gated)
 
 `HANDOFF` §4.4: no per-frame or per-cast allocation. Today:
 
@@ -179,7 +201,22 @@ for free.
 The slam is the worst offender (~100 short-lived objects per press, every 7 s per AEGIS, times
 however many AEGISes are on the field). `Color` in particular is free to hoist: `spawn({color: 0xffa03a})`.
 
-### F6 · `attackFist` dereferences `G.mods` unguarded — P3
+**Done.** Hoisted to per-hero scratch (`_moveTarget`, `_aiDir`, `_aiSlot`, `_aiTmp`, `_fxAt`,
+`_fistOrigin`, allocated once in the constructor) or to module consts (`DRONE_OFF`, `DRONE_TO`,
+`DOWN_EMBER`, `SLAM_EMBER`, `FIST_EMBER`, and `AIM_HIT`/`AIM_LEAD`/`IDLE_DIR` in `main.js`).
+Two the table above missed: `move()` did `dir.clone()` — one `Vector3` per hero per frame, the
+hottest line in the layer, now `this._moveTarget.set(dir.x*spd, 0, dir.z*spd)`, exact because only
+`.x`/`.z` are read — and `playFX` built a fresh anchor `Vector3` per cast. The reuse is safe for a
+specific reason, not by luck: `move`, `damageEnemy` and `spawnFX` all copy out of the vector they
+are handed and keep no reference (line 245 of `main.js` was already borrowing the hero's own vector,
+which is how I knew).
+`animcheck` now gates this *statically* — the bodies of `Hero.move`, `Hero.update`, `Hero.updateAI`
+and `Hero.animateGLB` must contain no `new THREE.<anything>` — so the rule cannot quietly rot.
+Left alone deliberately: `center()` and `handPos()` return fresh vectors (a getter that hands back
+shared scratch invites the caller to mutate it), and the per-*cast* clones inside ability coroutines
+are one or two objects behind a 7 s cooldown.
+
+### F6 · `attackFist` dereferences `G.mods` unguarded — P3 · ✅ FIXED (guarded)
 
 `heroes.js:374` `G.mods.fistCleave`, `:487` `G.mods.slamStun` — while `useSkill` (`:449`) and
 LYRA's lock (`:1120`) both guard with `G.mods ? … : 0`. Any harness or tool that fakes a `G`
@@ -187,7 +224,11 @@ LYRA's lock (`:1120`) both guard with `G.mods ? … : 0`. Any harness or tool th
 Two ways to settle it: guard everywhere, or declare `G.mods` **mandatory** and assert it once
 in `startGame`. Worth deciding rather than drifting.
 
-### F7 · `recoil` is dead — P3
+**Guarded.** `(third && G.mods ? G.mods.fistCleave : 0)`. The bench and every `tools/*.mjs` harness
+fake a `G`, so the guard is what makes those harnesses exercise the same code as a live run instead
+of a subset chosen by which methods happen to deref.
+
+### F7 · `recoil` is dead — P3 · ✅ FIXED (wired into the gun arm)
 
 Written by `attackRail` (`:435`) and by `railshot` (`:942`), decayed in `Hero.update` (`:1093`),
 and **read nowhere** in `src/`. The `gun` block in `animateRig` is even commented *"right arm aims
@@ -195,24 +236,64 @@ forward, recoil kick"* — the value that drives it is `atkE` (i.e. `attackAnim`
 comment promises has never reached the arm. Either wire it (a gun-arm kick is the obvious consumer, and the
 `fist`/`gun`/`caster` blocks in `animateRig` have room for it) or delete the three lines.
 
+**Wired, procedurally only.** `animateRig` takes `recoil` and the gun block subtracts it from the shoulder and
+adds it to the elbow, so a railshot (which pushes `recoil` to 1.6) snaps the arm up and back and the hero's own
+`dt*6` decay settles it over ~16 frames; a normal shot kicks at 1.0. `animcheck` measures the shoulder delta
+rather than trusting the arithmetic. The GLB path cannot express it yet: `motion` is a v2 table of eleven numbers
+and adding a twelfth belongs with the v3 bump in §4, not with a bug fix.
+
+### F8 · `railshot` leaves the overcharge aura switched on **forever** — P1 · 🐛 found by this bench, ✅ fixed
+
+Not in the original list: it only became visible once something outside the hero ticked the state
+its own coroutine writes. `railshot` ramped the charge visual and cleared it in the fire branch:
+
+```js
+this.t += dt;
+self.charge = Math.min(1, this.t / 0.3);        // every frame of a 0.45 s effect
+if (!this.fired && this.t >= 0.3) { … self.charge = 0; }
+```
+
+The fire frame does clear it — and then the remaining ~0.15 s of the coroutine writes `1` back on
+top of the clear. `Hero.update` reads `charge` for the muzzle flourish, so in a match, after the
+first railshot: the coil stays at full opacity, `pistol.light.intensity` stays at ~8.5 instead of
+its idle 0.5, both rails stay lit, and `if (this.charge > 0.05 && Math.random() < 0.6)` spawns a
+burst **every frame, forever** — 60 particles a second of a 6,000 pool, each one a fresh
+`{}` literal, in a codebase whose §4.4 says it may not do that. It was never caught because nothing
+on the bench called `Hero.update`; the studio decays envelopes by hand and never looked.
+
+One-line fix, gating the write the way the fire branch already gates itself:
+
+```js
+if (!this.fired) self.charge = Math.min(1, this.t / 0.3);
+```
+
+`simtest` asserts the shape of it — `charge === 0` and `liveParticles() === 0` after a railshot
+settles — which is a *test the code could not pass* before the fix, the only kind worth writing.
+The general rule is invariant 19: an effect that writes a field every frame must gate the write
+against the branch that clears it, or the clear is undone by the tail of its own coroutine.
+
 ---
 
 ## 3. What the studio can and cannot show you today
 
 | Layer | In the match | In `hero-studio.html` | Verdict |
 |---|---|---|---|
-| Attack / cast / hurt envelopes | via `Hero.update` | hand-decayed, never set except by `CAST SIM` or `ACTION` | works, but **not the same state machine** (F4) |
-| Walk cycle | `spd = hypot(vel)/def.speed`, 0…1.4, buff- and mod-dependent | `spd = action === 'walk' ? 1 : 0` | `stepRate` / `walkLean` are tuned against a speed the match won't reproduce |
-| `move()` — accel, dash override, arena clamp, obstacles | every frame | never called | **unpreviewable**; the bench's slam jumps in place (measured: 0.00 m vs 1.18 m) |
-| `dash()` | SPACE / gamepad | no button, no row | unpreviewable, and it is the one movement FX with afterimages + a beam |
-| Facing | mouse-lerped | fixed | a directional FX can't be judged off-axis |
-| Combo reset | 1.1 s | never resets | F4 |
+| Attack / cast / hurt envelopes | via `Hero.update` | **via `Hero.update`** when the bench is on; hand-decayed only when it is off | ✅ F4 — one owner per tick context |
+| Walk cycle | `spd = hypot(vel)/def.speed`, 0…1.4, buff- and mod-dependent | measured off `h.vel` when the bench is on, `action === 'walk' ? 1 : 0` when it is off | ✅ F5 — `stepRate`/`walkLean` can be judged against a speed the match reproduces |
+| `move()` — accel, dash override, arena clamp, obstacles | every frame | every frame, via `sim.update` + the MOVE row | ✅ F4 — the slam now drifts 1.18 m here too, which is what makes F3 measurable |
+| `dash()` | SPACE / gamepad | `dash` button; real cooldown, real `BLOCKED (cd 0.4s)` caption instead of a silent no | ✅ F4 |
+| Facing | mouse-lerped | fixed | still true — but the hero can now turn *under* the cast via circle/strafe |
+| Combo reset | 1.1 s | 1.1 s, decayed by the hero | ✅ F4 |
+| FX anchor | cast point (or `follow hero`, per effect) | same, since the bench travels like the match | ✅ F3 |
 | Any clip | none exist | `model-viewer.html` **does** play them | §4 |
 
-The pattern is worth naming: `ACTION` (the pose preview) and `CAST SIM` (the ability bench) are
-two systems that never see each other. `ACTION` has the body without the ability; `CAST SIM` has
-the ability without the body. That is a design accident, not a limit — both read the same four
-envelopes.
+The pattern is worth naming: `ACTION` (the pose preview) and `CAST SIM` (the ability bench) were
+two systems that never saw each other — `ACTION` had the body without the ability, `CAST SIM` the
+ability without the body, and both read the same four envelopes. They now share one tick: the bench
+drives the body, and `ACTION` can only *overlay* an envelope on top of it (it says so in a flash when
+you try, because a held `attack` over a live cast does combine, and pretending otherwise is how you
+ship a pose you never see). The remaining gap is not plumbing but content: there is still nothing to
+play on a GLB hero (§4).
 
 ---
 
@@ -273,12 +354,15 @@ and the visual payoff is zero until the asset has bones. Two decisions needed fr
 1. ~~**F1 + F2 together**~~ ✅ done — one measured `hipsRest` baseline, read by `animateRig`, `animateGLB`,
    the slam and its `dispose()`; `animcheck` (21 measurements) is the gate, `skintest` pins the rig side.
 2. **Phase A** (`SkeletonUtils.clone`) — cheap, independent, and every later step is unsafe without it.
-3. **F4 + F5** (`CAST SIM` calls `Hero.update`; hoist the per-frame/per-cast allocations) — makes the
-   bench a real bench and satisfies §4.4.
-4. **F3** (`playFX` at impact for movement skills) — the one that changes how your current FX files
-   sit in the world.
-5. **Phases B/C**, then D when a rigged hero GLB exists (or accept procedural-only and stop at 4).
-6. F6/F7 cleanups with whatever commit they hitch a ride on.
+3. ~~**F4 + F5**~~ ✅ done — the bench calls `Hero.update`/`Hero.move`, the studio yields ownership, the
+   per-frame allocations are gone and `animcheck` statically gates them. **This step is what found F8.**
+4. ~~**F3**~~ ✅ done as a per-effect `anchor` row (default unchanged) rather than a forced re-anchor.
+   ~~F6/F7~~ ✅ guard + wire, same commit.
+5. **Phases B/C** (keep `animations` in `glbskin`, drive a mixer per hero, `hero_tuning.json` v3 with an
+   `anim{}` block — that block is also where a GLB `recoilKick` belongs), then D when a rigged hero GLB
+   exists. Not started: it needs a decision from you about asset direction, not just code.
+6. If the slam's 1.18 m of drift itself is wrong, that is a balance call in `seismicSlam` — the FX
+   side of it is now a checkbox, so the two questions are finally separable.
 
 Related: `HANDOFF.md` §4.4 (allocations), §4.9 (truncated effects), §4.11 (rig), invariant 15
 (loader owns `root.position`), `FX-AEGIS.md` §4a (the bench), `README.md` → *Hero Studio*.

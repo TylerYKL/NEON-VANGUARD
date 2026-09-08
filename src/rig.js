@@ -225,10 +225,14 @@ export function animateRig(rig, dt, o) {
     aL.shoulder.rotation.z = damp(aL.shoulder.rotation.z, 0.5 + (o.block ? 0.25 : 0), 14, dt);
     aL.elbow.rotation.x = damp(aL.elbow.rotation.x, -1.7, 14, dt);
   } else if (o.style === 'gun') {
-    // right arm aims forward, recoil kick
-    aR.shoulder.rotation.x = damp(aR.shoulder.rotation.x, -1.42 + atkE * 0.4, 26, dt);
+    /* right arm aims forward, recoil kick — and now the kick is the real `recoil`, not just
+       the attack envelope: a railshot pushes it to 1.6, a normal shot to 1, and Hero.update
+       bleeds it off at dt*6 (~0.27 s), so the arm snaps back and settles instead of punching
+       and holding (MOTION-AUDIT F7: this value was decayed and read by nobody). */
+    const rec = o.recoil || 0;
+    aR.shoulder.rotation.x = damp(aR.shoulder.rotation.x, -1.42 + atkE * 0.4 - rec * 0.22, 26, dt);
     aR.shoulder.rotation.z = damp(aR.shoulder.rotation.z, -0.16, 14, dt);
-    aR.elbow.rotation.x = damp(aR.elbow.rotation.x, -0.22 - atkE * 0.2, 24, dt);
+    aR.elbow.rotation.x = damp(aR.elbow.rotation.x, -0.22 - atkE * 0.2 + rec * 0.3, 24, dt);
     aL.shoulder.rotation.x = damp(aL.shoulder.rotation.x, -0.5 - Math.sin(p) * swing * 0.5 - cast * 0.9, 12, dt);
     aL.shoulder.rotation.z = damp(aL.shoulder.rotation.z, 0.3, 12, dt);
     aL.elbow.rotation.x = damp(aL.elbow.rotation.x, -0.9 - cast * 0.6, 12, dt);
