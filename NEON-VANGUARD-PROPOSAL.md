@@ -641,7 +641,7 @@ person can actually look at. Before/after captures are in `screenshots/rig-befor
 `rig-after-*.png`. This loop is now the sanctioned way to iterate on character art without a browser —
 image diffs of the live game remain meaningless, but a controlled posed dump is not.
 
-### Hero Studio: skins and skill effects (v1.9.1 → v1.10)
+### Hero Studio: skins and skill effects (v1.9.1 → v1.10.1)
 
 The proposal's long-run plan says the asset pipeline is where this goes next: concept sheet → image-to-3D →
 GLB. That only works if someone can *fit* the result into the game without rebuilding it, so the art tools got
@@ -650,7 +650,14 @@ a third surface: `hero-studio.html`, beside `model-viewer.html` and `character-b
 **What it edits** (all of it written to `models/uploads/hero_tuning.json`, read once by `startGame()`):
 
 1. **Size and placement** — `scale`, `pos{x,y,z}`, `yawDeg`. This is what fixes the AI-rebuild artefact of a
-   body sunk to the floor or facing backwards; previously it needed a code change and a rebuild.
+   body sunk to the floor or facing backwards; previously it needed a code change and a rebuild. In v1.10.1 it
+   became trustworthy: the three uploaded hero GLBs were exporting with their pivot at the body centre, the
+   loader compensated (centring + a 1.199 m lift written into `root.position`), and the hero animation loop —
+   which owns that position every frame — overwrote the compensation. The lower half of every hero sat under
+   the deck plate. `pos` is now documented and implemented as an **adjustment on top of the loader's fit**
+   (0/0/0 is correct), the lift survives a clone via `userData.stage`, the size multiplier is carried by the
+   same base so a 1.35× hero still stands on the floor, and the studio panel gained type-in boxes next to the
+   sliders, a feet/head readout that flags clipping, `auto-lift` and `reset`.
 2. **Action motion** — the nine `DEFAULT_MOTION` coefficients that give an unrigged statue its walk bob,
    lunge, hip twist, cast lean, hurt recoil, idle sway and topple.
 3. **Skill effects, per skill** — v1.9 had exactly one effect slot per hero, so SEISMIC SLAM, BASTION FIELD
@@ -675,7 +682,10 @@ borrowed from the fixed pool in `lights.js` so the scene's light count still nev
 truncates `G.effects` cannot strand one. The studio also prints the tri/mesh cost of whatever you drop and
 warns above 24 meshes, because that is draw calls **per cast**.
 
-**Testing without a browser.** `tools/skintest.mjs` grew from 39 to 118 assertions and now covers the whole
+**Testing without a browser.** `tools/skintest.mjs` grew from 39 to 126 assertions, plus a new
+`tools/herofit.mjs` (18) that walks the real committed GLBs through parse → normalise → `Hero.build` →
+`animateGLB` and asserts the feet land on y = 0 at default tuning, at 1.35× size and 90 frames into a walk —
+the cheapest possible guard against a "looks fine in the viewer, buried in the game" class of bug. The suite now covers the whole
 pipeline headlessly: v1 → v2 config migration, slot resolution and fallback, `clampFX` against NaN /
 out-of-range / hand-edited JSON, URL-keyed bank de-duplication, free-list reuse, shared-material mutation
 (proved by hooking `Material.prototype.dispose`), light acquire/release balance, video refcounting, and that a

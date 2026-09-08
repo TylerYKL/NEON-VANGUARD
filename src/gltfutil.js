@@ -44,7 +44,14 @@ export function gatherStats(root) {
 }
 
 /** Fit a loaded model to the stage: uniform scale to a target height,
-    centred on X/Z, feet resting on y = 0. Returns what it did. */
+    centred on X/Z, feet resting on y = 0. Returns what it did.
+
+    The correction lives on `root.position`, so **anyone who overwrites that
+    position loses the lift and the model sinks through the floor** (which is
+    what `Hero.animateGLB` used to do — half a hero buried). The numbers are
+    therefore also stamped on `root.userData.stage` — plain numbers, so they
+    survive `clone(true)` — and consumers must treat them as the base their own
+    offsets are added to, not as something to replace. */
 export function normalizeToStage(root, targetHeight = 2.4) {
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root);
@@ -55,9 +62,17 @@ export function normalizeToStage(root, targetHeight = 2.4) {
   root.updateMatrixWorld(true);
   const b2 = new THREE.Box3().setFromObject(root);
   const c = new THREE.Vector3(); b2.getCenter(c);
+  const lift = -b2.min.y;                      // relative: a root may already be placed
   root.position.x -= c.x;
   root.position.z -= c.z;
-  root.position.y -= b2.min.y;
+  root.position.y += lift;
   root.updateMatrixWorld(true);
-  return { before: [+size.x.toFixed(2), +size.y.toFixed(2), +size.z.toFixed(2)], scale: +scale.toFixed(3), height: +(size.y * scale).toFixed(2) };
+  root.userData.stage = {
+    lift: +lift.toFixed(4), cx: +(-c.x).toFixed(4), cz: +(-c.z).toFixed(4),
+    scale: +scale.toFixed(4), height: +(size.y * scale).toFixed(3),
+  };
+  return {
+    before: [+size.x.toFixed(2), +size.y.toFixed(2), +size.z.toFixed(2)],
+    scale: +scale.toFixed(3), height: +(size.y * scale).toFixed(2), lift: +lift.toFixed(3),
+  };
 }

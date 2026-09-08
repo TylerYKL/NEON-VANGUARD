@@ -3,9 +3,9 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-08 (v1.10, Hero Studio skill-effect editor) · `neon-vanguard.html` 795 KB ·
-20 modules in `src/`. Headless suites all pass: `lighttest` 35/35, `geocheck` clean, `glbtest` 10/10,
-`skintest` 118/118. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
+Last verified: 2026-09-08 (v1.10.1, hero GLBs stand on the deck) · `neon-vanguard.html` 795 KB ·
+20 modules in `src/`. Headless suites all pass: `lighttest` 35/35, `geocheck` clean, `glbtest` 12/12,
+`skintest` 126/126, `herofit` 18/18. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
 before trusting anything visual, and say so plainly in the commit. See §6.
 
@@ -79,15 +79,15 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
 └── src/
     ├── main.js      1474  bootstrap, post FX, input, gamepad, camera, wave director, draft,
     │                      hazards, settings, dev-tool wiring, the shared context object `G`
-    ├── heroes.js    1352  hero data, all 12 abilities, buffs, damage/heal, squad AI, playFX per skill slot
+    ├── heroes.js    1368  hero data, all 12 abilities, buffs, damage/heal, squad AI, playFX per skill slot
     ├── entities.js   704  projectile pool, enemy types + AI, elites, telegraph driver, pooling
     ├── audio.js      587  WebAudio synth toolkit, 38 SFX cues, adaptive music sequencer
     ├── showcase.js   459  character bay (separate entry point)
     ├── viewer.js     215  model viewer: GLB drop + procedural rig side-by-side (art tool)
-    ├── gltfutil.js    63  DOM-free GLB parse/stats/normalise (viewer + glbtest + uploadstats)
-    ├── studio.js     606  Hero Studio: size / placement / motion / per-skill FX editor → hero_tuning.json
-    ├── fxpack.js     398  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
-    ├── glbskin.js    155  uploaded hero skins + hero_tuning.json reader (v2) + URL-keyed effect bank
+    ├── gltfutil.js    78  DOM-free GLB parse/stats/normalise + the stage stamp a clone keeps (viewer/herofit)
+    ├── studio.js     686  Hero Studio: size / placement / motion / per-skill FX editor → hero_tuning.json
+    ├── fxpack.js     428  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
+    ├── glbskin.js    159  uploaded hero skins + hero_tuning.json reader (v2) + URL-keyed effect bank
     ├── fx.js         431  pooled particles/rings/beams/sparks/telegraphs, shake, flash
     ├── world.js      311  arena, floor shader, baked skyline, billboards, rain, cover pylons
     ├── rig.js        331  faceted humanoid rig (chamfer/seg + flat shading) + animator + weapons
@@ -172,6 +172,13 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
     hand-editable input now, not a build input, and one unclamped NaN scale goes straight into the bloom chain
     and blacks out the frame (trap #1).
 
+15. **The loader owns `root.position`; consumers adjust it, they never place it.** `normalizeToStage()`
+    centres a body and lifts it by its own half-height (+1.199 m for a 2.4 m hero) by writing into
+    `root.position`, and it returns + stamps `userData.stage` with that `lift`. Anything that later writes
+    `position.set(x, y, z)` from a config throws the lift away — that is how every uploaded hero ended up
+    buried to the waist. `Hero` therefore caches the fit as `_basePos` and writes `base * tunScale + offset`;
+    the scale belongs in that product because scaling a body scales its offset from the root as well (§7a).
+
 ---
 
 ## 5. Traps discovered the hard way
@@ -188,6 +195,8 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
 | `mergeGeometries` returning null | All inputs must agree on index state. De-indexing to force agreement triples vertex counts — only do it when they genuinely disagree. |
 | The draft halts the sim | `G.drafting` gates the whole update block. A test that spawns enemies after a wave clear must dismiss the draft (`Escape`) first. |
 | String replace in `build.mjs` | Minified output contains `$&`. Use a function replacer. |
+| Uploaded hero shows only its upper half | Not the model, not the camera: the animation loop rewrote the root position that `normalizeToStage()` had used to lift the body, so the lower half sat under the deck (invariant 15). `node tools/herofit.mjs` measures it. If you already dialled `pos.y` ≈ +1.2 to fight it, that value now double-lifts — **RESET** the placement. |
+| `Box3.setFromObject` on a moving preview | In the studio it reads whatever the *previous* frame's bob left there. `measureFit()` re-applies the rest maths, measures, then restores — otherwise the readout and auto-lift are one frame stale. |
 | A `PointLight` per entity | Looked free, was not. Every enemy *and* every dropped shard carried one, so 45 enemies meant 45+ point lights, and the count moved on every spawn, death and pickup. three.js keys its shader programs on that count, so each change recompiled every material — and the fragment shader looped over all of them per pixel. Completely invisible under swiftshader, where every frame is already 250 ms. |
 | Effect bank keyed by hero id | v1.9 stored one effect per hero (`fxBank[heroId]`), so every skill cast the same burst and a second file could not be assigned. The bank is keyed by **file URL** now (`fxpack` resolves `fxSlots[i]` → shared `fx`), which is what lets Q / E / R each hold a different effect — and lets one file serve several heroes without re-parsing. |
 | One `<video>` per cast | v1.9 built a new element + `VideoTexture` (and a `PlaneGeometry`) for every cast and disposed them on fade. Two casts of the same clip meant two decoders. `fxpack.acquireVideo()` refcounts one element per file instead, and the quads come from a free list. |
@@ -208,8 +217,9 @@ context):
 ```bash
 node tools/lighttest.mjs  # 35 assertions: the point-light count never moves (v1.8 invariant)
 node tools/geocheck.mjs   # per-enemy draw calls / verts / bbox / lights / materials + pooling leak check
-node tools/glbtest.mjs    # 10 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
-node tools/skintest.mjs   # 118 assertions: uploaded skins, hero_tuning.json v1->v2, FX slots, pooling, clamps
+node tools/glbtest.mjs    # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+node tools/skintest.mjs   # 126 assertions: uploaded skins, hero_tuning.json v1->v2, FX slots, pooling, clamps
+node tools/herofit.mjs    # 18 assertions: the REAL models/uploads/*.glb stand fully on the deck (invariant 15)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB sitting in models/uploads/
 
 # headless ART loop — see the characters without a browser (v1.9)
@@ -267,7 +277,7 @@ damage-number toggle, gamepad, personal best — all persisted.
 
 ---
 
-## 7a. The Hero Studio (v1.10) — uploaded skins and skill effects
+## 7a. The Hero Studio (v1.10 → v1.10.1) — uploaded skins and skill effects
 
 The `concept/*.jpg` → image-to-3D route is in the proposal's long-run plan; the studio is what makes it
 practical. `hero-studio.html` boots the real `Hero` class against `models/uploads/*.glb`, and
@@ -279,6 +289,10 @@ reload. Nothing in the shipped build depends on the studio: a missing file means
 **Three editing surfaces, one config file:**
 
 * **SIZE + PLACEMENT** (`scale`, `pos{x,y,z}`, `yawDeg`) — the fix for rebuilders that sink or rotate a body.
+  `pos` is an **adjustment on top of the loader's own fit**, so 0 / 0 / 0 is the correct place to sit and the
+  sliders start there; each axis has a slider *and* a type-in box (±3 m, matching the clamp in `ensureTuning`),
+  and a live readout prints feet / head height and shouts `BURIED` when the deck clips the body. `auto-lift`
+  sets Y so the lowest point touches the deck; `reset` zeroes all four for whatever a pre-fix file saved.
 * **ACTION MOTION** (`motion`) — the nine `DEFAULT_MOTION` coefficients that give an unrigged statue walk,
   lunge, twist, cast lean, recoil, sway and topple.
 * **SKILL EFFECT** — one effect slot per skill (`Q` / `E` / `R`) plus a shared `ALL` slot, each holding a
@@ -290,7 +304,8 @@ reload. Nothing in the shipped build depends on the studio: a missing file means
 The runtime path is deliberately short: `useSkill(i)` → `Hero.playFX(G, i)` → `fxpack.fxFor()` resolves the
 slot (per-skill, else shared, else nothing) → `fxpack.spawnFX()` builds it from pooled parts. Both the studio
 preview and the match go through `spawnFX`, so "it looked right in the studio" is a real claim. The shape, the
-clamping and the pooling are covered by `tools/skintest.mjs` (118 assertions, no browser needed).
+clamping and the pooling are covered by `tools/skintest.mjs` (126 assertions) and the placement maths by
+`tools/herofit.mjs` (18), both headless.
 
 ---
 

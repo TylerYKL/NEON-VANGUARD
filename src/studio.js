@@ -110,11 +110,14 @@ const MOT_DEFS = [
   ['fallSpeed', 'fall speed', 1, 12, 0.1],
 ];
 
-/* placement: fix rebuilder sinks / rotations (the "half body" fix) */
+/* Placement is an ADJUSTMENT on top of what the loader already did:
+   normalizeToStage() centres the model and lifts it by its own half-height, and
+   those numbers are what a rebuilder gets wrong. 0 / 0 / 0 must therefore mean
+   "as the loader placed it" — not "origin", which buries the hero to the waist. */
 const PL_DEFS = [
-  ['x', 'offset x', -2, 2, 0.01],
-  ['y', 'offset y', -2, 2, 0.01],
-  ['z', 'offset z', -2, 2, 0.01],
+  ['x', 'offset x', -3, 3, 0.01],
+  ['y', 'offset y', -3, 3, 0.01],
+  ['z', 'offset z', -3, 3, 0.01],
   ['yawDeg', 'yaw deg', -180, 180, 1],
 ];
 
@@ -139,16 +142,87 @@ function buildSliders() {
     row._key = k; row._dec = step < 0.01 ? 3 : 2;
     $('mot').appendChild(row);
   }
-  $('plc').innerHTML = '';
+  buildPlacement();
+}
+
+/* one row = label, slider, editable number — both controls drive the same value */
+function buildPlacement() {
+  const box = $('plc');
+  box.innerHTML = '';
   for (const [k, label, min, max, step] of PL_DEFS) {
-    const row = sliderRow(label, min, max, step, (v, out) => {
-      const c = cfg[HERO_DEFS[active].id], h = heroes[active];
+    const row = document.createElement('div');
+    row.className = 'prow';
+    row.innerHTML = `<span>${label}</span>` +
+      `<input type="range" min="${min}" max="${max}" step="${step}">` +
+      `<input type="number" min="${min}" max="${max}" step="${step}">`;
+    row._key = k; row._min = min; row._max = max; row._step = step;
+    row._dec = step < 1 ? 2 : 0;
+    const rng = row.children[1], num = row.children[2];
+    const apply = (v, from) => {
+      v = clamp(+v || 0, min, max);
+      const c = cfg[heroId()], h = heroes[active];
       if (k === 'yawDeg') { c.yawDeg = v; h.setYawDeg(v); }
       else { c.pos[k] = v; h.offset[k] = v; }
-      out.textContent = v.toFixed(step < 1 ? 2 : 0);
-    });
-    row._key = k; row._dec = step < 1 ? 2 : 0;
-    $('plc').appendChild(row);
+      if (from !== rng) rng.value = v;
+      if (from !== num) num.value = v.toFixed(row._dec);
+      measureFit();
+    };
+    rng.oninput = () => apply(rng.value, rng);
+    num.oninput = () => apply(num.value, num);
+    num.onblur = () => { num.value = (+num.value || 0).toFixed(row._dec); };
+    box.appendChild(row);
+  }
+}
+
+/** Where the body actually sits, so "I fixed it" is a number and not a vibe.
+    Measured at the REST pose — animateGLB writes this position next frame with
+    bob / lunge on top, and the preview's current transform is whatever the last
+    frame left there, so measuring it as-is would read one frame stale. */
+const _bb = new THREE.Box3();
+function measureFit() {
+  const h = heroes[active];
+  if (!h) return null;
+  const b = h.body, snap = h.rig.glb
+    ? [b.position.x, b.position.y, b.position.z, b.rotation.x, b.rotation.y, b.rotation.z] : null;
+  if (h.rig.glb) {
+    const B = h._basePos || { x: 0, y: 0, z: 0 }, O = h.offset, S = h.tunScale || 1;
+    b.position.set(B.x * S + O.x, B.y * S + O.y, B.z * S + O.z);   // same maths as animateGLB
+    b.rotation.set(0, h._yaw || 0, 0);
+  }
+  h.group.updateMatrixWorld(true);
+  _bb.setFromObject(h.rig.glb ? h.body : h.group);
+  if (snap) {   // restore: this runs inside the render loop, and leaving the
+    b.position.set(snap[0], snap[1], snap[2]);      // rest pose there would drop a
+    b.rotation.set(snap[3], snap[4], snap[5]);      // frame of walk bob every 0.3 s
+  }
+  const st = (h.rig.glb && h.body.userData.stage) || null;
+  const clipped = _bb.min.y < -0.02;
+  const el = $('pcfeet');
+  el.textContent = 'feet ' + _bb.min.y.toFixed(2) + ' m · head ' + _bb.max.y.toFixed(2) + ' m' +
+    (clipped ? ' · ' + (-_bb.min.y).toFixed(2) + ' m BURIED' : '');
+  el.classList.toggle('bad', clipped);
+  $('pcnote').textContent = (st
+    ? 'loader lift ' + st.lift.toFixed(3) + ' m (its own centring) — offsets add to that'
+    : 'procedural rig — no loader lift') +
+    (Math.abs(cfg[heroId()].pos.y) > 0.4 && !clipped ? ' · note: a saved Y this large may be an old pre-fix compensation' : '');
+  return { min: _bb.min.y, max: _bb.max.y, clipped };
+}
+
+function nudgePlacementTo(fn) {
+  const h = heroes[active];
+  if (!h || !h.rig.glb) { flash('PLACEMENT APPLIES TO UPLOADED GLB SKINS', '#ffb14a'); return; }
+  const c = cfg[heroId()];
+  for (const k of ['x', 'y', 'z']) { c.pos[k] = clamp(fn(k), -3, 3); h.offset[k] = c.pos[k]; }
+  syncPlacement();
+  measureFit();
+}
+
+function syncPlacement() {
+  const c = cfg[heroId()];
+  for (const row of $('plc').children) {
+    const v = row._key === 'yawDeg' ? c.yawDeg : c.pos[row._key];
+    row.children[1].value = v;
+    row.children[2].value = (+v).toFixed(row._dec);
   }
 }
 
@@ -473,8 +547,14 @@ $('sz').oninput = () => {
   heroes[active].setScale(v);
   cfg[heroId()].scale = heroes[active].tunScale;
   $('hgt').textContent = (2.4 * heroes[active].tunScale).toFixed(2) + ' m';
+  measureFit();          // size moves the feet unless the base rides with it
 };
 $('save').onclick = save;
+$('pclift').onclick = () => nudgePlacementTo((k) => {
+  const before = measureFit();
+  return k === 'y' ? cfg[heroId()].pos.y - (before ? before.min : 0) : cfg[heroId()].pos[k];
+});
+$('pcreset').onclick = () => { nudgePlacementTo(() => 0); flash('PLACEMENT RESET TO THE LOADER\u2019S OWN', '#7cf9ff'); };
 $('spin').onclick = () => {
   const on = $('spin').classList.toggle('on');
   controls.autoRotate = on; controls.autoRotateSpeed = 2.2;
@@ -534,11 +614,8 @@ function syncPanel() {
     row._input.value = v;
     row._out.textContent = (+v).toFixed(row._dec);
   }
-  for (const row of $('plc').children) {
-    const v = row._key === 'yawDeg' ? c.yawDeg : c.pos[row._key];
-    row._input.value = v;
-    row._out.textContent = (+v).toFixed(row._dec);
-  }
+  syncPlacement();
+  measureFit();
   syncFX();
 }
 
@@ -602,6 +679,7 @@ function syncPanel() {
       const e = effects[i];
       if (!e.update(dt)) { if (e.dispose) e.dispose(); effects.splice(i, 1); }
     }
+    if (G.time - (measureFit.t || 0) > 0.3) { measureFit.t = G.time; measureFit(); }
     renderer.render(scene, camera);
   });
   flash('STUDIO READY — TUNE & SAVE', '#7cf9ff');

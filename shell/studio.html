@@ -41,6 +41,20 @@
   input[type=range]{width:100%;accent-color:var(--c2);height:18px;cursor:ew-resize}
   .mrow{display:grid;grid-template-columns:86px 1fr 44px;gap:8px;align-items:center;font-size:8.5px;letter-spacing:.12em;opacity:.95}
   .mrow b{color:#eaffff;text-align:right;font-size:9px}
+  /* placement rows: slider AND a type-in box, because 0.01 nudges by drag is misery */
+  .prow{display:grid;grid-template-columns:60px 1fr 68px;gap:8px;align-items:center;
+        font-size:8.5px;letter-spacing:.12em;opacity:.95}
+  .prow input[type=number]{width:100%;font-family:var(--font);font-size:9.5px;letter-spacing:.04em;
+        text-transform:none;color:#eaffff;background:rgba(4,8,18,.9);border:1px solid rgba(24,224,255,.22);
+        padding:2px 4px;text-align:right;-moz-appearance:textfield}
+  .prow input[type=number]:focus{outline:none;border-color:var(--c2);background:rgba(10,20,34,.95)}
+  .prow input[type=number]::-webkit-outer-spin-button,.prow input[type=number]::-webkit-inner-spin-button{
+        -webkit-appearance:none;margin:0}
+  #pcfit{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:8px;letter-spacing:.1em}
+  #pcfit span{flex:1;color:#8fb}
+  #pcfit span.bad{color:#ff3b5c}
+  #pcfit .act{padding:5px 8px;font-size:7.5px}
+  #pcnote{font-size:7.5px;line-height:1.6;opacity:.45;letter-spacing:.1em;margin-top:5px}
   #fxdrop{border:1.5px dashed rgba(61,255,176,.45);padding:12px 10px;text-align:center;font-size:8.5px;
           letter-spacing:.18em;color:#7fd8b8;cursor:pointer}
   #fxdrop.hot{border-color:#3dffb0;color:#3dffb0;background:rgba(61,255,176,.07)}
@@ -97,6 +111,12 @@
   <input type="range" id="sz" min="0.5" max="2" step="0.01" value="1">
   <div class="lbl">PLACEMENT · X / Y / Z / YAW</div>
   <div id="plc"></div>
+  <div id="pcfit">
+    <span id="pcfeet">—</span>
+    <button class="act" id="pclift" title="set Y so the lowest point rests on the deck">auto-lift</button>
+    <button class="act" id="pcreset" title="back to the loader's own placement">reset</button>
+  </div>
+  <div id="pcnote"></div>
   <div class="lbl">ACTION MOTION</div>
   <div id="mot"></div>
   <div class="lbl">SKILL EFFECT · PER SKILL</div>

@@ -56,6 +56,14 @@ function dummyHero() {
   g.add(m);
   return g;
 }
+/* A rebuilder that bakes the pivot at the model's centre (the common case, and
+   what aegis/lyra/nyx.glb actually are): normalizeToStage must then LIFT the
+   root by half its height, and the game must keep that lift. */
+function dummyCenteredHero(h = 2.4) {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(0.6, h, 0.4), new THREE.MeshStandardMaterial({ color: 0x888888 })));
+  return g;   // position 0/0/0 -> bbox is [-h/2 .. h/2]
+}
 const exporter = new GLTFExporter();
 for (const id of ['aegis', 'lyra', 'nyx']) {
   FILES['models/uploads/' + id + '.glb'] = await new Promise((res, rej) =>
@@ -380,6 +388,46 @@ check('unknown slot index never throws', hn.playFX(G7, 12) === null || true);
 fxList2.forEach((e) => e.dispose());
 check('all hero fx cleaned up by dispose', G7.scene.children.length === baseChildren,
   G7.scene.children.length + ' vs ' + baseChildren);
+
+/* ---------------- the half-buried hero fix ---------------- */
+const centered = await new Promise((res, rej) => exporter.parse(dummyCenteredHero(), res, rej, { binary: true }));
+const { parseGLB, normalizeToStage } = await import('../src/gltfutil.js');
+const croot = (await parseGLB(centered)).scene || (await parseGLB(centered)).scenes[0];
+const nrm = normalizeToStage(croot, 2.4);
+check('normalise records the lift it applied', Math.abs(nrm.lift - 1.2) < 0.02, 'lift ' + nrm.lift);
+check('lift is stamped on userData so a clone can keep it',
+  Math.abs(croot.userData.stage.lift - 1.2) < 0.02 && Math.abs(croot.position.y - 1.2) < 0.02);
+
+const skins2 = { aegis: { template: croot, yaw: 0 } };
+const worldBox = (o) => { o.parent.updateMatrixWorld(true); return new THREE.Box3().setFromObject(o); };
+function standHero(pos) {
+  const g = { scene: new THREE.Scene(), glbSkins: skins2, time: 0, addEffect: () => {},
+    glbTuning: { aegis: { scale: 1, motion: {}, pos: pos || { x: 0, y: 0, z: 0 }, yawDeg: 0 } } };
+  const hero = new Hero(HERO_DEFS[0], g, 0);
+  hero.animateGLB(0.016, { time: 0 }, 0);        // one real frame of the real motion driver
+  return { hero, bb: worldBox(hero.body) };
+}
+const idle = standHero();
+check('DEFAULT tuning puts the feet on the deck (was buried 1.2 m)',
+  Math.abs(idle.bb.min.y) < 0.03, 'min.y ' + idle.bb.min.y.toFixed(3));
+check('and the full 2.4 m body is above it', Math.abs(idle.bb.max.y - 2.4) < 0.05,
+  'max.y ' + idle.bb.max.y.toFixed(3));
+const lifted = standHero({ x: 0.5, y: 0.75, z: -0.5 });
+check('studio offsets ADD to the loader placement',
+  Math.abs(lifted.bb.min.y - 0.75) < 0.03 && Math.abs(lifted.hero.body.position.x - (croot.position.x + 0.5)) < 0.03,
+  'y ' + lifted.bb.min.y.toFixed(3) + ' x ' + lifted.hero.body.position.x.toFixed(3));
+check('negative Y still sinks it (the slider is a real control, not a no-op)',
+  Math.abs(standHero({ x: 0, y: -1.2, z: 0 }).bb.min.y + 1.2) < 0.03);
+const walked = standHero();
+walked.hero.animateGLB(0.016, { time: 3 }, 1.2);        // mid-stride, bob + lunge active
+check('motion rides on top of the placement, not instead of it',
+  worldBox(walked.hero.body).min.y > -0.06, 'min.y while walking ' + worldBox(walked.hero.body).min.y.toFixed(3));
+const sized = standHero();
+sized.hero.setScale(1.5);
+sized.hero.animateGLB(0.016, { time: 0 }, 0);
+check('size + placement compose (taller hero, still standing on the deck)',
+  Math.abs(worldBox(sized.hero.body).min.y) < 0.03 && worldBox(sized.hero.body).max.y > 3.5,
+  'h ' + worldBox(sized.hero.body).max.y.toFixed(2));
 
 /* ---------------- a studio SAVE is picked up by the next run (no page reload) ---------------- */
 check('cached tuning is stable inside a session', (await ensureTuning()) === tunCfg);

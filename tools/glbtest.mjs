@@ -69,6 +69,10 @@ check('feet rest on y = 0', Math.abs(box.min.y) < 1e-3, 'got ' + box.min.y.toFix
 check('centred on X and Z', Math.abs(c.x) < 1e-3 && Math.abs(c.z) < 1e-3,
   'x ' + c.x.toFixed(3) + ' z ' + c.z.toFixed(3));
 check('uniform scale recorded (0.8)', Math.abs(norm.scale - 0.8) < 1e-3, 'got ' + norm.scale);
+check('lift reported + stamped for consumers (survives a clone)',
+  Math.abs(norm.lift - obj.userData.stage.lift) < 1e-6, 'lift ' + norm.lift);
+check('stamp is plain numbers, so clone(true) can copy it',
+  obj.clone(true).userData.stage.lift === obj.userData.stage.lift);
 
 console.log('\n' + (fail ? 'FAILURES: ' + fail : 'ERRORS none') + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail ? 1 : 0);

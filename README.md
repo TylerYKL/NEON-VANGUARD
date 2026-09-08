@@ -82,8 +82,9 @@ node build.mjs       # bundles src/ into neon-vanguard / character-bay / model-v
 # headless — plain Node, no browser, run these first
 node tools/lighttest.mjs # 35 assertions: the scene's point-light count never changes
 node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materials, pooling leak check
-node tools/glbtest.mjs   # 10 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
-node tools/skintest.mjs  # 118 assertions: uploaded skins, hero_tuning.json, per-skill FX slots + pooling
+node tools/glbtest.mjs   # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+node tools/skintest.mjs  # 126 assertions: uploaded skins, hero_tuning.json, per-skill FX slots + pooling
+node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB in models/uploads/
 
 # headless art loop — look at the characters without a browser
@@ -180,6 +181,11 @@ GLBs from `models/uploads/`, so what you see is what the match will draw. Everyt
 `models/uploads/hero_tuning.json`, which the game re-reads on every `startGame()` — tune, SAVE, then
 restart the run; no page reload. Files already parsed are reused, so a restart only pays for what changed.
 
+Placement needs that framing: a GLB exported around its own centre is *fitted* by the loader (centred, lifted
+by half its height), and `pos` is an **adjustment** on top of it — not an absolute position. The same lift is
+carried through the size multiplier, so scaling a hero to 1.35 still leaves its feet on the deck. `node
+tools/herofit.mjs` measures the real `models/uploads/*.glb` and asserts it.
+
 ```bash
 python3 -m http.server 8080 --bind 0.0.0.0 --directory . &   # the pages
 python3 tools/upload_server.py                                # the :8081 dropbox (save + file list)
@@ -187,7 +193,7 @@ python3 tools/upload_server.py                                # the :8081 dropbo
 
 | Panel | Writes |
 |---|---|
-| SIZE / PLACEMENT (x, y, z, yaw) | `scale`, `pos`, `yawDeg` — fixes rebuilder sinks and backwards bodies |
+| SIZE / PLACEMENT (x, y, z, yaw) | `scale`, `pos`, `yawDeg` — offsets sit **on top of** the loader's own fit, so 0/0/0 is already right; sliders + type-in boxes, a feet/head readout, `auto-lift` and `reset` |
 | ACTION MOTION | `motion` — step rate, bob, lean, lunge, twist, cast lean, hurt recoil, idle sway, fall speed |
 | SKILL EFFECT | `fx` / `fxOn` / `fxP` (the shared slot) and `fxSlots[0..2]` — one effect per skill, Q / E / R |
 

@@ -14,6 +14,8 @@ import { BALANCE as B } from './balance.js';
    HERO ROSTER — 3 switchable operatives, cyber-modern loadouts
    ============================================================ */
 
+const ZERO3 = new THREE.Vector3();
+
 export const HERO_DEFS = [
   {
     id: 'aegis', name: 'AEGIS-7', tag: 'BULWARK', role: 'WARRIOR / TANK',
@@ -115,7 +117,13 @@ export class Hero {
       this.tunScale = tun.scale || 1;
       this.body.scale.multiplyScalar(this.tunScale);
       this.motion = Object.assign({}, DEFAULT_MOTION, tun.motion || {});
-      // studio placement: rebuilders sometimes sink or rotate the body
+      /* Studio placement: rebuilders sometimes sink or rotate the body.
+         `pos` is an ADJUSTMENT on top of what normalizeToStage already applied —
+         that fitter centres the model and lifts it by its own half-height (for a
+         2.4 m hero: +1.199) by writing into root.position. animateGLB() owns
+         that position every frame, so the base has to be remembered here or the
+         lift is thrown away and the hero buries itself to the waist. */
+      this._basePos = this.body.position.clone();   // pre-size centring; scaled with tunScale
       this.offset = Object.assign({ x: 0, y: 0, z: 0 }, tun.pos || {});
       this._baseYaw = skin.yaw || 0;
       this._yaw = this._baseYaw + ((tun.yawDeg || 0) * Math.PI) / 180;
@@ -1242,7 +1250,7 @@ export class Hero {
   /* ---------- GLB skin motion: unrigged statues get game-feel transforms.
      Every coefficient is a studio-tunable motion parameter. ---------- */
   animateGLB(dt, G, spd) {
-    const b = this.body, M = this.motion, O = this.offset;
+    const b = this.body, M = this.motion, O = this.offset, B = this._basePos || ZERO3;
     const move = clamp(spd, 0, 1.4);
     this._stepT = (this._stepT || 0) + dt * (2 + M.stepRate * move);
     this._fall = damp(this._fall || 0, this.downed ? 1 : 0, M.fallSpeed, dt);
@@ -1252,7 +1260,15 @@ export class Hero {
     b.rotation.z = Math.sin(this._stepT) * 0.035 * move + Math.sin(G.time * 40) * 0.05 * this.hurtAnim;
     b.rotation.y = (this._yaw || 0) + this.attackAnim * M.twist;
     const bob = Math.abs(Math.sin(this._stepT)) * M.bob * move + Math.sin(G.time * 2.1) * M.idleSway;
-    b.position.set(O.x, O.y + bob - f * 0.15 + this.castAnim * M.castLean * 0.8, O.z + this.attackAnim * M.lunge);
+    /* The loader's centring lives in the root position, and scaling the body
+       scales the geometry AROUND that root — so the size multiplier has to be
+       carried by the base too, or every hero bigger than 1.0 sinks through the
+       deck by (scale - 1) x its own half-height. */
+    const S = this.tunScale || 1;
+    b.position.set(
+      B.x * S + O.x,
+      B.y * S + O.y + bob - f * 0.15 + this.castAnim * M.castLean * 0.8,
+      B.z * S + O.z + this.attackAnim * M.lunge);
   }
 
   /** live size edit from the Hero Studio (persisted via hero_tuning.json) */
