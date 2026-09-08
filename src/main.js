@@ -8,10 +8,12 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildWorld, ARENA } from './world.js';
 import { FX } from './fx.js';
 import { Hero, HERO_DEFS } from './heroes.js';
+import { ensureGLBSkins } from './glbskin.js';
 import { Enemy, ENEMY_TYPES, ProjectileSystem, ELITES } from './entities.js';
 import { UI } from './ui.js';
 import { SFX } from './audio.js';
 import { Pickup } from './pickups.js';
+import { LightPool } from './lights.js';
 import { UPGRADES, MOD_DEFAULTS, RARITY_COLOR, rollOffers } from './upgrades.js';
 import { BALANCE as B, applyBalance } from './balance.js';
 import { initDevTools, DEV_CSS } from './devtools.js';
@@ -128,13 +130,22 @@ const grade = new ShaderPass(GradeShader);
 composer.addPass(grade);
 composer.addPass(new OutputPass());
 
+/* Slot-priority biases for the light pool (subtracted from squared distance).
+   Hoisted out of the frame loop so a frame allocates nothing. */
+const ENEMY_LIGHT_BIAS = (o) => (o.T.boss ? 1e9 : 0);
+const PICKUP_LIGHT_BIAS = (o) => (o.core ? 1e9 : 0);
+
 /* ---------- game state ---------- */
 const ui = new UI();
 const fx = new FX(scene, camera);
 const world = buildWorld(scene, renderer);
+// Fixed-size point-light pool. Created once; never resized during play, so the
+// scene's light count (and therefore three.js's compiled shader programs)
+// cannot change when enemies spawn or die. See src/lights.js.
+const lights = new LightPool(scene, B.perf);
 
 const G = {
-  scene, camera, renderer, fx, world, ui,
+  scene, camera, renderer, fx, world, ui, lights,
   heroes: [], enemies: [], effects: [], barriers: [], pickups: [],
   corePoints: 0, coreNeed: 16,
   hitStop: 0, drafting: false, god: false, mods: Object.assign({}, MOD_DEFAULTS), taken: {}, hpScale: 1, dmgScale: 1, maxAlive: 45, elitesSeen: 0, bestChain: 0,
@@ -880,7 +891,7 @@ function updateCamera(dt) {
 }
 
 /* ---------- flow ---------- */
-function startGame(training) {
+async function startGame(training) {
   SFX.init(); SFX.resume(); SFX.play('uiClick'); SFX.startMusic(1); syncAudioBtn();
   document.getElementById('menu').classList.add('hidden');
   document.getElementById('gameover').classList.add('hidden');
@@ -889,6 +900,7 @@ function startGame(training) {
   G.enemies.length = 0;
   for (const p of G.pickups) p.remove(G);
   G.pickups.length = 0;
+  G.lights.clear();
   for (const b of G.barriers) b.active = false;
   G.barriers.length = 0;
   G.corePoints = 0; G.ultChain = 0; G.ultChainT = 0; G.ultMul = 1; G.overdriveT = 0;
@@ -907,6 +919,7 @@ function startGame(training) {
   G.effects.length = 0;
   G.score = 0; G.kills = 0; G.combo = 1; G.wave = 0;
   G.over = false; G.paused = false;
+  G.glbSkins = await ensureGLBSkins();   // uploaded hero models (models/uploads/*.glb), if any
   createSquad();
   G.running = true;
   G.waveActive = false;
@@ -1104,6 +1117,7 @@ applySettings();
       G.mods.critChance = B.combat.critChance + (G.taken.crit ? G.taken.crit * 0.10 : 0);
       G.mods.critMul = B.combat.critMul + (G.taken.crit ? G.taken.crit * 0.3 : 0);
       G.maxAlive = B.scaling.maxAlive;
+      G.lights.setBudget(B.perf);   // deliberate: this recompiles programs once
       for (const h of G.heroes) {
         const frac = h.maxHp > 0 ? h.hp / h.maxHp : 1;
         h.maxHp = h.def.hp;
@@ -1122,6 +1136,9 @@ applySettings();
       return {
         ms: (G.frameMs || 0).toFixed(1), fps: (G.fps || 0).toFixed(0),
         enemies: G.enemies.length + '/' + G.maxAlive, calls: G.renderCalls || 0, tris: (G.renderTris || 0).toLocaleString(),
+        // lit / total pooled lights. The total must never change during play —
+        // if it does, three.js is recompiling programs. See src/lights.js.
+        lights: G.lights ? G.lights.active + '/' + G.lights.size : '-',
       };
     },
   });
@@ -1398,6 +1415,13 @@ function frame(now) {
         if (!G.pickups[i].update(dt, G)) G.pickups.splice(i, 1);
       }
     }
+
+    // ---- pooled lights ----
+    // Hand the nearest few enemies and pickups a light. Bosses and Charge Cores
+    // always win a slot; the pool size is the hard ceiling.
+    const lightFocus = G.active ? G.active.pos : null;
+    lights.assignNearest('enemy', G.enemies, lightFocus, ENEMY_LIGHT_BIAS);
+    lights.assignNearest('pickup', G.pickups, lightFocus, PICKUP_LIGHT_BIAS);
 
     // ---- entities ----
     for (let i = G.enemies.length - 1; i >= 0; i--) {

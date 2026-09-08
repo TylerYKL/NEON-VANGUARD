@@ -10,8 +10,9 @@ const tmp = path.join(root, '.tmpbuild');
 fs.mkdirSync(tmp, { recursive: true });
 
 const targets = [
-  { entry: 'src/main.js',     shell: 'shell/game.html', out: 'neon-vanguard.html' },
-  { entry: 'src/showcase.js', shell: 'shell/bay.html',  out: 'character-bay.html' },
+  { entry: 'src/main.js',     shell: 'shell/game.html',    out: 'neon-vanguard.html' },
+  { entry: 'src/showcase.js', shell: 'shell/bay.html',     out: 'character-bay.html' },
+  { entry: 'src/viewer.js',   shell: 'shell/viewer.html',  out: 'model-viewer.html' },
 ];
 
 for (const t of targets) {
