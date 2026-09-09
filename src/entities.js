@@ -253,6 +253,7 @@ export class Enemy {
     this.windup = 0; this.windupMax = 0;
     this.vel.set(0, 0, 0); this.pull.set(0, 0, 0);
     this.speedMul = 1; this.cdMul = 1; this.dmgMul = 1;
+    this.light = null;            // re-assigned from G.lights if we earn one
     this.setElite(null);
     this.group.scale.setScalar(1);
     this.group.visible = true;
@@ -431,10 +432,11 @@ export class Enemy {
       }
     }
 
-    const light = new THREE.PointLight(T.color, 1.4, T.boss ? 14 : 5, 2);
-    light.position.y = T.boss ? 3.5 : 1.2;
-    g.add(light);
-    this.light = light;
+    // No PointLight here. One per enemy meant 45 lights at the cap, and
+    // three.js keys its shader programs on the light COUNT — so every spawn and
+    // death recompiled every material. The nearest handful of enemies borrow a
+    // light from G.lights each frame instead (see src/lights.js).
+    this.light = null;
 
     // ground marker
     if (!window.__nobake) bakeStatics(g, [shell, dark]);
@@ -606,7 +608,16 @@ export class Enemy {
     // hit flash on emissive
     const fl = this.hitFlash;
     for (const m of this.glowMats) m.opacity = clamp(0.75 + fl * 2, 0, 1);
-    this.light.intensity = 1.2 + fl * 6 + (this.mark > 0 ? 1.5 : 0);
+    // Pooled light: only the nearest few enemies get one, so this is nullable.
+    // The slot lives in the scene root, so position it in world space.
+    if (this.light) {
+      const gp = this.group.position;
+      this.light.position.set(gp.x, gp.y + (T.boss ? 3.5 : 1.2) * this.group.scale.y, gp.z);
+      this.light.color.set(T.color);
+      this.light.distance = T.boss ? 14 : 5;
+      this.light.decay = 2;
+      this.light.intensity = 1.2 + fl * 6 + (this.mark > 0 ? 1.5 : 0);
+    }
     this.disc.material.opacity = 0.35 + 0.25 * Math.sin(G.time * 4 + this.id) + fl;
     this.bar.material.opacity = this.hp < this.maxHp ? 1 : 0.35;
   }

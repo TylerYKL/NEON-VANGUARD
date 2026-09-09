@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NEON VANGUARD — Hero Studio</title>
+<style>
+  :root{--c:#ff8a2b;--c2:#18e0ff;--cy:#18e0ff;--font:'Rajdhani','Chakra Petch','Segoe UI',system-ui,sans-serif}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:#04050b;color:#dff;font-family:var(--font);
+            letter-spacing:.05em;text-transform:uppercase;user-select:none}
+  canvas{display:block}
+  #app{position:fixed;inset:0}
+  .panel{background:linear-gradient(160deg,rgba(8,14,28,.88),rgba(4,7,16,.78));
+         border:1px solid rgba(24,224,255,.22);backdrop-filter:blur(8px);
+         clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)}
+
+  #title{position:fixed;top:18px;left:24px;z-index:5}
+  #title .t1{font-size:11px;letter-spacing:.42em;opacity:.45}
+  #title .t2{font-size:16px;font-weight:800;letter-spacing:.2em;
+             background:linear-gradient(90deg,#fff,var(--cy));-webkit-background-clip:text;background-clip:text;color:transparent}
+  #back{display:inline-block;margin-top:8px;font-size:8.5px;letter-spacing:.2em;color:#8fd8ff;text-decoration:none;
+        border-bottom:1px solid rgba(140,216,255,.3);padding-bottom:2px}
+
+  #head{position:fixed;top:20px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:5}
+  .tab{cursor:pointer;border:none;font-family:var(--font);text-transform:uppercase;
+       padding:9px 18px;background:rgba(8,14,28,.75);border:1px solid rgba(255,255,255,.10);
+       color:#8fb;filter:grayscale(.7);opacity:.6;transition:all .18s;text-align:left;
+       clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+  .tab b{display:block;font-size:13px;letter-spacing:.1em;color:var(--c)}
+  .tab span{display:block;font-size:8px;opacity:.55;letter-spacing:.16em;color:#cff}
+  .tab.on{opacity:1;filter:none;border-color:var(--c);transform:translateY(2px)}
+
+  #right{position:fixed;right:24px;top:96px;width:310px;max-height:calc(100% - 190px);overflow-y:auto;
+         padding:16px 20px;z-index:4;scrollbar-width:thin}
+  .lbl{font-size:8px;letter-spacing:.26em;opacity:.55;margin:14px 0 6px;color:#9ff}
+  #gname{font-size:15px;font-weight:800;color:#fff;letter-spacing:.05em}
+  .st{display:flex;justify-content:space-between;font-size:10.5px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+  .st i{font-style:normal;opacity:.5;letter-spacing:.14em}
+  .st b{color:#eaffff}
+  input[type=range]{width:100%;accent-color:var(--c2);height:18px;cursor:ew-resize}
+  .mrow{display:grid;grid-template-columns:86px 1fr 44px;gap:8px;align-items:center;font-size:8.5px;letter-spacing:.12em;opacity:.95}
+  .mrow b{color:#eaffff;text-align:right;font-size:9px}
+  /* placement rows: slider AND a type-in box, because 0.01 nudges by drag is misery */
+  .prow{display:grid;grid-template-columns:60px 1fr 68px;gap:8px;align-items:center;
+        font-size:8.5px;letter-spacing:.12em;opacity:.95}
+  .prow input[type=number]{width:100%;font-family:var(--font);font-size:9.5px;letter-spacing:.04em;
+        text-transform:none;color:#eaffff;background:rgba(4,8,18,.9);border:1px solid rgba(24,224,255,.22);
+        padding:2px 4px;text-align:right;-moz-appearance:textfield}
+  .prow input[type=number]:focus{outline:none;border-color:var(--c2);background:rgba(10,20,34,.95)}
+  .prow input[type=number]::-webkit-outer-spin-button,.prow input[type=number]::-webkit-inner-spin-button{
+        -webkit-appearance:none;margin:0}
+  #pcfit{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:8px;letter-spacing:.1em}
+  #pcfit span{flex:1;color:#8fb}
+  #pcfit span.bad{color:#ff3b5c}
+  #pcfit .act{padding:5px 8px;font-size:7.5px}
+  #pcnote{font-size:7.5px;line-height:1.6;opacity:.45;letter-spacing:.1em;margin-top:5px}
+  /* CAST SIM */
+  #simrow{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:6px}
+  #simrow .act{padding:8px 11px;font-size:8.5px}
+  #simrow #simbasic{min-width:62px}
+  #simrow #simq,#simrow #sime,#simrow #simr{min-width:38px}
+  #simspd,#simtgt,#simtools,#fxlibtools,#fxlibfilter{display:flex;gap:3px;align-items:center}
+  #simmove{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:5px}
+  #simmove .mv{font-size:7px;letter-spacing:.16em;opacity:.5;text-transform:uppercase}
+  #simmove .act.on{border-color:var(--c2);color:#eaffff;background:rgba(24,224,255,.18)}
+  #mdlrow{display:flex;gap:7px;align-items:center;margin-top:5px}
+  #mdlrow select{flex:1;min-width:0;background:#0b1424;color:#cfe6ff;border:1px solid #1e4b66;
+    border-radius:6px;font:inherit;font-size:8px;letter-spacing:.04em;padding:4px 6px}
+  #mdlrow #mdlnote{font-size:7.5px;opacity:.55;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+  #animnote{font-size:7.5px;line-height:1.6;letter-spacing:.06em;opacity:.62;margin-top:4px;color:#8fb0cc}
+  #animnote.ok{color:#3dffb0;opacity:.9}
+  #anim .mrow input[type=text]{flex:1;min-width:0;background:#0b1424;color:#cfe6ff;border:1px solid #1e4b66;
+    border-radius:5px;font:inherit;font-size:8px;padding:3px 6px}
+  #anim .mrow b.ok{color:#3dffb0}
+  #anim .mrow b.warn{color:#ffb14a}
+  #simrow span>.act{padding:6px 8px;font-size:7.5px}
+  #simrow .act.on,#simtools .act.on{border-color:var(--c2);color:#eaffff;background:rgba(24,224,255,.18)}
+  #simrow .act:active{transform:translateY(1px)}
+  #simcap{font-size:7.5px;line-height:1.6;letter-spacing:.08em;opacity:.6;margin-top:6px;color:#8fe8c8}
+  #simcap.warn{color:#ffb14a;opacity:1}
+  #simcap.bad{color:#ff3b5c;opacity:1}
+  #simsay{position:fixed;left:50%;top:22%;transform:translateX(-50%);pointer-events:none;
+          font-size:15px;letter-spacing:.22em;color:#eaffff;opacity:0;transition:opacity .18s;
+          text-shadow:0 0 12px rgba(24,224,255,.8)}
+  #simsay.on{opacity:.95}
+  #simflash{position:fixed;inset:0;pointer-events:none;background:#fff;opacity:0;mix-blend-mode:screen}
+  /* in-panel explainer — the studio is where people get lost about FX */
+  #fxhelp{margin-top:6px;font-size:7.5px;line-height:1.75;letter-spacing:.06em;opacity:.72}
+  #fxhelp b{color:#7cf9ff}
+  #fxhelp code{color:#ffd9a8;background:rgba(255,138,43,.08);padding:0 3px}
+  #fxhelp ol{margin:4px 0 0 13px;padding:0}
+  #fxhelp li{margin:2px 0}
+  #fxhelphide{float:right;padding:3px 7px;font-size:7px}
+  .lbl{position:relative}
+  #fxdrop{border:1.5px dashed rgba(61,255,176,.45);padding:12px 10px;text-align:center;font-size:8.5px;
+          letter-spacing:.18em;color:#7fd8b8;cursor:pointer}
+  #fxdrop.hot{border-color:#3dffb0;color:#3dffb0;background:rgba(61,255,176,.07)}
+  #fxname{font-size:9px;color:#8fb;letter-spacing:.12em;margin-top:6px;word-break:break-all}
+  #fxname em{font-style:normal;color:#ffb14a}
+  #fxrow{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  #fxrow .act{padding:8px 9px;font-size:8px;letter-spacing:.1em}
+  /* skill-slot chips: ALL / Q / E / R */
+  #fxslots{display:flex;gap:5px}
+  .chip{flex:1;cursor:pointer;font-family:var(--font);text-transform:uppercase;font-size:8px;
+        letter-spacing:.1em;padding:7px 4px;text-align:center;color:#9ff;background:rgba(8,14,28,.8);
+        border:1px solid rgba(24,224,255,.2);transition:all .15s}
+  .chip b{display:block;font-size:9px;color:#cfe}
+  .chip.on{background:var(--c2);border-color:var(--c2);color:#04070f;font-weight:700}
+  .chip.on b{color:#04070f}
+  .chip i{display:block;width:5px;height:5px;border-radius:50%;background:#3dffb0;margin:3px auto 0;opacity:0}
+  .chip.has i{opacity:1}
+  /* library rows */
+  #fxlib{max-height:150px;overflow-y:auto;scrollbar-width:thin}
+  /* library tools row: kind filter + preview loop/stop, and the per-row ▶ */
+  #fxlibtools{float:right;display:flex;align-items:center;gap:4px}
+  #fxlibfilter{display:flex;gap:2px}
+  .act.mini{padding:3px 7px;font-size:7px;letter-spacing:.08em}
+  .act.mini.on{border-color:var(--c2);color:#eaffff;background:rgba(24,224,255,.16)}
+  .lib button.act{padding:3px 7px;font-size:8px;line-height:1;letter-spacing:0}
+  .lib.pv{border-color:var(--c2);background:rgba(24,224,255,.09)}
+  #fxlibnote{font-size:7.5px;line-height:1.6;opacity:.5;letter-spacing:.09em;margin-top:5px}
+  .lib{display:flex;justify-content:space-between;gap:6px;align-items:center;font-size:8px;
+       letter-spacing:.08em;padding:5px 7px;margin-bottom:4px;cursor:pointer;
+       border:1px solid rgba(255,255,255,.07);background:rgba(8,14,28,.5)}
+  .lib:hover{border-color:rgba(61,255,176,.6);background:rgba(61,255,176,.06)}
+  .lib.on{border-color:var(--c2)}
+  .lib span{color:#cfe;word-break:break-all}
+  .lib i{font-style:normal;opacity:.45;white-space:nowrap}
+  .lib u{text-decoration:none;color:#7fd8b8;white-space:nowrap}
+  input[type=color]{width:100%;height:18px;padding:0;background:none;border:1px solid rgba(255,255,255,.14);cursor:pointer}
+  #note{font-size:8.5px;line-height:1.7;opacity:.5;letter-spacing:.1em}
+
+  #bottom{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+  .act{cursor:pointer;font-family:var(--font);text-transform:uppercase;letter-spacing:.14em;
+       font-size:9px;padding:10px 15px;color:#9ff;background:rgba(8,14,28,.8);
+       border:1px solid rgba(24,224,255,.25);transition:all .15s}
+  .act:hover{color:#fff;border-color:rgba(24,224,255,.75)}
+  .act.on{color:#04070f;background:var(--c2);border-color:var(--c2);font-weight:700}
+  #cameraMode{display:flex;align-items:center;gap:3px;padding:3px 4px;background:rgba(8,14,28,.8);border:1px solid rgba(24,224,255,.25)}
+  #cameraMode .camLabel{font-size:8px;letter-spacing:.14em;color:#8aa;opacity:.7;padding:0 5px 0 3px}
+  #cameraMode .cam{padding:6px 8px;font-size:7.5px;letter-spacing:.12em}
+  #cameraMode .cam:not(.on){color:#9aa;background:transparent;border-color:transparent}
+  .act.load{background:linear-gradient(90deg,var(--c),#fff);color:#04070f;font-weight:800;border:none;
+            clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)}
+  .sep{width:1px;height:26px;background:rgba(255,255,255,.14);margin:0 4px}
+  #msg{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:.16em;z-index:6}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="title"><div class="t1">NEON VANGUARD</div><div class="t2">HERO STUDIO</div>
+  <a id="back" href="./index.html">◂ hub</a> &nbsp; <a id="back" href="./neon-vanguard.html">▶ play</a></div>
+<div id="head"></div>
+
+<div id="right" class="panel">
+  <div id="gname">—</div>
+  <div class="st"><i>triangles</i><b id="tris">—</b></div>
+  <div class="st"><i>height</i><b id="hgt">—</b></div>
+  <div class="lbl">SIZE</div>
+  <input type="range" id="sz" min="0.5" max="2" step="0.01" value="1">
+  <div class="lbl">PLACEMENT · X / Y / Z / YAW</div>
+  <div id="plc"></div>
+  <div id="pcfit">
+    <span id="pcfeet">—</span>
+    <button class="act" id="pclift" title="set Y so the lowest point rests on the deck">auto-lift</button>
+    <button class="act" id="pcreset" title="back to the loader's own placement">reset</button>
+  </div>
+  <div id="pcnote"></div>
+  <div class="lbl">ACTION MOTION</div>
+  <div id="mot"></div>
+  <div class="lbl">SKIN FILE &amp; CLIPS
+    <button class="act mini" id="animon" title="ignore or play the animation clips inside the hero's GLB">clips on</button>
+  </div>
+  <div id="mdlrow"><select id="mdl" title="which file is this hero's skin"></select><span id="mdlnote"></span></div>
+  <div id="anim"></div>
+  <div id="animnote"></div>
+  <div class="lbl">CAST SIM · run the real ability here
+    <span id="simtools"><button class="act mini" id="simon" title="install the bench (targets + hooks)">off</button></span>
+  </div>
+  <div id="simrow">
+    <button class="act" id="simbasic">basic</button>
+    <button class="act" id="simq">Q</button>
+    <button class="act" id="sime">E</button>
+    <button class="act" id="simr">R</button>
+    <button class="act mini" id="simauto" title="re-cast as soon as the last one finishes">⟳ auto</button>
+    <span id="simspd"><button class="act mini on" id="sp1">1×</button><button class="act mini" id="sp2">½×</button><button class="act mini" id="sp3">¼×</button></span>
+    <span id="simtgt"><button class="act mini" id="tg0">0</button><button class="act mini on" id="tg3">3</button><button class="act mini" id="tg6">6</button></span>
+    <button class="act mini" id="simreset" title="kill live effects, re-place the targets, walk the hero home">reset</button>
+  </div>
+  <div id="simmove">
+    <span class="mv">move</span>
+    <button class="act mini on" data-m="idle" title="no input — the hero stands and damps its velocity">idle</button>
+    <button class="act mini" data-m="walk" title="hold the real accel/damp curve and the arena clamp">walk</button>
+    <button class="act mini" data-m="strafe" title="perpendicular to facing">strafe</button>
+    <button class="act mini" data-m="circle" title="orbit the aim point — where the gait has to work under rotation">circle</button>
+    <button class="act mini" id="simdash" title="real Hero.dash(): its own cooldown, iframe and afterimages — on cooldown it says BLOCKED">dash</button>
+  </div>
+  <div id="simcap">bench idle — cast a skill to install it</div>
+  <div id="simsay"></div>
+  <div id="simflash"></div>
+
+  <div class="lbl">HOW FX WORK IN THIS BUILD
+    <button class="act mini" id="fxhelphide" title="fold it away">hide</button>
+  </div>
+  <div id="fxhelp">
+    <ol>
+      <li>You press <b>Q / E / R</b> → <code>Hero.useSkill(i, G)</code> runs the ability (damage, knockback, its own rings and particles).</li>
+      <li>That method calls <code>Hero.playFX(G, i)</code> — one line: <i>what did the studio put in this skill's slot?</i></li>
+      <li><code>fxpack.fxFor()</code> answers: this slot's file → else the hero's <b>ALL</b> file → else nothing. Muted slots are skipped.</li>
+      <li><code>fxpack.spawnFX()</code> builds it from a <b>pool</b>: a clone of your .glb, or a billboard fed by one shared <code>&lt;video&gt;</code>, plus a light borrowed from the fixed pool.</li>
+      <li>Your <b>FX LOOK</b> numbers drive that instance (scale, rise, spin, fade…) and a coroutine ticks it; at the end <code>kill()</code> returns everything. Nothing is created or destroyed per cast.</li>
+      <li><b>CAST SIM</b> (above) runs steps 1–5 for real, so an effect can be judged against the shake, the knockback and the ability's own burst — not on a blank stage.</li>
+      <li><b>The bench owns the body while it is on.</b> Its update runs the real <code>Hero.move</code> +
+        <code>Hero.update</code>, so MOVE is what moves the hero, POSE can only <i>overlay</i> an envelope on
+        top of a live cast, and walk frequency is measured off the hero's actual velocity instead of assumed.
+        Turn the bench off and this loop drives the body by itself again (MOTION-AUDIT F4/F5).</li>
+    </ol>
+  </div>
+
+  <div class="lbl">SKILL EFFECT · PER SKILL</div>
+  <div id="fxslots"></div>
+  <div id="fxdrop" style="margin-top:8px">DROP .GLB OR VIDEO (.MP4/.WEBM) INTO THIS SLOT · OR CLICK<input id="fxfile" type="file" accept=".glb,.mp4,.webm,.ogv" hidden></div>
+  <div id="fxname">none assigned</div>
+  <div id="fxrow">
+    <button class="act" id="fxplay">▶ play</button>
+    <button class="act" id="fxrec">● rec</button>
+    <button class="act on" id="fxon">on</button>
+    <button class="act" id="fxcopy" title="copy the ALL assignment into this slot, then tune it apart">⎘ from all</button>
+    <button class="act" id="fxclear">clear</button>
+  </div>
+  <div class="lbl">FX LOOK <i id="fxkind" style="opacity:.6;letter-spacing:.1em"></i></div>
+  <div id="fxp"></div>
+  <div class="lbl">LIBRARY · models/uploads
+    <span id="fxlibtools">
+      <span id="fxlibfilter">
+        <button class="act mini on" id="fxf-all">all</button><button class="act mini" id="fxf-glb">glb</button><button class="act mini" id="fxf-video">video</button>
+      </span>
+      <button class="act mini" id="fxloop" title="keep re-firing the preview">⟳ loop</button>
+      <button class="act mini" id="fxstop" title="stop the preview">■ stop</button>
+      <button class="act mini" id="fxref" title="re-list models/uploads">refresh</button>
+    </span>
+  </div>
+  <div id="fxlib"></div>
+  <div id="fxlibnote"></div>
+  <div class="lbl">PIPELINE</div>
+  <div id="note">Edits apply live in this studio. SAVE writes hero_tuning.json into models/uploads/ — the game reads it on START, so size, motion and every skill-effect slot land in the real match. Pick a slot (Q / E / R, or ALL for one effect on every skill) before you drop, record or pick from the library.</div>
+</div>
+
+<div id="bottom">
+  <button class="act on" data-a="idle">idle</button>
+  <button class="act" data-a="walk">walk</button>
+  <button class="act" data-a="attack">attack</button>
+  <button class="act" data-a="cast">cast</button>
+  <button class="act" data-a="hurt">hurt</button>
+  <button class="act" data-a="down">down</button>
+  <div class="sep"></div>
+  <div id="cameraMode" data-mode="follow" role="group" aria-label="Camera view mode">
+    <span class="camLabel">camera</span>
+    <button class="act mini cam on" data-camera-mode="follow" aria-pressed="true" title="Keep the active hero framed, including during CAST SIM">follow</button>
+    <button class="act mini cam" data-camera-mode="free" aria-pressed="false" title="Keep the current OrbitControls composition">free view</button>
+  </div>
+  <div class="sep"></div>
+  <button class="act" id="spin">auto-spin</button>
+  <button class="act load" id="save">save</button>
+</div>
+<div id="msg"></div>
+<script type="module" src="../src/studio.js"></script>
+</body>
+</html>

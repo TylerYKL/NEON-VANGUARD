@@ -8,10 +8,12 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildWorld, ARENA } from './world.js';
 import { FX } from './fx.js';
 import { Hero, HERO_DEFS } from './heroes.js';
+import { ensureGLBSkins, ensureTuning, loadFXBank, clipReport } from './glbskin.js';
 import { Enemy, ENEMY_TYPES, ProjectileSystem, ELITES } from './entities.js';
 import { UI } from './ui.js';
 import { SFX } from './audio.js';
 import { Pickup } from './pickups.js';
+import { LightPool } from './lights.js';
 import { UPGRADES, MOD_DEFAULTS, RARITY_COLOR, rollOffers } from './upgrades.js';
 import { BALANCE as B, applyBalance } from './balance.js';
 import { initDevTools, DEV_CSS } from './devtools.js';
@@ -128,13 +130,22 @@ const grade = new ShaderPass(GradeShader);
 composer.addPass(grade);
 composer.addPass(new OutputPass());
 
+/* Slot-priority biases for the light pool (subtracted from squared distance).
+   Hoisted out of the frame loop so a frame allocates nothing. */
+const ENEMY_LIGHT_BIAS = (o) => (o.T.boss ? 1e9 : 0);
+const PICKUP_LIGHT_BIAS = (o) => (o.core ? 1e9 : 0);
+
 /* ---------- game state ---------- */
 const ui = new UI();
 const fx = new FX(scene, camera);
 const world = buildWorld(scene, renderer);
+// Fixed-size point-light pool. Created once; never resized during play, so the
+// scene's light count (and therefore three.js's compiled shader programs)
+// cannot change when enemies spawn or die. See src/lights.js.
+const lights = new LightPool(scene, B.perf);
 
 const G = {
-  scene, camera, renderer, fx, world, ui,
+  scene, camera, renderer, fx, world, ui, lights,
   heroes: [], enemies: [], effects: [], barriers: [], pickups: [],
   corePoints: 0, coreNeed: 16,
   hitStop: 0, drafting: false, god: false, mods: Object.assign({}, MOD_DEFAULTS), taken: {}, hpScale: 1, dmgScale: 1, maxAlive: 45, elitesSeen: 0, bestChain: 0,
@@ -805,6 +816,12 @@ const keys = {};
 let mouseDown = false;
 let mouseHeld = false;
 const raycaster = new THREE.Raycaster();
+/* Scratch for the per-frame aim path (MOTION-AUDIT F5). Safe to reuse: everything
+   downstream copies out of them (aimPoint.copy, damp on .x/.z) and keeps no reference —
+   which is the same contract G.damageEnemy already relies on for borrowed vectors. */
+const AIM_HIT = new THREE.Vector3();
+const AIM_LEAD = new THREE.Vector3();
+const IDLE_DIR = new THREE.Vector3();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 addEventListener('keydown', (e) => {
@@ -849,7 +866,7 @@ addEventListener('blur', () => { mouseDown = false; mouseHeld = false; for (cons
 function updateAim() {
   if (PAD.on && (Math.abs(PAD.aimX) + Math.abs(PAD.aimZ)) > 0.05) return;
   raycaster.setFromCamera(G.mouse, camera);
-  const hit = new THREE.Vector3();
+  const hit = AIM_HIT;                     // scratch (F5): aimPoint.copy reads it immediately
   if (raycaster.ray.intersectPlane(groundPlane, hit)) {
     G.aimPoint.copy(hit);
   }
@@ -863,7 +880,7 @@ function updateCamera(dt) {
   const a = G.active;
   if (!a) return;
   // look slightly toward aim
-  const lead = new THREE.Vector3().subVectors(G.aimPoint, a.pos).clampLength(0, 12).multiplyScalar(0.22);
+  const lead = AIM_LEAD.subVectors(G.aimPoint, a.pos).clampLength(0, 12).multiplyScalar(0.22);
   camTarget.x = damp(camTarget.x, a.pos.x + lead.x, 5, dt);
   camTarget.z = damp(camTarget.z, a.pos.z + lead.z, 5, dt);
   const h = 23.5, back = 15.5;
@@ -880,7 +897,7 @@ function updateCamera(dt) {
 }
 
 /* ---------- flow ---------- */
-function startGame(training) {
+async function startGame(training) {
   SFX.init(); SFX.resume(); SFX.play('uiClick'); SFX.startMusic(1); syncAudioBtn();
   document.getElementById('menu').classList.add('hidden');
   document.getElementById('gameover').classList.add('hidden');
@@ -889,6 +906,7 @@ function startGame(training) {
   G.enemies.length = 0;
   for (const p of G.pickups) p.remove(G);
   G.pickups.length = 0;
+  G.lights.clear();
   for (const b of G.barriers) b.active = false;
   G.barriers.length = 0;
   G.corePoints = 0; G.ultChain = 0; G.ultChainT = 0; G.ultMul = 1; G.overdriveT = 0;
@@ -904,10 +922,20 @@ function startGame(training) {
   G.drafting = false;
   document.getElementById('draft').classList.add('hidden');
   renderBuild();
+  // effects are coroutines, and some borrow pooled resources (fx lights, video
+  // elements). Dropping the array would strand them, so dispose first.
+  for (const e of G.effects) { if (e.dispose) { try { e.dispose(); } catch (err) {} } }
   G.effects.length = 0;
   G.score = 0; G.kills = 0; G.combo = 1; G.wave = 0;
   G.over = false; G.paused = false;
+  G.glbTuning = await ensureTuning(true);  // re-read studio config (saved while this tab was open)
+  // skins SECOND, because the tuning's `model` field can override which file a hero wears
+  G.glbSkins = await ensureGLBSkins(G.glbTuning);   // uploaded hero models (models/uploads/<id>.glb), if any
+  G.fxBank = await loadFXBank(G.glbTuning);   // skill-effect files, keyed by URL (see fxpack.js)
   createSquad();
+  /* after the squad exists, because the clip slots are resolved inside Hero.build() —
+     this is the only place a shipped tuning file says "that clip is not in the file" */
+  for (const r of clipReport(G)) (r.bad ? console.warn : console.info)('[clips] ' + r.msg);
   G.running = true;
   G.waveActive = false;
   G.waveTimer = 2.2;
@@ -1104,6 +1132,7 @@ applySettings();
       G.mods.critChance = B.combat.critChance + (G.taken.crit ? G.taken.crit * 0.10 : 0);
       G.mods.critMul = B.combat.critMul + (G.taken.crit ? G.taken.crit * 0.3 : 0);
       G.maxAlive = B.scaling.maxAlive;
+      G.lights.setBudget(B.perf);   // deliberate: this recompiles programs once
       for (const h of G.heroes) {
         const frac = h.maxHp > 0 ? h.hp / h.maxHp : 1;
         h.maxHp = h.def.hp;
@@ -1122,6 +1151,9 @@ applySettings();
       return {
         ms: (G.frameMs || 0).toFixed(1), fps: (G.fps || 0).toFixed(0),
         enemies: G.enemies.length + '/' + G.maxAlive, calls: G.renderCalls || 0, tris: (G.renderTris || 0).toLocaleString(),
+        // lit / total pooled lights. The total must never change during play —
+        // if it does, three.js is recompiling programs. See src/lights.js.
+        lights: G.lights ? G.lights.active + '/' + G.lights.size : '-',
       };
     },
   });
@@ -1350,7 +1382,7 @@ function frame(now) {
         a.aim.set(G.aimPoint.x - a.pos.x, 0, G.aimPoint.z - a.pos.z).normalize();
         a.move(dt, dir);
         if (mouseDown) a.tryAttack(G);
-      } else a.move(dt, new THREE.Vector3());
+      } else a.move(dt, IDLE_DIR);          // move() reads dir, never writes it (F5)
 
       for (const h of G.heroes) {
         if (h !== a) h.updateAI(dt, G, a);
@@ -1398,6 +1430,13 @@ function frame(now) {
         if (!G.pickups[i].update(dt, G)) G.pickups.splice(i, 1);
       }
     }
+
+    // ---- pooled lights ----
+    // Hand the nearest few enemies and pickups a light. Bosses and Charge Cores
+    // always win a slot; the pool size is the hard ceiling.
+    const lightFocus = G.active ? G.active.pos : null;
+    lights.assignNearest('enemy', G.enemies, lightFocus, ENEMY_LIGHT_BIAS);
+    lights.assignNearest('pickup', G.pickups, lightFocus, PICKUP_LIGHT_BIAS);
 
     // ---- entities ----
     for (let i = G.enemies.length - 1; i >= 0; i--) {

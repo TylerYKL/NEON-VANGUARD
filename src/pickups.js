@@ -45,8 +45,10 @@ export class Pickup {
       this.beam.position.y = 7;
       g.add(this.beam);
     }
-    this.light = new THREE.PointLight(col, this.core ? 5 : 1.6, this.core ? 16 : 6, 2);
-    g.add(this.light);
+    // Pooled, not per-pickup: a shard drops on most kills and each one lived
+    // for 15 s, so a busy wave stacked dozens of point lights. G.lights hands
+    // the nearest few a slot each frame (see src/lights.js).
+    this.light = null;
 
     const disc = new THREE.Mesh(new THREE.RingGeometry(size * 2.2, size * 2.9, 24), addMat(col, 0.6));
     disc.rotation.x = -Math.PI / 2;
@@ -105,7 +107,13 @@ export class Pickup {
     this.disc.position.y = -(this.pos.y + bob) + 0.06;
     const flick = 0.7 + 0.3 * Math.sin(this.t * (this.core ? 9 : 6));
     this.shell.material.opacity = flick;
-    this.light.intensity = (this.core ? 4 : 1.4) * flick;
+    if (this.light) {
+      this.light.position.copy(this.pos);
+      this.light.color.set(this.core ? 0xffe36a : 0xffb14a);
+      this.light.distance = this.core ? 16 : 6;
+      this.light.decay = 2;
+      this.light.intensity = (this.core ? 4 : 1.4) * flick;
+    }
     if (this.beam) this.beam.material.opacity = 0.10 + 0.08 * flick;
     // blink out near expiry
     if (this.life < 3) this.group.visible = Math.sin(this.life * 18) > -0.2;

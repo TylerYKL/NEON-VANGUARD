@@ -18,3 +18,15 @@ x[0-9]*.png
 # local tuning sessions / editor noise
 .DS_Store
 *.log
+
+# user-uploaded hero models: committed once, so they survive workspace resets
+# (drop new/updated GLBs in here and commit them to swap hero skins)
+
+# The Hero Studio's SAVE output. Deliberately NOT tracked: its absence is the shipped
+# defaults, so a fresh clone always boots the way the procedural game was tuned to look,
+# and every tweak in the panel would otherwise be a permanent repo diff. To make a tuned
+# setup travel with the repo on purpose:  git add -f models/uploads/hero_tuning.json
+models/uploads/hero_tuning.json
+
+# python bytecode
+__pycache__/
