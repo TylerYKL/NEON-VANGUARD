@@ -107,6 +107,7 @@ const MOT_DEFS = [
   ['twist', 'atk twist', 0, 0.8, 0.01],
   ['castLean', 'cast lean', 0, 0.4, 0.005],
   ['hurtLean', 'hurt recoil', 0, 0.5, 0.005],
+  ['recoilKick', 'recoil kick', 0, 0.3, 0.005],
   ['idleSway', 'idle sway', 0, 0.05, 0.002],
   ['fallSpeed', 'fall speed', 1, 12, 0.1],
 ];

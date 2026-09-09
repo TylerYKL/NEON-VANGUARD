@@ -5,8 +5,8 @@ how an attack starts and lands. Read `FX-AEGIS.md` for effects; this is the audi
 answers "and what about the body?". Six findings, each with a measured number, plus the
 plan for GLB animation clips.
 
-**Status: F1 and F2 are fixed (invariants 16–17 in `HANDOFF.md` record the rules they broke); F3–F7 are
-open, in the order at §5.** `node tools/animcheck.mjs` re-measures every number in
+**Status: all eight findings are fixed (invariants 16–20 in `HANDOFF.md` record the rules they broke), and
+§4's phases A–D are in — clips load, bind and blend, and the studio can point a hero at a rigged file.** `node tools/animcheck.mjs` re-measures every number in
 §2 and §3 and stays green until a *new* problem appears (`KNOWN` lines = written-up defects,
 `FIXED` = a defect went away and this doc needs updating). Line refs are against
 `2e2357e…4875a16`, `src/heroes.js` = 1368 ln, `src/rig.js` = 431 ln.
@@ -239,8 +239,12 @@ comment promises has never reached the arm. Either wire it (a gun-arm kick is th
 **Wired, procedurally only.** `animateRig` takes `recoil` and the gun block subtracts it from the shoulder and
 adds it to the elbow, so a railshot (which pushes `recoil` to 1.6) snaps the arm up and back and the hero's own
 `dt*6` decay settles it over ~16 frames; a normal shot kicks at 1.0. `animcheck` measures the shoulder delta
-rather than trusting the arithmetic. The GLB path cannot express it yet: `motion` is a v2 table of eleven numbers
-and adding a twelfth belongs with the v3 bump in §4, not with a bug fix.
+rather than trusting the arithmetic. The GLB path could not express it then — `motion` was a v2 table of nine
+numbers and adding a tenth belonged with the v3 bump in §4, not with a bug fix. **That bump is in, so the kick
+landed too**: `motion.recoilKick` pitches the root back and shoves it a metre-or-so less along the facing, off the
+same `recoil` value, defaulting small (0.05 rad per unit). `animcheck` §2c measures the pitch, the shove, that
+`recoilKick: 0` is bit-identical to the old build, that a kicked root returns to the rest pose *exactly* (F8's
+residue class, one node up), and that a v2 file with no such key still reads the default instead of `undefined`.
 
 ### F8 · `railshot` leaves the overcharge aura switched on **forever** — P1 · 🐛 found by this bench, ✅ fixed
 
@@ -382,7 +386,8 @@ and the visual payoff is zero until the asset has bones. Two decisions needed fr
    at any uploaded skin file and name its clips; `hero_tuning.json` is v3 (`model` + `anim`). `animcheck`
    measures 11 clip behaviours on the generated rigged fixture (`tools/lib/rigged.mjs`) because every real
    upload still has nothing to play — that part is an art task, not a code one. A GLB `recoilKick` still
-   belongs in the `motion` table whenever someone wants it: the procedural path has had the kick since F7.
+   ~~A GLB `recoilKick` still belongs in the `motion table`~~ ✅ in — the tenth coefficient, `motion.recoilKick`,
+   landed with the v3 bump it was waiting on (`animcheck` §2c measures all five of its promises).
 6. If the slam's 1.18 m of drift itself is wrong, that is a balance call in `seismicSlam` — the FX
    side of it is now a checkbox, so the two questions are finally separable.
 

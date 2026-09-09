@@ -183,7 +183,10 @@ const ht = new Hero(HERO_DEFS[0], G3, 0);
 check('tuning scale multiplies body', Math.abs(ht.body.scale.x / ht._baseScale - 1.3) < 1e-6,
   'got ' + (ht.body.scale.x / ht._baseScale).toFixed(3));
 check('tuning motion override + defaults merged',
-  ht.motion.lunge === 0.9 && ht.motion.fallSpeed === 9 && ht.motion.bob === DEFAULT_MOTION.bob);
+  ht.motion.lunge === 0.9 && ht.motion.fallSpeed === 9 && ht.motion.bob === DEFAULT_MOTION.bob &&
+    /* a key added after the file was written (recoilKick) must read as the DEFAULT on an
+       old file, never undefined — `undefined * 1.6` is a NaN in a bone transform */
+    ht.motion.recoilKick === DEFAULT_MOTION.recoilKick);
 check('tuning placement + yaw applied',
   ht.offset.x === 0.25 && ht.offset.y === 0.5 && Math.abs(ht._yaw - Math.PI / 2) < 1e-9,
   'yaw ' + ht._yaw.toFixed(3));

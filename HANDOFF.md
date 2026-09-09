@@ -343,7 +343,8 @@ reload. Nothing in the shipped build depends on the studio: a missing file means
   sliders start there; each axis has a slider *and* a type-in box (±3 m, matching the clamp in `ensureTuning`),
   and a live readout prints feet / head height and shouts `BURIED` when the deck clips the body. `auto-lift`
   sets Y so the lowest point touches the deck; `reset` zeroes all four for whatever a pre-fix file saved.
-* **ACTION MOTION** (`motion`) — the nine `DEFAULT_MOTION` coefficients that give an unrigged statue walk,
+* **ACTION MOTION** (`motion`) — the ten `DEFAULT_MOTION` coefficients that give an unrigged statue walk
+  (the tenth is `recoilKick`, the root kick a GLB skin needs because its gun is baked into the mesh),
   lunge, twist, cast lean, recoil, sway and topple.
 * **SKILL EFFECT** — one effect slot per skill (`Q` / `E` / `R`) plus a shared `ALL` slot, each holding a
   `.glb` prop or a video billboard with eleven tuning parameters (`scale y dur grow spin rise fade opacity

@@ -6,11 +6,15 @@
    ("the heroes just look like that"), so every check here measures a shipped
    asset or a shipped rig and compares against the deck at y = 0.
 
-   Three groups:
+   Groups, each re-measuring a claim MOTION-AUDIT.md makes:
      1. procedural rig   — buildHumanoid's baseline vs what animateRig leaves the
                           soles doing, and a walk cycle must never dip under 0
      2. GLB skin + Q     — the slam's leap still happens, and the hero comes back
                           down to the rig's own rest (F1's bug was the restore)
+     2b/2c. recoil       — F7's number reaches the gun arm (procedural) AND the root
+                          (GLB), and neither keeps a residue once the kick decays
+     2d. rigged skin     — clips drive bones: weights, mixer clocks, one hero per pose
+     3b. allocations     — static read of the per-frame paths: no `new THREE.*` in them
      3. the asset census — bones / skinned meshes / clips per file, i.e. whether
                           there is anything for an AnimationMixer to play
 
@@ -225,6 +229,50 @@ else {
     kicked < still - 0.1, 'shoulder.x ' + still.toFixed(3) + ' → ' + kicked.toFixed(3) + ' at recoil 1.6');
   check('…and a kick decays: 1.6 bleeds to 0 in the hero\u2019s own dt×6', (1.6 / (1 / 60 * 6)) > 15,
     '≈16 frames, i.e. a 0.27 s snap-back — longer than the shot\u2019s own flash');
+}
+
+
+/* ---------- 2c. F7's other half: the kick reaches a GLB root ---------- */
+{
+  const { DEFAULT_MOTION } = await import('../src/glbskin.js');
+  const { riggedGLB } = await import('./lib/rigged.mjs');
+  const tpl = (await parseGLB(await riggedGLB())).scene;
+  normalizeToStage(tpl, 2.4);
+  const Gk = {
+    scene: new THREE.Scene(), time: 0, addEffect: () => {},
+    lights: { acquire: () => null, release: () => {}, set: () => {} },
+    /* clips: [] — this section is about the ROOT, so the mixer must not exist at all */
+    glbSkins: { aegis: { template: tpl, clips: [], yaw: 0, url: 'aegis-rig.glb' },
+                nyx: { template: tpl, clips: [], yaw: 0, url: 'aegis-rig.glb' } },
+    glbTuning: { aegis: { scale: 1, pos: {}, yawDeg: 0, motion: {}, anim: { on: 0 } },
+                 nyx: { scale: 1, pos: {}, yawDeg: 0, motion: {}, anim: { on: 0 } } },
+  };
+  const hk = new Hero(HERO_DEFS[2], Gk, 2);           // NYX — the hero that sets `recoil`
+  const M = hk.motion;
+  const still = () => { hk.animateGLB(1 / 60, { time: 0 }, 0); return [hk.body.rotation.x, hk.body.position.z]; };
+  hk.attackAnim = 0; hk.castAnim = 0; hk.hurtAnim = 0; hk.downed = false; hk._fall = 0;
+  hk.recoil = 0; M.recoilKick = 0.25;
+  const [x0, z0] = still();
+  hk.recoil = 1.6;
+  const [x1, z1] = still();
+  check('NYX (GLB skin): the same `recoil` value kicks the ROOT (F7, other half)',
+    x1 < x0 - 0.3 && z1 < z0 - 0.3, 'pitch ' + x0.toFixed(3) + ' → ' + x1.toFixed(3)
+    + ' rad · shove ' + (z1 - z0).toFixed(3) + ' m');
+  M.recoilKick = 0;
+  const [x2, z2] = still();
+  check('…and the row at 0 is the old build, to the last bit', x2 === x0 && z2 === z0,
+    x2.toFixed(6) + ' vs ' + x0.toFixed(6));
+  for (let i = 0; i < 24; i++) { hk.recoil = Math.max(0, hk.recoil - (1 / 60) * 6); hk.animateGLB(1 / 60, { time: 0 }, 0); }
+  M.recoilKick = 0.25;
+  const [x3, z3] = still();
+  check('…a kicked root returns to the rest pose EXACTLY (F8’s residue class, one node up)',
+    x3 === x0 && z3 === z0, 'left ' + x3.toFixed(6) + ' / ' + z3.toFixed(6));
+  const hq = new Hero(HERO_DEFS[0], { ...Gk, glbTuning: { aegis: { scale: 1, pos: {}, yawDeg: 0, anim: { on: 0 } } } }, 0);
+  hq.motion = Object.assign({}, DEFAULT_MOTION); hq.recoil = 1.6; hq._fall = 0;
+  hq.animateGLB(1 / 60, { time: 0 }, 0);
+  check('…and a v2 file that never mentioned the key still stands at the default kick',
+    Math.abs(hq.body.rotation.x + DEFAULT_MOTION.recoilKick * 1.6) < 1e-12 &&
+    Number.isFinite(hq.body.position.z), 'pitch ' + hq.body.rotation.x.toFixed(4));
 }
 
 

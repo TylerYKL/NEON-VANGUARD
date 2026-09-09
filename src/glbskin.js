@@ -163,6 +163,7 @@ export const DEFAULT_MOTION = {
   twist: 0.22,     // hip twist on attack
   castLean: 0.10,  // lean-back while casting
   hurtLean: 0.16,  // recoil when hit
+  recoilKick: 0.05,// root kick while `recoil` is lit (a GLB skin has no gun node to kick)
   idleSway: 0.012, // breathing sway at rest
   fallSpeed: 6,    // how fast the body topples when downed
 };

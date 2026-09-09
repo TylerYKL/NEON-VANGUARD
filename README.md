@@ -218,7 +218,7 @@ python3 tools/upload_server.py                                # the :8081 dropbo
 | Panel | Writes |
 |---|---|
 | SIZE / PLACEMENT (x, y, z, yaw) | `scale`, `pos`, `yawDeg` — offsets sit **on top of** the loader's own fit, so 0/0/0 is already right; sliders + type-in boxes, a feet/head readout, `auto-lift` and `reset` |
-| ACTION MOTION | `motion` — step rate, bob, lean, lunge, twist, cast lean, hurt recoil, idle sway, fall speed |
+| ACTION MOTION | `motion` — step rate, bob, lean, lunge, twist, cast lean, hurt recoil, recoil kick, idle sway, fall speed |
 | SKILL EFFECT | `fx` / `fxOn` / `fxP` (the shared slot) and `fxSlots[0..2]` — one effect per skill, Q / E / R |
 | LIBRARY · models/uploads | `▶` previews any file at the hero **without assigning it** (params via `fxPreviewFor`, always a clamped copy), `⟳ loop` re-fires it, `all · glb · video` filters |
 

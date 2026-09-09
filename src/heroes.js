@@ -1373,8 +1373,14 @@ export class Hero {
     this._stepT = (this._stepT || 0) + dt * (2 + M.stepRate * move);
     this._fall = damp(this._fall || 0, this.downed ? 1 : 0, M.fallSpeed, dt);
     const f = this._fall;
-    // topple when downed; else walk-lean, cast-lean-back, hurt recoil
-    b.rotation.x = -f * 1.45 + move * M.walkLean + this.castAnim * M.castLean - this.hurtAnim * M.hurtLean;
+    /* MOTION-AUDIT F7's other half: `recoil` was wired into the procedural gun arm, but a GLB
+       skin's weapon is baked into the mesh, so there is no shoulder to hand it to — the number
+       has to land on the ROOT, which is the one thing this function owns (invariant 20). It
+       rides `recoil`, which whoever shoots sets, so a fist hero stays exactly where it was.
+       One coefficient for both the pitch and the shove, so a tuner has one knob to reason about. */
+    const kick = (this.recoil || 0) * M.recoilKick;
+    // topple when downed; else walk-lean, cast-lean-back, hurt recoil, gun kick
+    b.rotation.x = -f * 1.45 + move * M.walkLean + this.castAnim * M.castLean - this.hurtAnim * M.hurtLean - kick;
     b.rotation.z = Math.sin(this._stepT) * 0.035 * move + Math.sin(G.time * 40) * 0.05 * this.hurtAnim;
     b.rotation.y = (this._yaw || 0) + this.attackAnim * M.twist;
     const bob = Math.abs(Math.sin(this._stepT)) * M.bob * move + Math.sin(G.time * 2.1) * M.idleSway;
@@ -1386,7 +1392,7 @@ export class Hero {
     b.position.set(
       B.x * S + O.x,
       B.y * S + O.y + bob - f * 0.15 + this.castAnim * M.castLean * 0.8,
-      B.z * S + O.z + this.attackAnim * M.lunge);
+      B.z * S + O.z + this.attackAnim * M.lunge - kick * 1.2);
   }
 
   /** live size edit from the Hero Studio (persisted via hero_tuning.json) */
