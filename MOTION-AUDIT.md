@@ -385,7 +385,8 @@ and the visual payoff is zero until the asset has bones. Two decisions needed fr
 
 1. ~~**F1 + F2 together**~~ ✅ done — one measured `hipsRest` baseline, read by `animateRig`, `animateGLB`,
    the slam and its `dispose()`; `animcheck` (21 measurements) is the gate, `skintest` pins the rig side.
-2. **Phase A** (`SkeletonUtils.clone`) — cheap, independent, and every later step is unsafe without it.
+2. ~~**Phase A**~~ ✅ done — `SkeletonUtils.clone` for hero bodies and pooled FX clones; every later step was
+   unsafe without it, and phase C is what proves it (two heroes, one clip library, two poses).
 3. ~~**F4 + F5**~~ ✅ done — the bench calls `Hero.update`/`Hero.move`, the studio yields ownership, the
    per-frame allocations are gone and `animcheck` statically gates them. **This step is what found F8.**
 4. ~~**F3**~~ ✅ done as a per-effect `anchor` row (default unchanged) rather than a forced re-anchor.
