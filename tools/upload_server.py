@@ -47,7 +47,7 @@ PAGE = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport con
 </div>
 <script>
 const drop=document.getElementById('drop'),bar=document.getElementById('bar'),fill=bar.firstElementChild,msg=document.getElementById('msg'),listEl=document.getElementById('list');
-function viewerLink(name){return 'https://'+location.hostname.replace(/^\\d+-/,'8080-')+'/model-viewer.html?model='+encodeURIComponent('models/uploads/'+name);}
+function viewerLink(name){return 'https://'+location.hostname.replace(/^\\d+-/,'8080-')+'/character-bay.html';}
 function refresh(){fetch('/list').then(r=>r.json()).then(fs=>{listEl.innerHTML=fs.length?'<p>In the workspace:</p>':'';fs.forEach(n=>{const a=document.createElement('a');a.href=viewerLink(n);a.textContent='\\u25b8 '+n+'  (open in viewer)';a.target='_blank';listEl.appendChild(a);});});}
 function upload(file){
  if(!file)return;
@@ -102,7 +102,7 @@ class H(BaseHTTPRequestHandler):
                 for n in sorted(os.listdir(UPDIR)):
                     fp = os.path.join(UPDIR, n)
                     if os.path.isfile(fp):
-                        out.append({"name": n, "bytes": os.path.getsize(fp)})
+                        out.append({"name": n, "bytes": os.path.getsize(fp), "mtime": os.stat(fp).st_mtime_ns})
             self._send(200, json.dumps(out).encode())
         elif self.path == "/config":
             p = os.path.join(UPDIR, "hero_tuning.json")

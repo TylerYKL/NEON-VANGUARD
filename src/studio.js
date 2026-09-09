@@ -292,7 +292,7 @@ function buildModelSelect() {
   if (!sel) return;
   const glbs = libFiles.filter((f) => /\.(glb|gltf)$/i.test(f.name));
   sel.innerHTML = '<option value="">&lt;id&gt;.glb (manifest)</option>' +
-    glbs.map((f) => '<option value="' + UPDIR + f.name + '">' + f.name + ' · ' + Math.round(f.size / 1024) + 'k</option>').join('');
+    glbs.map((f) => '<option value="' + UPDIR + f.name + '">' + f.name + ' · ' + Math.round((f.bytes || 0) / 1024) + 'k</option>').join('');
   sel.onchange = () => {
     cfg[heroId()].model = sel.value || null;
     markDirty();

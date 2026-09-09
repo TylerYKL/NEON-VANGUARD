@@ -85,6 +85,9 @@
         border-bottom:1px solid rgba(140,216,255,.3);padding-bottom:2px;pointer-events:auto}
   #back:hover{color:#fff;border-color:#fff}
   #corner{position:fixed;right:24px;bottom:22px;font-size:8px;opacity:.3;letter-spacing:.2em;z-index:5;text-align:right;line-height:1.9}
+  #uploadState{position:fixed;right:24px;top:24px;z-index:5;font-size:8px;letter-spacing:.16em;color:#7cf9ff;opacity:.72;text-align:right}
+  #uploadState.ok{color:#3dffb0}
+  #uploadState.bad{color:#ff8295}
 </style>
 </head>
 <body>
@@ -130,7 +133,8 @@
   <button class="act on" id="spin">AUTO-SPIN ON</button>
   <button class="act" id="zoomw">WEAPON DETAIL</button>
 </div>
-<div id="corner">Procedural rig · no imported assets<br>same shaders as the live build</div>
+<div id="uploadState">HERO STUDIO LIBRARY · CONNECTING…</div>
+<div id="corner">Procedural rig + uploaded GLB skins<br>same stage as the live build</div>
 
 <script type="module" src="../src/showcase.js"></script>
 </body>

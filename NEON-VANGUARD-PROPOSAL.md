@@ -645,7 +645,7 @@ image diffs of the live game remain meaningless, but a controlled posed dump is 
 
 The proposal's long-run plan says the asset pipeline is where this goes next: concept sheet → image-to-3D →
 GLB. That only works if someone can *fit* the result into the game without rebuilding it, so the art tools got
-a third surface: `hero-studio.html`, beside `model-viewer.html` and `character-bay.html`.
+a unified asset surface: `hero-studio.html` feeds the live `character-bay.html` library alongside the playable build.
 
 **What it edits** (all of it written to `models/uploads/hero_tuning.json`, read once by `startGame()`):
 

@@ -5,7 +5,7 @@
 **3D top-down cyberpunk squad action that runs in a browser tab.**
 Three switchable operatives · wave survival · procedural everything · **zero asset files**.
 
-[**▶ Play**](./neon-vanguard.html) &nbsp;·&nbsp; [**Character Bay**](./character-bay.html) &nbsp;·&nbsp; [**Handoff**](./HANDOFF.md) &nbsp;·&nbsp; [**Proposal**](./NEON-VANGUARD-PROPOSAL.md) &nbsp;·&nbsp; [**Review**](./NEON-VANGUARD-REVIEW.md)
+[**▶ Play**](./neon-vanguard.html) &nbsp;·&nbsp; [**Character Bay**](./character-bay.html) &nbsp;·&nbsp; [**Hero Studio**](./hero-studio.html) &nbsp;·&nbsp; [**Handoff**](./HANDOFF.md) &nbsp;·&nbsp; [**Proposal**](./NEON-VANGUARD-PROPOSAL.md) &nbsp;·&nbsp; [**Review**](./NEON-VANGUARD-REVIEW.md)
 
 ![Neon Vanguard](./screenshots/01-squad-combat.jpg)
 
@@ -24,8 +24,7 @@ animation, sound effect and music cue is generated at runtime.
 | File | What it is |
 |---|---|
 | `neon-vanguard.html` | the game — 3 switchable operatives, waves, boss, ultimate chain, audio |
-| `character-bay.html` | character turntable viewer — orbit, poses, weapon detail, ability preview |
-| `model-viewer.html` | art-direction tool — drop any GLB (Tripo/Meshy) next to the procedural rig, see tri/mat/bone cost |
+| `character-bay.html` | character turntable viewer — orbit, poses, weapon detail, ability preview, and live Hero Studio GLB library |
 | `hero-studio.html` | Hero Studio — tune uploaded skins (size / placement / motion) and edit each hero's skill effects |
 | `concept/*.jpg` | rendered concept sheets (art-direction target for Phase 3) |
 | `models/ref/` | bind-pose sheets for the three heroes + **`RIG-SPEC.md`**, the contract a rigged `.glb` must satisfy to animate |
@@ -73,7 +72,8 @@ stack caps. Your build shows on the pause screen and the end-of-run summary.
 
 **Character Bay controls:** drag to orbit · scroll to zoom · `1 2 3` switch · `Space` fire signature ·
 `F` toggles **FOLLOW** (keeps the subject framed) / **FREE VIEW** (keeps your composition) ·
-pose buttons drive the procedural rig (idle / move / attack / cast / downed).
+pose buttons drive the procedural rig or matching clips on an uploaded GLB (idle / move / attack / cast / downed).
+The Bay polls Hero Studio's upload library and adds new body GLBs as tabs while it stays open.
 
 **Hero Studio camera:** use the **FOLLOW** / **FREE VIEW** buttons beside the pose controls, or press `F`.
 Follow keeps the active hero centred while CAST SIM moves it; Free View preserves a hand-built
@@ -88,7 +88,7 @@ upload server.
 
 ```bash
 npm install          # three + esbuild (+ puppeteer for the smoke test)
-node build.mjs       # bundles src/ into neon-vanguard / character-bay / model-viewer / hero-studio .html
+node build.mjs       # bundles src/ into neon-vanguard / character-bay / hero-studio .html
 
 # headless — plain Node, no browser, run these first
 node tools/lighttest.mjs # 37 assertions: the scene's point-light count never changes
@@ -96,7 +96,7 @@ node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materi
 node tools/instancetest.mjs # static enemy shells batch into InstancedMesh objects at the live cap
 node tools/fxtest.mjs     # FX quality profiles enforce particle / ring / beam / spark budgets
 node tools/contenttest.mjs # arena layout and enemy-variant data contracts
-node tools/glbtest.mjs   # 25 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+node tools/glbtest.mjs   # 25 assertions: the shared GLB pipeline (export->parse->normalise->stats)
 node tools/skintest.mjs  # 173 assertions: uploaded skins, hero_tuning.json v1→v3, per-skill FX slots + pooling,
                        #   the clip resolver, the mixer (and its absence), the boot clip report
 node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
@@ -121,8 +121,8 @@ node tools/devtest.mjs   # dev overlay: sliders reach gameplay, cheats, export/r
 ```
 
 For the human pass, use **[`PLAYTEST-CHECKLIST.md`](PLAYTEST-CHECKLIST.md)**. It covers the game, Character Bay,
-Hero Studio, Model Viewer, and a 15-minute outside-playtest script. Browser automation additionally needs a local
-Chrome executable; Puppeteer alone is not enough.
+Hero Studio, and a 15-minute outside-playtest script. Browser automation additionally needs a local Chrome
+executable; Puppeteer alone is not enough.
 
 Source layout:
 
@@ -139,9 +139,8 @@ src/lights.js    fixed-size PointLight pool — keeps the scene's light count co
 src/upgrades.js  implant definitions + rarity-weighted draft roller (writes into G.mods)
 src/balance.js   every tunable number + ranges for the overlay + applyBalance()
 src/devtools.js  the dev overlay (backtick): sliders, cheats, perf, JSON round-trip
-src/showcase.js  Character Bay entry point (studio lighting, turntable, pose driver)
-src/viewer.js    Model Viewer entry point (GLB drop + procedural rig side-by-side)
-src/gltfutil.js  DOM-free GLB parse / stats / normalise (shared by viewer + glbtest)
+src/showcase.js  Character Bay entry point (studio lighting, turntable, pose driver, live uploaded GLB library)
+src/gltfutil.js  DOM-free GLB parse / stats / normalise (shared by Character Bay, Hero Studio + glbtest)
 src/glbskin.js   loads uploaded hero GLBs + their clips, models/uploads/hero_tuning.json (v3), and prints
                the boot clip report — what bound, what is not in the file, what one clip two slots claimed
 src/fxpack.js    skill-effect layer: per-skill slots, parameter clamping, pooled clones, video + light reuse
@@ -224,6 +223,8 @@ Two rows at the top of the panel decide what the hero *is*: **SKIN FILE** points
 dropbox instead of `models/uploads/<id>.glb`, and **CLIPS** binds that file's animation clips to the hero's
 five states (`auto` resolves by name; `clips on/off` ignores them entirely and gives you the v2 behaviour). A
 file with no clips — which is every file in `models/uploads/` today — keeps the transform layer it always had.
+
+**Character Bay follows the same library.** Keep it open while Hero Studio uploads or overwrites a body GLB: it polls the upload list and tuning file, adds new unassigned body files as `UPLOADED GLB` tabs, and applies saved hero skin assignments to AEGIS / LYRA / NYX automatically. Skill-effect files ending in `-fx.glb` or `-sN-fx.glb` stay out of the body roster.
 
 The panel ends in a **CAST SIM**: `basic · Q · E · R · ⟳ auto`, 0/3/6 targets, `1× · ½× · ¼×` slow motion and a
 **MOVE** row (`idle · walk · strafe · circle` + `dash`). It calls the real `Hero.useSkill` *and* the real

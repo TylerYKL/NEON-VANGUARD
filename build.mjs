@@ -12,7 +12,6 @@ fs.mkdirSync(tmp, { recursive: true });
 const targets = [
   { entry: 'src/main.js',     shell: 'shell/game.html',    out: 'neon-vanguard.html' },
   { entry: 'src/showcase.js', shell: 'shell/bay.html',     out: 'character-bay.html' },
-  { entry: 'src/viewer.js', shell: 'shell/viewer.html',  out: 'model-viewer.html' },
   { entry: 'src/studio.js', shell: 'shell/studio.html',  out: 'hero-studio.html' },
 ];
 

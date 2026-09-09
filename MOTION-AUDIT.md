@@ -289,7 +289,7 @@ against the branch that clears it, or the clear is undone by the tail of its own
 | Facing | mouse-lerped | fixed | still true — but the hero can now turn *under* the cast via circle/strafe |
 | Combo reset | 1.1 s | 1.1 s, decayed by the hero | ✅ F4 |
 | FX anchor | cast point (or `follow hero`, per effect) | same, since the bench travels like the match | ✅ F3 |
-| Animation clips | `Hero.poseClips` (mixer, five weighted layers) if the file has any | **the same** — the studio's loop yields to the hero while the bench is on | ✅ §4 phase C; `model-viewer.html` still plays them raw, which is the way to audition a file before binding it |
+| Animation clips | `Hero.poseClips` (mixer, five weighted layers) if the file has any | **the same** — the studio's loop yields to the hero while the bench is on | ✅ §4 phase C; Character Bay now plays available uploaded clips while Hero Studio remains the binding surface |
 
 The pattern is worth naming: `ACTION` (the pose preview) and `CAST SIM` (the ability bench) were
 two systems that never saw each other — `ACTION` had the body without the ability, `CAST SIM` the
@@ -303,10 +303,9 @@ play on a GLB hero (§4).
 
 ## 4. GLB animation clips: the plan
 
-**You already have half of it.** `model-viewer.html` parses and plays clips
-(`viewer.js:110-113`: `mixer = new THREE.AnimationMixer(obj); mixer.clipAction(clips[0]).play()`
-plus a button per clip), and `tools/uploadstats.mjs` already reports `bones / skinned / clips`
-per file. `parseGLB` returns the full gltf, so `gltf.animations` is *in hand* at every call *(and
+**The shared GLB pipeline is in place.** Character Bay parses and plays uploaded clips when present,
+while `tools/uploadstats.mjs` reports `bones / skinned / clips` per file. Hero Studio remains the place
+where a clip is assigned to a hero and saved into `hero_tuning.json`. `parseGLB` returns the full gltf, so `gltf.animations` is *in hand* at every call *(and
 `glbtest` now proves the round trip survives it: 3 bones, 1 skinned mesh, both clip names, every track
 resolving to a node of the re-parsed scene, a mixer visibly driving `hips.quaternion`)*.
 site and thrown away by `ensureGLBSkins` (`glbskin.js:29-33`) and `loadFXBank` (`:146`), which
@@ -354,7 +353,7 @@ Two things this phase had to discover rather than assume:
   caught it; the fix is to merge first (`Object.assign({}, DEFAULT_ANIM, tun.anim)`) and test the merged
   value. Same trap as `clipOff`: a missing answer and a negative answer are different answers.
 
-Budget/limits to carry over: 20k-tri hero budget (`viewer.js:140`), `uploadstats` heavy guard,
+Budget/limits to carry over: 20k-tri hero budget (the uploadstats heavy guard),
 one mixer per hero (4 heroes, no per-cast alloc — so `clipAction` handles cached in `actions{}`),
 and morph targets need `mesh.morphTargetInfluences` to survive cloning (`fxpack` already had to
 learn that materials don't).

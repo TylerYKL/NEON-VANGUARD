@@ -12,8 +12,8 @@ python3 -m http.server 8080 --bind 0.0.0.0 --directory .
 python3 tools/upload_server.py                 # needed by Hero Studio SAVE / LIBRARY
 ```
 
-Open `neon-vanguard.html` first. The other useful pages are `character-bay.html`, `hero-studio.html`, and
-`model-viewer.html`. Use a fresh browser tab for each page and watch the browser console for errors.
+Open `neon-vanguard.html` first. The other useful pages are `character-bay.html` and `hero-studio.html`.
+Use a fresh browser tab for each page and watch the browser console for errors.
 
 ## Browser smoke pass
 
@@ -45,6 +45,9 @@ and a screenshot or console error.
 - [ ] Auto-spin can be toggled independently and free view stops it when appropriate.
 - [ ] Idle, move, attack, cast, and downed poses remain finite and feet stay on the deck.
 - [ ] Signature effects play and clean up; weapon detail frames the actual weapon.
+- [ ] With the upload server running, a body GLB uploaded by Hero Studio appears as a new `UPLOADED GLB` tab.
+- [ ] Assigning a GLB to AEGIS, LYRA, or NYX in Hero Studio, saving, and leaving Bay open updates that hero's tab.
+- [ ] Uploading or overwriting a GLB does not add skill-effect `-fx.glb` files to the body roster.
 
 ### Hero Studio — `hero-studio.html`
 
@@ -62,13 +65,6 @@ and a screenshot or console error.
   the failure message identifies the server/HTTP problem.
 - [ ] FX Library lists the files in `models/uploads/`; previewing a library row does not assign it.
 - [ ] Repeated Apply, CAST SIM, preview, and hero switching do not increase scene groups or lights.
-
-### Model Viewer — `model-viewer.html`
-
-- [ ] A shipped GLB can be selected or dropped and shows parse status, triangles, materials, bones, and
-  textures without a console error.
-- [ ] A malformed or unsupported file reports a useful failure instead of breaking the page.
-- [ ] The procedural comparison rig still loads after a model is rejected.
 
 ## Outside playtest — 15 minutes
 

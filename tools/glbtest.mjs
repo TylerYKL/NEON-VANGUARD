@@ -1,5 +1,5 @@
 /* ============================================================
-   GLBTEST — verify the Model Viewer's load pipeline headlessly.
+   GLBTEST — verify the shared Character Bay / Hero Studio GLB pipeline headlessly.
 
    Round-trips the real code from src/gltfutil.js (the exact functions the
    viewer calls on drop):  build a known scene -> GLTFExporter (binary GLB)

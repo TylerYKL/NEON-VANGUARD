@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 /* ============================================================
-   GLTF UTIL — DOM-free helpers shared by the Model Viewer and
-   the headless test (tools/glbtest.mjs). Keeping parse / stats /
-   normalisation here means the load pipeline can be exercised in
-   Node via a GLTFExporter -> GLTFLoader round-trip, no browser.
+   GLTF UTIL — DOM-free helpers shared by Character Bay, Hero
+   Studio and the headless test (tools/glbtest.mjs). Keeping parse /
+   stats / normalisation here means the load pipeline can be exercised
+   in Node via a GLTFExporter -> GLTFLoader round-trip, no browser.
    ============================================================ */
 
 /** Parse an in-memory GLB / glTF. Resolves to the gltf object. */
