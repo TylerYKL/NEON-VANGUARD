@@ -19,12 +19,13 @@ Built with **three.js r169**. You pilot one of three operatives; the other two f
 chain ultimates across all three, draft implants between waves, and survive. Every polygon, texture,
 animation, sound effect and music cue is generated at runtime.
 
-## Two builds
+## Builds
 
 | File | What it is |
 |---|---|
 | `neon-vanguard.html` | the game — 3 switchable operatives, waves, boss, ultimate chain, audio |
 | `character-bay.html` | character turntable viewer — orbit, poses, weapon detail, ability preview |
+| `model-viewer.html` | art-direction tool — drop any GLB (Tripo/Meshy) next to the procedural rig, see tri/mat/bone cost |
 | `concept/*.jpg` | rendered concept sheets (art-direction target for Phase 3) |
 
 ## Play it
@@ -75,7 +76,18 @@ pose buttons drive the procedural rig (idle / move / attack / cast / downed).
 
 ```bash
 npm install          # three + esbuild (+ puppeteer for the smoke test)
-node build.mjs       # bundles src/ and inlines it into neon-vanguard.html and public/index.html
+node build.mjs       # bundles src/ and inlines it into neon-vanguard.html and character-bay.html
+
+# headless — plain Node, no browser, run these first
+node tools/lighttest.mjs # 35 assertions: the scene's point-light count never changes
+node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materials, pooling leak check
+node tools/glbtest.mjs   # 10 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+
+# headless art loop — look at the characters without a browser
+node tools/charpreview.mjs [aegis|lyra|nyx|all]        # run the real rig + animator, dump tris to JSON
+python3 tools/render.py .tmpbuild/char-<id>.json o.png # rasterise that JSON to a PNG
+
+# browser — need puppeteer + a Chrome
 node tools/smoke.mjs     # headless playthrough: catches runtime errors, writes ability screenshots
 node tools/combotest.mjs # verifies charge cores + x2 link + Trinity Overdrive
 node tools/audiotest.mjs # verifies all 38 SFX cues produce signal
@@ -97,10 +109,15 @@ src/rig.js       procedural humanoid rig + animator + weapon builders
 src/heroes.js    hero data, all 12 abilities, buffs, squad AI
 src/entities.js  projectile pool, enemy types, steering, boss
 src/pickups.js   charge shards + Charge Cores (magnet, beacon, squad overcharge)
+src/lights.js    fixed-size PointLight pool — keeps the scene's light count constant
 src/upgrades.js  implant definitions + rarity-weighted draft roller (writes into G.mods)
 src/balance.js   every tunable number + ranges for the overlay + applyBalance()
 src/devtools.js  the dev overlay (backtick): sliders, cheats, perf, JSON round-trip
 src/showcase.js  Character Bay entry point (studio lighting, turntable, pose driver)
+src/viewer.js    Model Viewer entry point (GLB drop + procedural rig side-by-side)
+src/gltfutil.js  DOM-free GLB parse / stats / normalise (shared by viewer + glbtest)
+src/glbskin.js   loads uploaded hero GLBs (models/uploads/*.glb); procedural fallback per hero
+src/studio.js    Hero Studio entry: size / action-motion / skill-FX tuning, saved as hero_tuning.json
 src/ui.js        HUD binding (DOM overlay)
 src/util.js      math / material / procedural-texture helpers
 ```
@@ -124,6 +141,15 @@ src/util.js      math / material / procedural-texture helpers
   never decrement a timer that should survive it with the scaled `dt`.
 * **All upgrade effects read `G.mods`** (see `MOD_DEFAULTS`). If you add an implant, wire it to a real call
   site in the same commit — the pool is deliberately free of cosmetic stats.
+* **Never `new THREE.PointLight()` in gameplay code.** three.js bakes the light *count* into its shader
+  program cache key, so one light appearing or disappearing recompiles every material in the frame.
+  Enemies, pickups and abilities borrow from `G.lights` (a fixed pool built once at boot); unused slots
+  stay `visible` at intensity 0. `acquire()` returns `null` when a kind is exhausted, so guard every
+  `light.intensity = …`. `node tools/lighttest.mjs` asserts the whole thing.
+* **Characters are faceted plate armour, not smooth primitives.** `rig.js` builds plates with `chamfer()`
+  (a beveled extrude) and limbs with tapered hexagonal `seg()`, and the metal materials use
+  `flatShading` — that combination is the whole hard-surface read. Iterate with the headless art loop
+  (`charpreview.mjs` + `render.py`) and compare against `concept/*.jpg`, never live-game frames.
 * Arena hazards borrow the telegraph pool. They keep their decal through the discharge phase and release it
   on cleanup — check `fx.tellPool.length` returns to 28 if you touch that code.
 

@@ -4,6 +4,7 @@ import {
   buildMedGloves, buildRailPistol, buildDrone,
 } from './rig.js';
 import { addMat, metalMat, TAU, rand, clamp, damp, lerp, flatDist, angleTo, shortAngle, disposeObj } from './util.js';
+import { DEFAULT_MOTION } from './glbskin.js';
 import { ARENA } from './world.js';
 import { SFX } from './audio.js';
 import { BALANCE as B } from './balance.js';
@@ -98,22 +99,61 @@ export class Hero {
 
   build() {
     const d = this.def;
-    this.rig = buildHumanoid({
-      accent: d.color, visor: d.color2, bulk: d.bulk, scale: d.scale,
-      pauldrons: d.pauldrons, hood: d.hood, crest: d.crest, plate: d.plate,
-    });
-    this.group = this.rig.root;
-    this.G.scene.add(this.group);
+    const skin = this.G.glbSkins && this.G.glbSkins[d.id];
+    if (skin) {
+      // Uploaded GLB replaces the procedural body. The rig shim keeps the
+      // two hooks the rest of the code expects (root + hips for the slam).
+      this.group = new THREE.Group();
+      const hips = new THREE.Group();
+      this.body = skin.template.clone(true);
+      this._yaw = skin.yaw || 0;
+      this.body.rotation.y = this._yaw;
+      // studio tuning: size multiplier on top of the normalised template
+      const tun = (this.G.glbTuning || {})[d.id] || {};
+      this._baseScale = this.body.scale.x;
+      this.tunScale = tun.scale || 1;
+      this.body.scale.multiplyScalar(this.tunScale);
+      this.motion = Object.assign({}, DEFAULT_MOTION, tun.motion || {});
+      // studio placement: rebuilders sometimes sink or rotate the body
+      this.offset = Object.assign({ x: 0, y: 0, z: 0 }, tun.pos || {});
+      this._baseYaw = skin.yaw || 0;
+      this._yaw = this._baseYaw + ((tun.yawDeg || 0) * Math.PI) / 180;
+      hips.add(this.body);
+      this.group.add(hips);
+      this.rig = { root: this.group, hips, glb: true };
+      this.hipsRest = 0;
+      this.G.scene.add(this.group);
+    } else {
+      this.rig = buildHumanoid({
+        accent: d.color, visor: d.color2, bulk: d.bulk, scale: d.scale,
+        pauldrons: d.pauldrons, hood: d.hood, crest: d.crest, plate: d.plate,
+      });
+      this.group = this.rig.root;
+      this.hipsRest = 0.95;
+      this.motion = Object.assign({}, DEFAULT_MOTION);
+      this.tunScale = 1;
+      this.offset = { x: 0, y: 0, z: 0 };
+      this._baseYaw = 0;
+      this._yaw = 0;
+      this.G.scene.add(this.group);
+    }
+
+    // projectile-origin fallback for GLB skins (procedural heroes use weapon muzzles)
+    this.handAnchor = new THREE.Object3D();
+    this.handAnchor.position.set(0.45, 1.25, 0.55);
+    this.group.add(this.handAnchor);
 
     if (d.id === 'aegis') {
-      this.gauntlets = buildIonGauntlets(this.rig, d.color);
-      this.shieldObj = buildRiotShield(this.rig, d.color2);
+      if (!skin) {
+        this.gauntlets = buildIonGauntlets(this.rig, d.color);
+        this.shieldObj = buildRiotShield(this.rig, d.color2);
+      }
     } else if (d.id === 'lyra') {
-      this.gloves = buildMedGloves(this.rig, d.color);
+      if (!skin) this.gloves = buildMedGloves(this.rig, d.color);
       this.drone = buildDrone(this.rig, d.color2);
       this.G.scene.add(this.drone.group);
     } else {
-      this.pistol = buildRailPistol(this.rig, d.color);
+      if (!skin) this.pistol = buildRailPistol(this.rig, d.color);
       this.drone = buildDrone(this.rig, d.color2);
       this.G.scene.add(this.drone.group);
     }
@@ -142,7 +182,11 @@ export class Hero {
   center() { return new THREE.Vector3(this.pos.x, this.pos.y + 1.15, this.pos.z); }
   handPos() {
     const v = new THREE.Vector3();
-    (this.pistol ? this.pistol.muzzle : this.gauntlets ? this.gauntlets.R.knuck : this.gloves.R.emitter).getWorldPosition(v);
+    const src = this.pistol ? this.pistol.muzzle
+      : this.gauntlets ? this.gauntlets.R.knuck
+      : this.gloves ? this.gloves.R.emitter
+      : this.handAnchor;
+    src.getWorldPosition(v);
     return v;
   }
 
@@ -395,6 +439,7 @@ export class Hero {
     if (sk.ult) { this.energy = 0; this.ultMul = 1; G.onUltCast(this, sk); }
     else this.cds[i] = sk.cd * (1 - (G.mods ? G.mods.cdr : 0));
     this.castAnim = 1;
+    this.playFX(G);
     G.announceSkill(this, sk);
 
     const key = this.def.id + i;
@@ -494,7 +539,13 @@ export class Hero {
     base.rotation.x = -Math.PI / 2; base.position.y = 0.06; grp.add(base);
     grp.position.copy(this.pos);
     G.scene.add(grp);
-    const light = new THREE.PointLight(this.def.color2, 3, 18, 2); light.position.y = 2; grp.add(light);
+    // Pooled: the light lives in the scene root, so give it the dome's world
+    // position instead of parenting it to a group that gets disposed.
+    const light = G.lights.acquire('effect');
+    if (light) {
+      G.lights.set(light, this.def.color2, 3, 18, 2);
+      light.position.set(this.pos.x, this.pos.y + 2, this.pos.z);
+    }
 
     const bar = { pos: grp.position.clone(), r: R, active: true };
     G.barriers.push(bar);
@@ -518,7 +569,7 @@ export class Hero {
         const k = this.t / this.dur;
         uni.uFade.value = k > 0.8 ? (1 - (k - 0.8) / 0.2) : 1;
         base.material.opacity = uni.uFade.value * (0.7 + 0.3 * Math.sin(G.time * 6));
-        light.intensity = 2 + Math.sin(G.time * 5);
+        if (light) light.intensity = 2 + Math.sin(G.time * 5);
         if (Math.random() < 0.5) {
           const a = Math.random() * TAU;
           G.fx.spawn({
@@ -532,6 +583,7 @@ export class Hero {
           bar.active = false;
           const i = G.barriers.indexOf(bar); if (i >= 0) G.barriers.splice(i, 1);
           disposeObj(G.scene, grp);
+          G.lights.release(light);
           G.fx.ring(bar.pos, self.def.color2, { r0: R, r1: R * 1.4, dur: 0.4 });
           return false;
         }
@@ -550,8 +602,8 @@ export class Hero {
     const halo = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.09, 8, 40), addMat(0xffffff, 0.9));
     halo.position.copy(core.position); halo.rotation.x = Math.PI / 2;
     G.scene.add(halo);
-    const light = new THREE.PointLight(0xffb14a, 6, 40, 2);
-    light.position.copy(core.position); G.scene.add(light);
+    const light = G.lights.acquire('effect');
+    if (light) { G.lights.set(light, 0xffb14a, 6, 40, 2); light.position.copy(core.position); }
     SFX.play('magnetCharge');
     G.fx.addShake(0.5);
     G.world.arenaPulse();
@@ -566,7 +618,7 @@ export class Hero {
         if (this.t < 1.1) {
           const s = 1 + this.t * 1.6;
           core.scale.setScalar(s);
-          light.intensity = 4 + this.t * 10;
+          if (light) light.intensity = 4 + this.t * 10;
           for (const e of G.enemies) {
             if (e.dead) continue;
             const d = flatDist(e.pos, p);
@@ -608,14 +660,14 @@ export class Hero {
           G.fx.addShake(1.6);
           G.fx.flash = 1; G.fx.flashColor.set(0xffb14a);
           G.world.arenaPulse();
-          light.intensity = 40;
+          if (light) light.intensity = 40;
         } else {
           core.scale.multiplyScalar(Math.exp(-9 * dt));
-          light.intensity *= Math.exp(-5 * dt);
+          if (light) light.intensity *= Math.exp(-5 * dt);
           halo.scale.multiplyScalar(1 + dt * 6);
           halo.material.opacity *= Math.exp(-4 * dt);
           if (this.t > 2.4) {
-            disposeObj(G.scene, core); disposeObj(G.scene, halo); disposeObj(G.scene, light);
+            disposeObj(G.scene, core); disposeObj(G.scene, halo); G.lights.release(light);
             return false;
           }
         }
@@ -640,7 +692,11 @@ export class Hero {
     }
     const glowDisc = new THREE.Mesh(new THREE.CircleGeometry(R, 40), addMat(this.def.color, 0.13));
     glowDisc.rotation.x = -Math.PI / 2; glowDisc.position.y = 0.05; grp.add(glowDisc);
-    const light = new THREE.PointLight(this.def.color, 3.4, 20, 2); light.position.y = 2; grp.add(light);
+    const light = G.lights.acquire('effect');
+    if (light) {
+      G.lights.set(light, this.def.color, 3.4, 20, 2);
+      light.position.set(p.x, p.y + 2, p.z);
+    }
     // lattice pillars
     const pillars = [];
     for (let i = 0; i < 10; i++) {
@@ -661,7 +717,7 @@ export class Hero {
         const fade = k > 0.82 ? 1 - (k - 0.82) / 0.18 : 1;
         discs.forEach((d, i) => { d.rotation.z += dt * (0.6 + i * 0.5) * (i % 2 ? -1 : 1); d.material.opacity = 0.5 * fade; });
         glowDisc.material.opacity = (0.10 + 0.05 * Math.sin(G.time * 3)) * fade;
-        light.intensity = (2.6 + Math.sin(G.time * 4)) * fade;
+        if (light) light.intensity = (2.6 + Math.sin(G.time * 4)) * fade;
         pillars.forEach((m, i) => {
           m.position.y = 1.6 + Math.sin(G.time * 2 + i) * 0.3;
           m.material.opacity = (0.35 + 0.3 * Math.sin(G.time * 4 + i)) * fade;
@@ -692,7 +748,7 @@ export class Hero {
             e.slowPow = Math.max(e.slowPow || 0, 0.55 + Math.min(0.25, G.mods.bloomSlow * 0.45));
           }
         }
-        if (this.t >= this.dur) { disposeObj(G.scene, grp); return false; }
+        if (this.t >= this.dur) { disposeObj(G.scene, grp); G.lights.release(light); return false; }
         return true;
       },
     });
@@ -773,8 +829,8 @@ export class Hero {
     }));
     pillar.position.set(p.x, 20, p.z);
     G.scene.add(pillar);
-    const light = new THREE.PointLight(this.def.color, 12, 46, 2);
-    light.position.set(p.x, 3, p.z); G.scene.add(light);
+    const light = G.lights.acquire('effect');
+    if (light) { G.lights.set(light, this.def.color, 12, 46, 2); light.position.set(p.x, 3, p.z); }
 
     SFX.play('phoenix'); SFX.duck(0.22, 2.0);
     G.fx.flash = 0.85; G.fx.flashColor.set(this.def.color);
@@ -811,7 +867,7 @@ export class Hero {
         pillar.material.uniforms.uTime.value = G.time;
         pillar.material.uniforms.uFade.value = 1 - k;
         pillar.rotation.y += dt * 0.6;
-        light.intensity = 12 * (1 - k);
+        if (light) light.intensity = 12 * (1 - k);
         if (Math.random() < 0.9) {
           const a = Math.random() * TAU, r = rand(4.2, 1.5);
           G.fx.spawn({
@@ -820,7 +876,7 @@ export class Hero {
             life: 1.2, size: 0.45, drag: 0.5, grav: 0,
           });
         }
-        if (this.t >= this.dur) { disposeObj(G.scene, pillar); disposeObj(G.scene, light); return false; }
+        if (this.t >= this.dur) { disposeObj(G.scene, pillar); G.lights.release(light); return false; }
         return true;
       },
     });
@@ -939,8 +995,8 @@ export class Hero {
     const accretion2 = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.16, 8, 48), addMat(this.def.color2, 0.7));
     accretion2.position.copy(p); accretion2.rotation.x = Math.PI / 1.9; accretion2.rotation.z = 0.5;
     G.scene.add(accretion2);
-    const light = new THREE.PointLight(this.def.color, 8, 34, 2);
-    light.position.copy(p); G.scene.add(light);
+    const light = G.lights.acquire('effect');
+    if (light) { G.lights.set(light, this.def.color, 8, 34, 2); light.position.copy(p); }
     SFX.play('singularity', { pan: G.panOf(p) }); SFX.duck(0.3, 3.0);
     G.fx.addShake(0.5);
     G.fx.ring({ x: p.x, y: 0, z: p.z }, this.def.color, { r0: 0.5, r1: 14, dur: 0.8, fade: 2 });
@@ -977,7 +1033,7 @@ export class Hero {
               life: 0.9, size: rand(0.55, 0.2), mode: 1, target: p, spin: 55, drag: 0.5,
             });
           }
-          light.intensity = 6 + Math.sin(this.t * 12) * 2;
+          if (light) light.intensity = 6 + Math.sin(this.t * 12) * 2;
           G.fx.addShake(0.035);
         } else if (this.phase === 0) {
           this.phase = 1;
@@ -996,16 +1052,16 @@ export class Hero {
           G.fx.sparkBurst(p, self.def.color2, 80, 46);
           G.fx.addShake(1.5);
           G.world.arenaPulse();
-          light.intensity = 40;
+          if (light) light.intensity = 40;
         } else {
           core.scale.multiplyScalar(Math.exp(-8 * dt));
           accretion.scale.multiplyScalar(1 + dt * 5);
           accretion.material.opacity *= Math.exp(-4.5 * dt);
           accretion2.scale.multiplyScalar(1 + dt * 7);
           accretion2.material.opacity *= Math.exp(-4.5 * dt);
-          light.intensity *= Math.exp(-5 * dt);
+          if (light) light.intensity *= Math.exp(-5 * dt);
           if (this.t > 4.4) {
-            disposeObj(G.scene, core); disposeObj(G.scene, accretion); disposeObj(G.scene, accretion2); disposeObj(G.scene, light);
+            disposeObj(G.scene, core); disposeObj(G.scene, accretion); disposeObj(G.scene, accretion2); G.lights.release(light);
             return false;
           }
         }
@@ -1112,11 +1168,15 @@ export class Hero {
     this.group.position.set(this.pos.x, this.pos.y, this.pos.z);
     this.group.rotation.y = this.facing;
     const spd = Math.hypot(this.vel.x, this.vel.z) / this.def.speed;
-    animateRig(this.rig, dt, {
-      speed: clamp(spd, 0, 1.4), time: G.time, attack: this.attackAnim,
-      cast: this.castAnim, dead: this.downed, hurt: this.hurtAnim,
-      style: this.def.style, block: this.def.id === 'aegis',
-    });
+    if (this.rig.glb) {
+      this.animateGLB(dt, G, spd);
+    } else {
+      animateRig(this.rig, dt, {
+        speed: clamp(spd, 0, 1.4), time: G.time, attack: this.attackAnim,
+        cast: this.castAnim, dead: this.downed, hurt: this.hurtAnim,
+        style: this.def.style, block: this.def.id === 'aegis',
+      });
+    }
 
     // weapon flourishes
     if (this.pistol) {
@@ -1176,6 +1236,95 @@ export class Hero {
     if (this.chev.visible) this.chev.position.y = 2.5 + Math.sin(G.time * 3 + this.index) * 0.12;
     this.overshieldMesh.material.opacity = this.shield > 0 ? 0.055 + 0.03 * Math.sin(G.time * 6) : 0;
     if (this.shield > 0) this.overshieldMesh.rotation.y += dt * 0.8;
+  }
+
+  /* ---------- GLB skin motion: unrigged statues get game-feel transforms.
+     Every coefficient is a studio-tunable motion parameter. ---------- */
+  animateGLB(dt, G, spd) {
+    const b = this.body, M = this.motion, O = this.offset;
+    const move = clamp(spd, 0, 1.4);
+    this._stepT = (this._stepT || 0) + dt * (2 + M.stepRate * move);
+    this._fall = damp(this._fall || 0, this.downed ? 1 : 0, M.fallSpeed, dt);
+    const f = this._fall;
+    // topple when downed; else walk-lean, cast-lean-back, hurt recoil
+    b.rotation.x = -f * 1.45 + move * M.walkLean + this.castAnim * M.castLean - this.hurtAnim * M.hurtLean;
+    b.rotation.z = Math.sin(this._stepT) * 0.035 * move + Math.sin(G.time * 40) * 0.05 * this.hurtAnim;
+    b.rotation.y = (this._yaw || 0) + this.attackAnim * M.twist;
+    const bob = Math.abs(Math.sin(this._stepT)) * M.bob * move + Math.sin(G.time * 2.1) * M.idleSway;
+    b.position.set(O.x, O.y + bob - f * 0.15 + this.castAnim * M.castLean * 0.8, O.z + this.attackAnim * M.lunge);
+  }
+
+  /** live size edit from the Hero Studio (persisted via hero_tuning.json) */
+  setScale(v) {
+    this.tunScale = clamp(v, 0.5, 2);
+    if (this.body) this.body.scale.setScalar((this._baseScale || 1) * this.tunScale);
+  }
+
+  /** live placement edit from the Hero Studio */
+  setYawDeg(d) {
+    this._yaw = (this._baseYaw || 0) + (clamp(d, -180, 180) * Math.PI) / 180;
+  }
+
+  /** spawn this hero's uploaded skill effect (GLB or video, studio-assigned).
+     GLB clones share the bank template's buffers, so never dispose them. */
+  playFX(G) {
+    const t = (G.glbTuning || {})[this.def.id];
+    const entry = G.fxBank && G.fxBank[this.def.id];
+    if (!entry || !t || t.fxOn === false) return null;
+
+    if (entry.kind === 'video') {
+      // billboard video burst: additive plane facing the camera, one play
+      const vid = document.createElement('video');
+      vid.src = entry.url;
+      vid.muted = true; vid.playsInline = true; vid.loop = false;
+      const tex = new THREE.VideoTexture(vid);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, blending: THREE.AdditiveBlending,
+        depthWrite: false, side: THREE.DoubleSide,
+      });
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 2.8), mat);
+      pl.position.set(this.pos.x, 1.6, this.pos.z);
+      pl.renderOrder = 15;
+      G.scene.add(pl);
+      vid.play().catch(() => {});
+      G.addEffect({
+        t: 0, dur: 2.2,
+        update(dt) {
+          this.t += dt;
+          const k = this.t / this.dur;
+          if (G.camera) pl.lookAt(G.camera.position);
+          pl.scale.setScalar(0.8 + k * 0.6);
+          mat.opacity = k > 0.7 ? (1 - k) / 0.3 : 1;
+          if (this.t >= this.dur || vid.ended) {
+            G.scene.remove(pl);
+            try { vid.pause(); } catch (e) {}
+            tex.dispose(); mat.dispose(); pl.geometry.dispose();
+            return false;
+          }
+          return true;
+        },
+      });
+      return pl;
+    }
+
+    const obj = entry.template.clone(true);
+    obj.position.set(this.pos.x, 0.05, this.pos.z);
+    obj.rotation.y = Math.random() * TAU;
+    G.scene.add(obj);
+    G.addEffect({
+      t: 0, dur: 0.9,
+      update(dt) {
+        this.t += dt;
+        const k = this.t / this.dur;
+        obj.scale.setScalar(0.5 + Math.sin(Math.min(1, k * 1.15) * Math.PI) * 0.7);
+        obj.rotation.y += dt * 3.5;
+        obj.position.y = 0.05 + k * 1.4;
+        if (this.t >= this.dur) { G.scene.remove(obj); return false; }
+        return true;
+      },
+    });
+    return obj;
   }
 
   /* ---------------- AI ---------------- */

@@ -562,10 +562,119 @@ and an online leaderboard.
 **New regression tests:** `tools/p0test.mjs` covers telegraphs, i-frames, elite spawning, live settings
 application, persistence and the summary screen. `smoke`, `combotest` and `audiotest` all still pass clean.
 
+### Point-light pool (v1.8)
+
+v1.7's closing note said the next step was `InstancedMesh`. It still is — but measuring first turned up
+something bigger that no roadmap item covered.
+
+**The finding.** `Enemy.build()` gave every enemy its own `PointLight`, and `Pickup` did the same for every
+charge shard. A shard drops on most kills and lives 15 s, so a busy wave stacked dozens of them on top of
+up to 45 enemies. Measured with a new Node harness that runs the real constructors: **45 live enemies =
+45 point lights**, 330 draw calls, 213 materials, 45 canvas textures.
+
+**Why that is worse than it sounds.** three.js r169 bakes the light *count* into the shader program cache
+key, in the installed library:
+
+| Line | Code |
+|---|---|
+| 20843 | `numPointLights: lights.point.length` |
+| 20974 | `array.push( parameters.numPointLights )` — inside `getProgramCacheKeyParameters` |
+| 19566 | `.replace( /NUM_POINT_LIGHTS/g, parameters.numPointLights )` |
+
+So every spawn, death and shard pickup changed the count and made every material in the frame compile a new
+program — and meanwhile the fragment shader looped over 45+ lights for every lit pixel. None of this showed
+up in the test suite, because under swiftshader every frame already costs ~250 ms.
+
+**The fix.** `src/lights.js` — a fixed pool created once at boot (8 enemy + 4 pickup + 4 effect slots, in
+`BALANCE.perf`). Each frame the nearest enemies and pickups borrow a light, with the boss and Charge Cores
+guaranteed a slot; abilities `acquire()`/`release()` theirs. Unused slots stay `visible` at intensity 0,
+because `projectObject()` skips invisible objects *before* it reaches the `isLight` branch — hiding a spare
+would change the count and defeat the scheme.
+
+**Result:** the scene's point-light count is now **constant at 16** for the entire run, down from 45+ and
+climbing. No spawn, death, pickup or ultimate can recompile a shader any more. A leaked slot is benign by
+construction — it costs a glow, never a hitch.
+
+**Two bugs the new test caught on the first run**, both of which would have shipped:
+- `setBudget()` read `budget.enemy` while `balance.js` stores `lightsEnemy`, so the pool built **zero**
+  lights. The game still ran — just completely unlit.
+- Four ability code paths wrote `light.intensity` without checking for `null`. `acquire()` returns null
+  when the effect pool is exhausted (four ultimates at once), so the first Trinity chain would have thrown.
+
+**Verification, and its limit.** `tools/lighttest.mjs` runs 35 assertions against the real `Enemy` and
+`Pickup` constructors — light count invariant across 40 rounds of spawn/kill churn, nearest-wins ordering,
+boss and Core priority, pool exhaustion, double-release, `clear()` on run reset, and budget resizing.
+`tools/geocheck.mjs` reports per-type draw calls, vertices, bbox, materials and textures; enemy lights are
+now zero at every population. **The six puppeteer suites were not run** — the sandbox had no browser and
+blocked every Chrome download host. The lighting *look* is therefore unverified: the far-field red wash
+from dozens of overlapping 5 m lights is gone by design, and the 8 nearest enemies still light the floor
+around the player.
+
 ---
+
+### Character hard-surface pass (v1.9)
+
+Every hero was built from smooth primitives — `BoxGeometry` torsos, `CapsuleGeometry` limbs,
+`SphereGeometry` shoulder pads — which is exactly why they read as "square and round" next to the
+`concept/*.jpg` sheets, which are all **chamfered, faceted plate armour**.
+
+**Two ingredients produce the hard-surface read, both procedural (still zero asset files):**
+
+1. **Chamfered plates.** A new `chamfer(w,h,d,mat)` builder makes a box whose outline is beveled by a
+   single angular bevel (`ExtrudeGeometry` with `bevelSegments:1`). Chest, collar, abs, pelvis, head,
+   pauldrons, fists and feet all became chamfered plates; limbs became tapered hexagonal segments
+   (`seg()`), shoulder pads faceted icosahedra, and the chest core a hex prism — matching the concept's
+   hex cores.
+2. **Flat shading.** `flatShading: true` on the two metal materials, so each facet catches the key light
+   as a distinct plane. This alone is the difference between "armour" and "smooth plastic".
+
+Per-hero silhouette beats were added: layered angled pauldrons for AEGIS, a hood + waist tabard for LYRA,
+a crest blade + tabard for NYX, hip tassets for all. The bone/joint names returned by `buildHumanoid` are
+unchanged, so `animateRig` and `heroes.js` work untouched. Rig triangles actually **dropped** (aegis
+3,760 → 1,180), so the pass is free on the triangle budget; heroes add ~a dozen draw calls each, which is
+a fixed cost (3 heroes) and the enemy-instancing work is what addresses the enemy side.
+
+**A headless art loop, because the sandbox has no WebGL:** `tools/charpreview.mjs` runs the real
+`buildHumanoid` + `animateRig` + weapon builders in Node and dumps world-space triangles to JSON;
+`tools/render.py` rasterises that JSON to a PNG (painter's algorithm + flat lambert + emissive) that a
+person can actually look at. Before/after captures are in `screenshots/rig-before-*.png` and
+`rig-after-*.png`. This loop is now the sanctioned way to iterate on character art without a browser —
+image diffs of the live game remain meaningless, but a controlled posed dump is not.
 
 ### Recommendation
 
 **Proceed on three.js.** Approve Phase 1 (vertical slice, 3–4 weeks) with a hard gate:
 *audio + hit-stop + upgrade draft + tuning overlay*, then re-evaluate against the four open questions above.
 If the answer to Q2 is "co-op is the product", insert a 1-week netcode-seam spike **before** Phase 1 content work.
+
+---
+
+## Long-run deployment & content pipeline
+
+**Verdict.** The single-file, zero-asset build is the right *vertical slice* — instant load, no pipeline,
+nothing to break — but the wrong *product* packaging. For real deployment, split the engine from its
+content, move characters/props to an authored asset pipeline, and keep procedural generation only where it
+earns its keep (FX, particles, arena dressing, the music). AI image-to-3D is a **content-acceleration
+stage**, not a runtime dependency.
+
+**Staged plan.**
+
+1. **Ship the slice and playtest it.** Four strangers, fifteen minutes each. The dominant risk for a real
+   product is the fun loop, not the tech — every item below is secondary to that signal (see §9 of the
+   original proposal).
+2. **Packaging: bundler + CDN, not one HTML file.** Move to a Vite/esbuild build that emits hashed JS/CSS
+   and content files served from a CDN with cache headers. A single 717 KB file defeats HTTP caching: every
+   update forces a full re-download. Keep the single-file build as a demo artifact.
+3. **Content pipeline on glTF.** Standardise on GLB + one shared humanoid skeleton. Flow: concept sheet →
+   image-to-3D (Tripo / TRELLIS) for the base mesh → retopo + bake to budget + LODs in Blender → export GLB
+   → `GLTFLoader`. Keep the procedural rig as the in-engine fallback and for FX, and reuse its animator
+   targets where possible.
+4. **Runtime perf for real (including low-end) devices:** enemy `InstancedMesh` (already backlog #1),
+   texture atlases, LODs, and the fixed light pool from v1.8. These are what let the enemy cap grow.
+5. **Decide platform + co-op before heavy content investment.** Web keeps lean budgets; native (Electron /
+   Steam) or mobile changes asset budgets and packaging. If co-op is the product, insert the netcode seam
+   *now* — it is the one open question that reshapes the architecture rather than the content.
+
+**Licensing note for shipped assets.** Free tiers don't cover shipping: Tripo's free plan is
+non-commercial and Meshy's free outputs are public CC BY 4.0. For a real game, budget ~$20/mo on a hosted
+tool or self-host an MIT-licensed model (TRELLIS.2).

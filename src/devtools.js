@@ -141,7 +141,7 @@ export function initDevTools(G, hooks) {
   setInterval(() => {
     if (root.classList.contains('hidden')) return;
     const r = hooks.stats();
-    perf.textContent = `${r.ms} ms · ${r.fps} fps · ${r.enemies} enemies · ${r.calls} calls · ${r.tris} tris`;
+    perf.textContent = `${r.ms} ms · ${r.fps} fps · ${r.enemies} enemies · ${r.calls} calls · ${r.tris} tris · ${r.lights ?? '-'} lts`;
   }, 400);
 
   return { root, refresh: () => show(root.querySelector('.dvtab.on').dataset.g) };

@@ -3,8 +3,10 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-06 · build `neon-vanguard.html` 701 KB · 6,387 lines across 14 modules · all 6 test
-suites green.
+Last verified: 2026-09-06 · build `neon-vanguard.html` 717 KB · 6,659 lines across 15 modules.
+`tools/lighttest.mjs` (35 assertions) and `tools/geocheck.mjs` pass. **The six puppeteer suites were NOT
+run in the session that produced v1.8** — that sandbox had no browser and blocked every Chrome download
+host (only the npm registry was reachable). Re-run all six before trusting the visual result. See §6.
 
 ---
 
@@ -17,11 +19,12 @@ implant draft between waves, and an ultimate-chain combo system that rewards swa
 Everything is procedural — geometry, textures, animation, all 38 sound effects and the music. **There is
 not a single asset file in the build.** The whole game ships as one self-contained HTML file.
 
-**The two deliverables:**
+**The deliverables:**
 | File | What |
 |---|---|
-| `neon-vanguard.html` | the game (701 KB, open it directly, no server needed) |
-| `character-bay.html` | character turntable viewer (576 KB) |
+| `neon-vanguard.html` | the game (717 KB, open it directly, no server needed) |
+| `character-bay.html` | character turntable viewer (589 KB) |
+| `model-viewer.html` | art-direction tool — drop a GLB next to the procedural rig (673 KB) |
 
 ---
 
@@ -58,7 +61,7 @@ minified esbuild output contains `$&`, which a string replacement would expand. 
 ```
 NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
 ├── index.html              landing page: play links + roster + doc index
-├── neon-vanguard.html      DELIVERABLE — the game, self-contained, 701 KB
+├── neon-vanguard.html      DELIVERABLE — the game, self-contained, 703 KB
 ├── character-bay.html      DELIVERABLE — character viewer, 576 KB
 ├── HANDOFF.md              ← you are here
 ├── NEON-VANGUARD-PROPOSAL.md   the plan: engine choice, design, roadmap, changelog (v1.7)
@@ -70,21 +73,26 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
 ├── screenshots/            12 gameplay + 7 character-bay captures
 ├── tools/                  headless puppeteer test suites (see §6)
 └── src/
-    ├── main.js      1445  bootstrap, post FX, input, gamepad, camera, wave director, draft,
+    ├── main.js      1467  bootstrap, post FX, input, gamepad, camera, wave director, draft,
     │                      hazards, settings, dev-tool wiring, the shared context object `G`
-    ├── heroes.js    1241  hero data, all 12 abilities, buffs, damage/heal, squad AI
-    ├── entities.js   693  projectile pool, enemy types + AI, elites, telegraph driver, pooling
+    ├── heroes.js    1252  hero data, all 12 abilities, buffs, damage/heal, squad AI
+    ├── entities.js   704  projectile pool, enemy types + AI, elites, telegraph driver, pooling
     ├── audio.js      587  WebAudio synth toolkit, 38 SFX cues, adaptive music sequencer
     ├── showcase.js   459  character bay (separate entry point)
+    ├── viewer.js     —    model viewer: GLB drop + procedural rig side-by-side (art tool)
+    ├── gltfutil.js   —    DOM-free GLB parse/stats/normalise (viewer + glbtest)
+    ├── glbskin.js    —    loads uploaded hero GLB skins (models/uploads/*.glb), procedural fallback
+    ├── studio.js     —    Hero Studio: size / action-motion / skill-FX tuning → hero_tuning.json
     ├── fx.js         431  pooled particles/rings/beams/sparks/telegraphs, shake, flash
     ├── world.js      311  arena, floor shader, baked skyline, billboards, rain, cover pylons
-    ├── rig.js        282  procedural humanoid rig + animator + weapon builders
+    ├── rig.js        331  faceted humanoid rig (chamfer/seg + flat shading) + animator + weapons
     ├── ui.js         205  HUD binding (DOM overlay)
     ├── devtools.js   180  the dev overlay (backtick): sliders, cheats, perf, JSON round-trip
+    ├── pickups.js    169  charge shards + Charge Cores
+    ├── lights.js     161  fixed-size PointLight pool — keeps the scene's light count constant
+    ├── balance.js    145  EVERY tunable number + ranges + applyBalance()
     ├── upgrades.js   136  21 implants + rarity-weighted draft roller
-    ├── balance.js    135  EVERY tunable number + ranges + applyBalance()
-    ├── util.js       121  math/material/texture helpers + disposeObj()
-    └── pickups.js    161  charge shards + Charge Cores
+    └── util.js       121  math/material/texture helpers + disposeObj()
 ```
 
 **Editing the HUD or page chrome?** That lives in `shell/game.html`, not in a built file. The two root
@@ -137,6 +145,13 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
 10. **All balance numbers live in `balance.js`.** Don't reintroduce literals into gameplay files.
 11. **All implant effects read `G.mods`.** If you add an implant, wire it to a real call site in the same
     change. The pool is deliberately free of cosmetic stats.
+12. **Never create a `PointLight` in gameplay code — the scene's light count must not change during play.**
+    three.js bakes the light COUNT into its shader program cache key (`numPointLights: lights.point.length`
+    → `getProgramCacheKeyParameters`), so a light appearing or disappearing recompiles *every* material in
+    the frame. Enemies, pickups and abilities all borrow from `G.lights` (`src/lights.js`), a fixed pool
+    built once at boot. Spare slots stay `visible` at intensity 0 — `projectObject()` skips invisible
+    objects before it ever reaches the `isLight` branch, so hiding a spare would change the count and
+    defeat the whole scheme. `tools/lighttest.mjs` asserts the invariant.
 
 ---
 
@@ -154,10 +169,35 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
 | `mergeGeometries` returning null | All inputs must agree on index state. De-indexing to force agreement triples vertex counts — only do it when they genuinely disagree. |
 | The draft halts the sim | `G.drafting` gates the whole update block. A test that spawns enemies after a wave clear must dismiss the draft (`Escape`) first. |
 | String replace in `build.mjs` | Minified output contains `$&`. Use a function replacer. |
+| A `PointLight` per entity | Looked free, was not. Every enemy *and* every dropped shard carried one, so 45 enemies meant 45+ point lights, and the count moved on every spawn, death and pickup. three.js keys its shader programs on that count, so each change recompiled every material — and the fragment shader looped over all of them per pixel. Completely invisible under swiftshader, where every frame is already 250 ms. |
+| Pool budget key names | `LightPool.setBudget()` reads `lightsEnemy` / `lightsPickup` / `lightsEffect` straight out of `BALANCE.perf`. Pass it `{enemy: 8}` and it silently builds **zero** lights — the game still runs, just unlit. `tools/lighttest.mjs` catches it. |
+| `?.` on a pooled light | `G.lights.acquire()` returns `null` when the kind is exhausted (four ultimates at once). Every `light.intensity = …` in an ability must be guarded `if (light) …`. Four were missed on the first pass and would have thrown on the first Trinity chain. |
 
 ---
 
 ## 6. Test suites
+
+**Headless — plain Node, no browser, run these always.** They import the real modules from `src/` and
+exercise the real code paths (three.js geometry and maths work fine without WebGL; only rendering needs a
+context):
+
+```bash
+node tools/lighttest.mjs  # 35 assertions: the point-light count never moves (v1.8 invariant)
+node tools/geocheck.mjs   # per-enemy draw calls / verts / bbox / lights / materials + pooling leak check
+node tools/glbtest.mjs    # 10 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+
+# headless ART loop — see the characters without a browser (v1.9)
+node tools/charpreview.mjs [aegis|lyra|nyx|all]   # run the REAL rig/animator, dump world-space tris to JSON
+python3 tools/render.py .tmpbuild/char-<id>.json out.png   # rasterise that JSON to a PNG you can look at
+```
+
+> Character art iterates through that last pair. The rigs are faceted plate armour (`chamfer()` / `seg()`
+> + flat shading in `rig.js`, v1.9) — if you touch them, re-render and compare against `concept/*.jpg`,
+> not against the live game (random poses/FX make live frames incomparable).
+
+**Browser — need puppeteer + a Chrome.** Every one prints `ERRORS none` on success. **Run all six after
+any gameplay change.** They take about three minutes total. They leave `*.png` captures in the project
+root — delete them before committing.
 
 ```bash
 node tools/smoke.mjs      # full playthrough, all 12 abilities, boss; writes s1..s13 screenshots
@@ -170,8 +210,10 @@ node tools/audiotest.mjs  # all 38 SFX cues produce signal
 node tools/bayshots.mjs   # re-render the character sheets (writes .png — re-encode to .jpg before committing)
 ```
 
-Every one prints `ERRORS none` on success. **Run all six after any gameplay change.** They take about
-three minutes total. They leave `*.png` captures in the project root — delete them before committing.
+> If `npm install` fails with `Failed to set up chrome`, the sandbox cannot reach the Chrome download
+> hosts. `PUPPETEER_SKIP_DOWNLOAD=1 npm install` still gets you `three` + `esbuild`, so `node build.mjs`
+> and the two headless suites work — but say plainly in the commit that the browser suites were not run.
+> There is no substitute for them on anything visual.
 
 Useful in-page hooks (already exposed): `window.G`, `window.SFX`, `G.EnemyClass`, `window.__passes`,
 `window.__noPost` (raw render, no post), `window.__nobake` (disable static merging, for A/B).
@@ -200,6 +242,10 @@ damage-number toggle, gamepad, personal best — all persisted.
 ---
 
 ## 8. What I would do next — in order
+
+> **Landed since this list was written (v1.8): the point-light blowup.** It was not on this list — it was
+> found by measuring. Enemy instancing below is still the right next task, and it is now cheaper: the
+> enemy lights are already gone, so instancing only has to deal with meshes.
 
 ### 1. Enemy instancing ⭐ *the recommended next task*
 
@@ -247,8 +293,15 @@ that has never been in front of an outside player.
 |---|---|---|
 | Draw calls, no enemies | < 350 | **~168** (was 242 before the v1.7 pass) |
 | Draw calls, 15 enemies | < 350 | **347** |
+| Draw calls, 45 enemies | < 350 | **330** on top of the base — still over, this is what instancing is for |
 | Triangles | < 400 k | 20 k – 33 k |
-| First load | < 1.5 s | single 701 KB file |
+| Point lights, 45 enemies | constant | **16** total (8 enemy + 4 pickup + 4 effect), was 45+ and growing |
+| First load | < 1.5 s | single 703 KB file |
+
+Draw-call and light figures come from `tools/geocheck.mjs` and `tools/lighttest.mjs`, which run the real
+`Enemy` / `Pickup` constructors in Node — so they are exact and repeatable, not estimates. Per-enemy cost
+today: skitter 5 draw calls, brute 12, sentinel 8, juggernaut 8, each with one health-bar sprite and one
+canvas texture, and **zero** lights.
 
 An **adaptive governor** watches frame time: sustained >24 ms sheds 5 from the enemy cap (floor 18) and
 trims the particle budget; sustained <14 ms restores it, never above the player's FX setting.

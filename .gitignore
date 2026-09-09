@@ -18,3 +18,9 @@ x[0-9]*.png
 # local tuning sessions / editor noise
 .DS_Store
 *.log
+
+# user-uploaded hero models: committed once, so they survive workspace resets
+# (drop new/updated GLBs in here and commit them to swap hero skins)
+
+# python bytecode
+__pycache__/
