@@ -24,9 +24,9 @@ import { initDevTools, DEV_CSS } from './devtools.js';
 const DEFAULTS = { master: 0.85, music: 0.5, sfx: 0.9, fx: 1, shake: 1, palette: 'neon', dmgNumbers: true };
 const SETTINGS = Object.assign({}, DEFAULTS);
 const PALETTES = {
-  neon:  { skitter: 0xff2b4a, brute: 0xff5a2b, sentinel: 0xff1cc4, juggernaut: 0xff2b4a },
+  neon:  { skitter: 0xff2b4a, brute: 0xff5a2b, charger: 0xff8a2b, sentinel: 0xff1cc4, warden: 0x7a5cff, juggernaut: 0xff2b4a },
   // deuteranopia-safe: hostiles move to amber/blue, away from the mint/green allies
-  cb:    { skitter: 0xffa53d, brute: 0xff7a18, sentinel: 0x4aa3ff, juggernaut: 0xffc21f },
+  cb:    { skitter: 0xffa53d, brute: 0xff7a18, charger: 0xffc21f, sentinel: 0x4aa3ff, warden: 0x6f8cff, juggernaut: 0xffc21f },
 };
 function loadSettings() {
   try {
@@ -149,7 +149,7 @@ const G = {
   heroes: [], enemies: [], effects: [], barriers: [], pickups: [],
   corePoints: 0, coreNeed: 16,
   hitStop: 0, drafting: false, god: false, mods: Object.assign({}, MOD_DEFAULTS), taken: {}, hpScale: 1, dmgScale: 1, maxAlive: 45, elitesSeen: 0, bestChain: 0,
-  enemyPool: {}, settings: SETTINGS,
+  enemyPool: {}, enemyBatches: {}, settings: SETTINGS,
   ultChain: 0, ultChainT: 0, ultMul: 1, overdriveT: 0,
   timeScale: 1, timeScaleTarget: 1,
   projectiles: null,
@@ -473,12 +473,12 @@ function updateGovernor(dt) {
   if (ms > 24) { P.slow += dt; P.fast = 0; } else if (ms < 14) { P.fast += dt; P.slow = 0; } else { P.slow *= 0.9; P.fast *= 0.9; }
   if (P.slow > 1.5 && P.aliveCap > 18) {
     P.aliveCap = Math.max(18, P.aliveCap - 5);
-    fx.pMul = Math.max(0.35, SETTINGS.fx * 0.6);
+    fx.setQuality(Math.max(0.35, SETTINGS.fx * 0.6));
     P.slow = 0;
     if (!P.note) { P.note = 1; ui.feed('PERFORMANCE MODE \u00B7 REDUCING LOAD', '#ffb14a'); }
   } else if (P.fast > 4 && P.aliveCap < B.scaling.maxAlive) {
     P.aliveCap = Math.min(B.scaling.maxAlive, P.aliveCap + 3);
-    if (P.aliveCap >= B.scaling.maxAlive) fx.pMul = SETTINGS.fx;
+    if (P.aliveCap >= B.scaling.maxAlive) fx.setQuality(SETTINGS.fx);
     P.fast = 0;
   }
   G.maxAlive = Math.min(B.scaling.maxAlive, P.aliveCap);
@@ -734,18 +734,23 @@ function switchTo(i, silent) {
 /* ---------- waves ---------- */
 const WAVES = [
   { skitter: 6 },
-  { skitter: 8, brute: 2 },
-  { skitter: 8, brute: 3, sentinel: 2 },
-  { skitter: 12, brute: 4, sentinel: 3 },
-  { juggernaut: 1, skitter: 8, brute: 3 },
-  { skitter: 14, brute: 6, sentinel: 4 },
-  { skitter: 16, brute: 7, sentinel: 5 },
-  { juggernaut: 2, skitter: 12, brute: 6, sentinel: 4 },
+  { skitter: 7, brute: 2, charger: 1 },
+  { skitter: 8, brute: 2, sentinel: 2, charger: 2 },
+  { skitter: 10, brute: 3, sentinel: 2, warden: 1, charger: 3 },
+  { juggernaut: 1, skitter: 8, brute: 3, charger: 2 },
+  { skitter: 12, brute: 4, sentinel: 3, warden: 2, charger: 3 },
+  { skitter: 14, brute: 5, sentinel: 4, warden: 3, charger: 4 },
+  { juggernaut: 2, skitter: 10, brute: 5, sentinel: 3, warden: 2, charger: 4 },
+  { skitter: 12, brute: 6, sentinel: 4, warden: 3, charger: 6 },
+  { juggernaut: 1, skitter: 16, brute: 7, sentinel: 5, warden: 4, charger: 7 },
 ];
 
 function startWave(n) {
   G.wave = n;
   const def = WAVES[Math.min(n - 1, WAVES.length - 1)];
+  const layouts = Object.keys(world.layouts || { neon: true });
+  const layoutKey = layouts[(n - 1) % layouts.length];
+  const layoutName = world.setLayout(layoutKey);
   // count grows slowly; the real ramp is per-enemy strength + elite density
   const scale = n > WAVES.length ? 1 + (n - WAVES.length) * B.scaling.countStep : 1;
   G.hpScale = 1 + Math.max(0, n - 3) * B.scaling.hpStep;
@@ -769,6 +774,7 @@ function startWave(n) {
   SFX.setIntensity(boss ? 4 : Math.min(3, 1 + Math.floor((n - 1) / 2)));
   ui.banner(boss ? 'Warning' : 'Wave', boss ? 'BOSS' : String(n).padStart(2, '0'));
   ui.feed(boss ? 'ONI-CLASS SIGNATURE DETECTED' : `WAVE ${n} INBOUND`, boss ? '#ff2b4a' : '#18e0ff');
+  ui.feed('SECTOR CONFIG · ' + layoutName, '#' + (world.floorUni.uAccent.value.getHexString()));
   if (boss) { fx.addShake(0.6); world.arenaPulse(); }
   if (n === 6) ui.feed('DECK INTEGRITY FAILING \u00B7 GRID DISCHARGES INBOUND', '#39c6ff');
   // heal a bit between waves
@@ -902,7 +908,13 @@ async function startGame(training) {
   document.getElementById('menu').classList.add('hidden');
   document.getElementById('gameover').classList.add('hidden');
   ui.show();
-  for (const e of G.enemies) scene.remove(e.group);
+  for (const e of G.enemies) {
+    e.dead = true;                       // also hides its InstancedMesh batch slot
+    G.fx.tellRelease(e.tell); e.tell = null;
+    scene.remove(e.group);
+    const pool = G.enemyPool[e.type] || (G.enemyPool[e.type] = []);
+    if (pool.length < 24) pool.push(e); else e.disposeMeshes();
+  }
   G.enemies.length = 0;
   for (const p of G.pickups) p.remove(G);
   G.pickups.length = 0;
@@ -1192,7 +1204,7 @@ function applySettings() {
     SFX.sfxBus.gain.setTargetAtTime(SETTINGS.sfx, SFX.ctx.currentTime, 0.05);
     if (SFX.playing) SFX.musicBus.gain.setTargetAtTime(SETTINGS.music, SFX.ctx.currentTime, 0.05);
   }
-  fx.pMul = SETTINGS.fx;
+  fx.setQuality(SETTINGS.fx);
   fx.shakeMul = SETTINGS.shake;
   bloom.strength = SETTINGS.fx <= 0.5 ? 0.38 : SETTINGS.fx >= 1.5 ? 0.62 : 0.52;
   bloom.radius = SETTINGS.fx <= 0.5 ? 0.3 : 0.45;
@@ -1200,6 +1212,9 @@ function applySettings() {
   for (const [k, c] of Object.entries(pal)) if (ENEMY_TYPES[k]) ENEMY_TYPES[k].color = c;
   for (const e of G.enemies) if (e.retint) e.retint(pal[e.type] || e.T.color);
   for (const list of Object.values(G.enemyPool)) for (const e of list) if (e.retint) e.retint(pal[e.type] || e.T.color);
+  // A type can have a persistent batch even after its last pooled enemy was
+  // disposed; retint the shared material directly so the next spawn matches.
+  for (const [k, c] of Object.entries(pal)) if (G.enemyBatches[k]) G.enemyBatches[k].retint(c);
   document.body.classList.toggle('nodmg', !SETTINGS.dmgNumbers);
   saveSettings();
 }
@@ -1450,6 +1465,8 @@ function frame(now) {
       }
       e.update(dt, G);
     }
+    // Submit the baked enemy shells once per type after all transforms are current.
+    for (const batch of Object.values(G.enemyBatches)) batch.update();
     G.projectiles.update(dt);
     for (let i = G.effects.length - 1; i >= 0; i--) {
       if (!G.effects[i].update(dt)) G.effects.splice(i, 1);
@@ -1464,7 +1481,8 @@ function frame(now) {
     grade.uniforms.uFlash.value = fx.flash;
     grade.uniforms.uFlashCol.value.copy(fx.flashColor);
     grade.uniforms.uDmg.value = G.damageVignette * 0.7;
-    bloom.strength = 0.62 + fx.flash * 0.5;
+    const bloomBase = SETTINGS.fx <= 0.5 ? 0.38 : SETTINGS.fx >= 1.5 ? 0.62 : 0.52;
+    bloom.strength = bloomBase + fx.flash * (SETTINGS.fx >= 1.5 ? 0.5 : 0.28);
 
     if (G.running) ui.update(G);
     ui.updatePops(dt);

@@ -28,6 +28,9 @@ and a screenshot or console error.
 - [ ] `Space`/signature and each hero's basic, Q, E, and R ability fire.
 - [ ] Dash moves the hero, respects its cooldown, and does not leave a stuck effect or light.
 - [ ] Enemies spawn, approach, take damage, die, and do not leave orphan meshes.
+- [ ] Later waves introduce CHARGER FRAME and WARDEN BEACON; their melee/ranged telegraphs are readable.
+- [ ] Wave transitions visibly rotate NEON GRID, CROSSFIRE, and DEADZONE cover layouts.
+- [ ] Low / Normal / Cinematic FX intensity changes readability without stopping gameplay; Low keeps heroes visible.
 - [ ] Pause/resume works; mute works; settings or dev overlay do not trap keyboard focus.
 - [ ] A wave can be cleared and the implant draft can be opened, selected, skipped, and closed.
 - [ ] The ultimate chain can be started and completed with hero switching.

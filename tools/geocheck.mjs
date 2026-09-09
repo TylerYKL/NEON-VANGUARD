@@ -144,9 +144,9 @@ const n = Number(process.argv[2] ?? 12);
 const scene = new THREE.Scene();
 const made = [];
 for (let i = 0; i < n; i++) {
-  // rough late-wave mix: lots of skitters, some brutes/sentinels, boss every 5th wave
+  // rough late-wave mix: light drones plus the charger/warden variants
   const roll = Math.random();
-  const type = roll < 0.5 ? 'skitter' : roll < 0.78 ? 'brute' : 'sentinel';
+  const type = roll < 0.34 ? 'skitter' : roll < 0.54 ? 'brute' : roll < 0.70 ? 'charger' : roll < 0.87 ? 'sentinel' : 'warden';
   const e = new Enemy(type, G);
   if (Math.random() < 0.3) e.setElite('shielded');
   e.spawnAt((Math.random() - 0.5) * 80, (Math.random() - 0.5) * 80);
@@ -182,7 +182,7 @@ for (const count of [1, 5, 10, 20, 30, 45]) {
 console.log('\nPOOLING — reset() on a recycled instance');
 console.log('  (baseline taken AFTER the first elite, because setElite() lazily');
 console.log('   builds the crown once — that is a one-time cost, not a leak)');
-for (const type of ['skitter', 'brute', 'sentinel']) {
+for (const type of ['skitter', 'brute', 'charger', 'sentinel', 'warden']) {
   const e0 = new Enemy(type, G);
   const fresh = countMeshes(e0.group);
   e0.setElite('swift');                       // build the crown once

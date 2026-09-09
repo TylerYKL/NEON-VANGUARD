@@ -4,6 +4,24 @@ import { rand, pick, TAU, addMat, metalMat } from './util.js';
 
 export const ARENA = 46; // half-extent of playable square
 
+/** Lightweight arena variants: the same authored city shell gets three distinct
+    combat layouts. Geometry is reused; only floor colour and cover coordinates move
+    between waves, so content adds positioning decisions without a second scene. */
+export const ARENA_LAYOUTS = {
+  neon: {
+    name: 'NEON GRID', accent: 0x18e0ff, accent2: 0xff2fa0,
+    pylons: [[-20, -20], [20, -20], [-20, 20], [20, 20], [0, -28], [0, 28], [-30, 0], [30, 0], [-11, -6], [11, 6]],
+  },
+  crossfire: {
+    name: 'CROSSFIRE', accent: 0xffb028, accent2: 0x7a5cff,
+    pylons: [[-25, -12], [-25, 12], [25, -12], [25, 12], [-10, 0], [10, 0], [0, -25], [0, 25], [-15, 22], [15, -22]],
+  },
+  deadzone: {
+    name: 'DEADZONE', accent: 0xff2fa0, accent2: 0x39ff88,
+    pylons: [[-27, -27], [27, -27], [-27, 27], [27, 27], [-18, 0], [18, 0], [0, -18], [0, 18], [-8, -8], [8, 8]],
+  },
+};
+
 export function buildWorld(scene, renderer) {
   const group = new THREE.Group();
   scene.add(group);
@@ -204,11 +222,7 @@ export function buildWorld(scene, renderer) {
 
   /* ---------- arena obstacles (cover pylons) ---------- */
   const obstacles = [];
-  const pylonPositions = [
-    [-20, -20], [20, -20], [-20, 20], [20, 20],
-    [0, -28], [0, 28], [-30, 0], [30, 0],
-    [-11, -6], [11, 6],
-  ];
+  const pylonPositions = ARENA_LAYOUTS.neon.pylons;
   for (const [x, z] of pylonPositions) {
     const h = rand(5.5, 3.2), rr = rand(2.2, 1.4);
     const g = new THREE.Group();
@@ -224,7 +238,7 @@ export function buildWorld(scene, renderer) {
     g.position.set(x, 0, z);
     g.rotation.y = Math.random() * TAU;
     group.add(g);
-    obstacles.push({ x, z, r: rr + 0.5, mesh: g, glow: cap });
+    obstacles.push({ x, z, r: rr + 0.5, baseR: rr + 0.5, mesh: g, glow: cap });
   }
 
   /* ---------- rain ---------- */
@@ -276,8 +290,28 @@ export function buildWorld(scene, renderer) {
   moteCloud.frustumCulled = false;
   group.add(moteCloud);
 
+  let currentLayout = 'neon';
+  function setLayout(key) {
+    const layout = ARENA_LAYOUTS[key] || ARENA_LAYOUTS.neon;
+    currentLayout = Object.keys(ARENA_LAYOUTS).find((k) => ARENA_LAYOUTS[k] === layout) || 'neon';
+    floorUni.uAccent.value.set(layout.accent);
+    floorUni.uAccent2.value.set(layout.accent2);
+    layout.pylons.forEach((p, i) => {
+      const ob = obstacles[i];
+      if (!ob) return;
+      ob.x = p[0]; ob.z = p[1]; ob.r = ob.baseR;
+      ob.mesh.position.set(ob.x, 0, ob.z);
+      ob.mesh.visible = true;
+    });
+    return layout.name;
+  }
+  setLayout('neon');
+
   return {
-    group, floorUni, obstacles, billboards,
+    group, floorUni, obstacles, billboards, layouts: ARENA_LAYOUTS,
+    get layout() { return currentLayout; },
+    setLayout,
+
     update(dt, t, playerPos) {
       floorUni.uTime.value = t;
       floorUni.uPlayer.value.copy(playerPos);

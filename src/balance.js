@@ -79,7 +79,9 @@ export const BALANCE = {
   enemies: {
     skitter: { hp: 55, speed: 10.5, dmg: 9, cd: 1.9, tell: 0.38 },
     brute: { hp: 210, speed: 6.2, dmg: 22, cd: 1.5, tell: 0.5 },
+    charger: { hp: 150, speed: 10.8, dmg: 28, cd: 2.2, tell: 0.62 },
     sentinel: { hp: 130, speed: 3.4, dmg: 15, cd: 2.6, tell: 0.55 },
+    warden: { hp: 185, speed: 2.6, dmg: 24, cd: 3.4, tell: 0.75 },
     juggernaut: { hp: 2600, speed: 4.6, dmg: 38, cd: 2.0, tell: 0.85 },
   },
 };

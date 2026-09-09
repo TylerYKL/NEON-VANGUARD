@@ -91,8 +91,11 @@ npm install          # three + esbuild (+ puppeteer for the smoke test)
 node build.mjs       # bundles src/ into neon-vanguard / character-bay / model-viewer / hero-studio .html
 
 # headless — plain Node, no browser, run these first
-node tools/lighttest.mjs # 35 assertions: the scene's point-light count never changes
+node tools/lighttest.mjs # 37 assertions: the scene's point-light count never changes
 node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materials, pooling leak check
+node tools/instancetest.mjs # static enemy shells batch into InstancedMesh objects at the live cap
+node tools/fxtest.mjs     # FX quality profiles enforce particle / ring / beam / spark budgets
+node tools/contenttest.mjs # arena layout and enemy-variant data contracts
 node tools/glbtest.mjs   # 25 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
 node tools/skintest.mjs  # 173 assertions: uploaded skins, hero_tuning.json v1→v3, per-skill FX slots + pooling,
                        #   the clip resolver, the mixer (and its absence), the boot clip report
@@ -125,12 +128,12 @@ Source layout:
 
 ```
 src/main.js      bootstrap, post-processing chain, input, camera, wave director, shared game context `G`
-src/world.js     arena, floor shader, skyline, holo billboards, rain, cover pylons
-src/fx.js        pooled particles / rings / beams / sparks, camera shake, screen flash
+src/world.js     arena layouts, floor shader, skyline, holo billboards, rain, cover pylons
+src/fx.js        quality-bounded particles / rings / beams / sparks, camera shake, screen flash
 src/audio.js     WebAudio synth toolkit, 38 SFX cues, adaptive synthwave sequencer, mix + ducking
 src/rig.js       procedural humanoid rig + animator + weapon builders
 src/heroes.js    hero data, all 12 abilities, buffs, squad AI
-src/entities.js  projectile pool, enemy types, steering, boss
+src/entities.js  instanced enemy shells, animated accents, projectile pool, enemy types, steering, boss
 src/pickups.js   charge shards + Charge Cores (magnet, beacon, squad overcharge)
 src/lights.js    fixed-size PointLight pool — keeps the scene's light count constant
 src/upgrades.js  implant definitions + rarity-weighted draft roller (writes into G.mods)
@@ -267,6 +270,14 @@ A slot entry's `p` block is the whole look: `scale y dur grow spin rise fade opa
 Resolving one cast is `fxpack.fxFor(tuning, heroId, slot)`: a per-skill entry wins, otherwise the shared
 `fx` plays, otherwise nothing — and `Hero.playFX(G, i)` is called with the skill index from `useSkill`.
 
+### Combat content
+
+The run now rotates three reusable arena layouts — **NEON GRID**, **CROSSFIRE**, and **DEADZONE** — between
+waves. Wave 1–10 mixes the original SKITTER / BRUTE / SENTINEL roster with the fast melee **CHARGER FRAME**
+and ranged **WARDEN BEACON**, then continues scaling with elites and the ONI-CLASS JUGGERNAUT. New enemy art
+is not required for these two variants: their tuned silhouettes reuse the existing brute and sentinel construction
+while their speed, range, telegraph, and damage profiles create different threats.
+
 ### Render budget
 
 * **Static geometry is baked at build time.** `bakeStatics()` in `entities.js` merges every non-animated
@@ -274,9 +285,15 @@ Resolving one cast is `fxpack.fxFor(tuning, heroId, slot)`: a per-skill entry wi
   swallowed into the merge.
 * **Enemy materials are shared per type** (`SHARED_MATS`). Never mutate them per instance — per-instance
   glow lives on the separate `glowMats` list.
+* **Enemy shells are instanced per type.** `EnemyStaticBatch` submits the baked shell/dark body once per
+  type; animated accents, health bars, crowns, and telegraphs remain on each enemy. `node tools/instancetest.mjs`
+  checks the live-cap batch slots and transform updates.
 * **`disposeObj(scene, obj)`** for anything an ability builds at cast time. `scene.remove()` alone leaks.
-* An **adaptive governor** trims the enemy cap and particle budget when frame time exceeds 24 ms and
+* An **adaptive governor** trims the enemy cap and FX quality profile when frame time exceeds 24 ms and
   restores them below 14 ms. It never exceeds the player's FX setting.
+* **FX quality is a hard admission budget**, not only a multiplier: Low / Normal / Cinematic bound live
+  particles, rings, beams, and spark streaks. Dropped admissions are counted in `fx.budgetStats()` instead
+  of overwriting live effects. `node tools/fxtest.mjs` checks the low-quality ceiling.
 * To verify a geometry optimisation, compare **vertex count and world bounding box** before/after — image
   diffs of a live game are meaningless.
 
