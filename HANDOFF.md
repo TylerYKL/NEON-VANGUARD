@@ -21,7 +21,9 @@ implant draft between waves, and an ultimate-chain combo system that rewards swa
 Everything in the game is procedural — geometry, textures, animation, all 38 sound effects and the music.
 **There is not a single asset file required to boot.** The whole game ships as one self-contained HTML file.
 (The uploaded hero skins and skill-effect clips in `models/uploads/` are an *optional* art pipeline: the game
-reads them if they are there and falls back to the procedural rig if they are not — see §7a.)
+reads them if they are there and falls back to the procedural rig if they are not — see §7a. For a *rigged*
+skin, `models/ref/RIG-SPEC.md` is the contract, and it is complete on the code side: the loader, the mixer, the
+five clip slots and the studio rows are all shipped and tested. What is missing is a file with bones and clips.)
 
 **The deliverables:**
 | File | What |
@@ -295,7 +297,9 @@ python3 tools/render.py .tmpbuild/char-<id>.json out.png   # rasterise that JSON
 
 **Browser — need puppeteer + a Chrome.** Every one prints `ERRORS none` on success. **Run all six after
 any gameplay change.** They take about three minutes total. They leave `*.png` captures in the project
-root — delete them before committing.
+root — delete them before committing. (The exception is `models/ref/*.png`: bind-pose reference sheets,
+committed on purpose next to the GLBs, because an art asset that evaporates on a workspace reset is no
+asset at all. Never confuse the two.)
 
 ```bash
 node tools/smoke.mjs      # full playthrough, all 12 abilities, boss; writes s1..s13 screenshots
@@ -498,6 +502,7 @@ tests are meaningless; draw calls and triangle counts are accurate.
 | `README.md` | developer quick reference: controls, build, module map, subsystem notes |
 | `FX-AEGIS.md` | worked example for an art non-programmer: the AEGIS sample skill FX, the assign / tune / ● REC loop, and the tuning cheat sheet |
 | `MOTION-AUDIT.md` | the layer under the FX: how a hero is posed/moved/attacked, its 8 findings with measured numbers (all fixed; one was caught by the bench the audit asked for) and the GLB-clip plan — phases A–D are in, the rest is art |
+| `models/ref/RIG-SPEC.md` | the contract a rigged hero GLB has to satisfy — bind pose, +Z facing, the `normalizeToStage` fit gotcha, bone naming, the five clip-slot aliases, why clips may not key the root — plus the three bind-pose sheets in `models/ref/` and the commands that check a file before it is handed over |
 
 **Open questions still owed by the stakeholder** (§9 of the proposal): monetisation/platform, whether co-op
 is the product or a nice-to-have (this changes the architecture *now*), art budget, and final roster size.

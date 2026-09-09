@@ -372,7 +372,9 @@ nyx.glb    bones 0 · skinned 0 · clips 0
 one skinned mesh, four clips (`Aegis Idle · Walk · Aegis Attack · Death01`), all tracks binding — and phase D's
 `SKIN FILE` select will put it on AEGIS. That is a stand-in to develop against and to try in a browser, not the
 asset: the real one has to come from the art pipeline, with the bone names the game will resolve. Which is the
-point of the row — the file is what was missing, not the code.
+point of the row — the file is what was missing, not the code. The handover page for whoever makes it is
+**`models/ref/RIG-SPEC.md`**, with bind-pose sheets for all three heroes beside it in `models/ref/`: everything
+the code expects is written down there, and every rule in it is measured rather than assumed.
 
 **No file in `models/uploads/` has a skeleton or a single clip** — they are static meshes, which
 is why `animateGLB` exists at all. So "support GLB clips" is only half a feature until a rigged,

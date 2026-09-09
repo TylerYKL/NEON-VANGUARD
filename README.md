@@ -28,6 +28,7 @@ animation, sound effect and music cue is generated at runtime.
 | `model-viewer.html` | art-direction tool — drop any GLB (Tripo/Meshy) next to the procedural rig, see tri/mat/bone cost |
 | `hero-studio.html` | Hero Studio — tune uploaded skins (size / placement / motion) and edit each hero's skill effects |
 | `concept/*.jpg` | rendered concept sheets (art-direction target for Phase 3) |
+| `models/ref/` | bind-pose sheets for the three heroes + **`RIG-SPEC.md`**, the contract a rigged `.glb` must satisfy to animate |
 
 ## Play it
 
