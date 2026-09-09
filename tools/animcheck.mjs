@@ -335,6 +335,49 @@ else {
   const h3b = new Hero(HERO_DEFS[0], { ...G3, scene: new THREE.Scene() }, 1);
   h3.anim.mixer.setTime(0); h3b.anim.mixer.setTime(0.37);
   for (let i = 0; i < 10; i++) { h3.poseClips(1 / 60, 1); h3b.poseClips(1 / 60, 1); }
+  /* re-binding a slot live (the studio's name rows) — the pose must follow, and the report
+     must not accumulate stale names as the tuner types */
+  const reb = (nm, want) => h3.rebindClip(nm, want);
+  reb('walk', 'Aegis Attack');
+  const stole = h3.anim.used.walk === 'Aegis Attack' && !h3.anim.act.attack &&
+    h3.anim.clash.some((c) => c.slot === 'attack' && c.takenBy === 'walk');
+  check('re-binding a slot live moves the pose, not just the config',
+    stole, 'walk → ' + h3.anim.used.walk + ' · attack ' + (h3.anim.act.attack ? 'still bound' : 'released') +
+    ' · clash ' + JSON.stringify(h3.anim.clash));
+  for (let i = 0; i < 6; i++) h3.poseClips(1 / 60, 1);
+  check('…and the frame after a re-bind is still finite (weights recompute, they do not reset)',
+    Number.isFinite(bone('hips').position.y) && h3.anim.w.walk >= 0 && h3.anim.w.idle >= 0,
+    'w ' + JSON.stringify(h3.anim.w));
+  reb('walk', 'off');
+  const offClean = !h3.anim.act.walk && h3.anim.miss.indexOf('off') < 0;
+  reb('walk', 'nope-not-a-clip');
+  const reported = !h3.anim.act.walk && h3.anim.miss.indexOf('nope-not-a-clip') >= 0;
+  reb('walk', 'nope-not-a-clip');
+  check('…an explicit miss is REPORTED once and once only — typing it twice is not two bugs',
+    offClean && reported && h3.anim.miss.filter((x) => x === 'nope-not-a-clip').length === 1,
+    'miss ' + JSON.stringify(h3.anim.miss));
+  reb('walk', 'auto');
+  check('…and going back to auto resolves through the aliases again', h3.anim.used.walk === 'Walk',
+    'walk → ' + h3.anim.used.walk);
+  check('…the clip a row released goes back to the neighbour it was blocking',
+    h3.anim.used.attack === 'Aegis Attack' && !!h3.anim.act.attack && !h3.anim.clash.length,
+    'attack → ' + h3.anim.used.attack + ' · clash ' + JSON.stringify(h3.anim.clash));
+  /* two slots, one clip, at BUILD time: the first claim wins and the second is a report,
+     because `clipAction` is keyed by clip+root (three's third argument is blendMode) so two
+     layers cannot weight one action — the last write per frame would silently own the pose */
+  const Gdup = {
+    ...G3, scene: new THREE.Scene(),
+    glbTuning: { aegis: { scale: 1, pos: {}, yawDeg: 0, motion: {}, anim: Object.assign(clampAnim(null), { walk: 'Aegis Idle' }) } },
+  };
+  const hdup = new Hero(HERO_DEFS[0], Gdup, 4);
+  check('…and at load a duplicate name does NOT share the action — it is refused and reported',
+    hdup.anim.used.idle === 'Aegis Idle' && !hdup.anim.act.walk &&
+    hdup.anim.clash.some((c) => c.slot === 'walk' && c.takenBy === 'idle'),
+    'used ' + JSON.stringify(hdup.anim.used) + ' · clash ' + JSON.stringify(hdup.anim.clash));
+  const noMixer = new Hero(HERO_DEFS[0], { ...G3, glbTuning: { aegis: { scale: 1, pos: {}, yawDeg: 0, motion: {}, anim: { on: 0 } } } }, 3);
+  const r0 = noMixer.rebindClip('walk', 'Walk');
+  check('…a hero with no mixer says so instead of pretending', r0.ok === false && r0.why === 'no mixer',
+    JSON.stringify(r0));
   check('two heroes playing the same clip animate independently (phase A is what allows this)',
     h3.anim.mixer !== h3b.anim.mixer && Math.abs(bone('hips').rotation.x - h3b.body.getObjectByName('hips').rotation.x) > 1e-4,
     'A ' + n(bone('hips').rotation.x) + ' vs B ' + n(h3b.body.getObjectByName('hips').rotation.x));

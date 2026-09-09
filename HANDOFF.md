@@ -43,6 +43,18 @@ node build.mjs           # bundles src/ into both HTML deliverables
 python3 -m http.server 8080 --bind 0.0.0.0 --directory .   # live preview
 ```
 
+> ### Verify with the build, not `node --check`
+> `package.json` has no `"type": "module"`, so `node --check src/studio.js` parses the file as **CommonJS** and
+> waves through things esbuild rejects: a broken comment opener (`""*` where `/*` belonged) sat in the studio
+> through a syntax check, three suites and a commit before `node build.mjs` caught it. The build is the syntax
+> gate and costs two seconds — run it after touching anything in `src/`. (The suites escape the same trap because
+> Node *imports* the modules and reparses them as ESM.)
+>
+> ### There is no Chrome here, and it cannot be fetched
+> `npm install` works (the registry is reachable) but the Debian mirrors are not, so both `apt-get install
+> chromium` and `node_modules/.bin/browsers install chrome` fail on connection errors. The puppeteer suites are
+> unrunnable in this sandbox — state that plainly in the commit instead of reporting a green board.
+
 > ### ⚠️ `node_modules` does not survive between sessions
 > The workspace snapshot excludes `node_modules`, `.cache` and friends. After a restart, `node build.mjs`
 > will fail with `Cannot find package 'esbuild'`. Run `npm install` first.
@@ -346,6 +358,13 @@ reload. Nothing in the shipped build depends on the studio: a missing file means
 * **ACTION MOTION** (`motion`) — the ten `DEFAULT_MOTION` coefficients that give an unrigged statue walk
   (the tenth is `recoilKick`, the root kick a GLB skin needs because its gun is baked into the mesh),
   lunge, twist, cast lean, recoil, sway and topple.
+* **SKIN FILE & CLIPS** (`model`, `anim`) — which `.glb` the hero wears and which clip in it drives each of
+  the five states. The name rows **re-bind live** through `Hero.rebindClip`, and each echoes what the mixer
+  actually bound (`ok` green / `not in file` / `clips are off` / `no clips in file`), because the config and
+  the pose can only disagree if the row reads the config. `model` and `clips on/off` genuinely cannot be
+  applied live — the mixer's existence is decided in `build()` — so `skinStale` turns every echo into
+  `not applied yet` until SAVE + reload, which is the difference between a UI that explains itself and one
+  that lets you debug the wrong layer.
 * **SKILL EFFECT** — one effect slot per skill (`Q` / `E` / `R`) plus a shared `ALL` slot, each holding a
   `.glb` prop or a video billboard with eleven tuning parameters (`scale y dur grow spin rise fade opacity
   light tint blend`, plus `rate vblend face loop` for video). Assign by drop, by `● REC` (the studio records

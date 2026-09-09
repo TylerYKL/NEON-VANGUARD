@@ -153,8 +153,12 @@ function buildAnim() {
     inp.oninput = () => {
       const c = cfg[heroId()];
       c.anim[k] = inp.value.trim() || 'auto';
-      out.textContent = c.anim[k] === 'auto' ? 'auto' : matched(c.anim[k]) || 'not in file';
-      out.className = matched(c.anim[k]) ? '' : 'warn';
+      /* Re-resolve on the hero, not just in the config: `syncAnim` below reads what the
+         mixer actually bound, so the echo and the pose agree. When there is no mixer (clips
+         off, or a file with nothing to play) this is a no-op and the row says why. */
+      const h = heroes[active];
+      if (h && h.rebindClip && !skinStale) h.rebindClip(k, c.anim[k]);
+      syncAnim();
     };
     row._name = k; row._input = inp; row._out = out;
     box.appendChild(row);
@@ -180,14 +184,25 @@ function matched(want) {
   const hit = list.find((n) => n.toLowerCase() === w) || list.find((n) => n.toLowerCase().includes(w));
   return hit || null;
 }
+/* True once `model` or `clips on/off` moved: the mixer was built at load against the
+ * PREVIOUS file, so every echo in this block would be describing a body that is about to be
+ * replaced. Saying so is the whole point — a stale "Walk" next to a slot is exactly how
+ * "the game ignores my animation" gets misdiagnosed as a loader bug. */
+let skinStale = false;
 function syncAnim() {
   const c = cfg[heroId()], h = heroes[active], box = $('anim');
   for (const row of box.children) {
     if (row._name) {
       row._input.value = c.anim[row._name];
       const resolved = h.anim && h.anim.used[row._name];
-      row._out.textContent = resolved ? resolved : (c.anim[row._name] === 'auto' ? 'auto · nothing' : 'not in file');
-      row._out.className = resolved ? 'ok' : 'warn';
+      const lost = h.anim && h.anim.clash.find((c) => c.slot === row._name);
+      if (skinStale) { row._out.textContent = 'not applied yet'; row._out.className = 'warn'; }
+      else if (resolved) { row._out.textContent = resolved; row._out.className = 'ok'; }
+      else if (lost) { row._out.textContent = '`' + lost.clip + '` → ' + lost.takenBy; row._out.className = 'warn'; }
+      else if (!h.rig.glb) { row._out.textContent = 'n/a (procedural)'; row._out.className = ''; }
+      else if (!h.anim) { row._out.textContent = fileClips().length ? 'clips are off' : 'no clips in file'; row._out.className = 'warn'; }
+      else if (c.anim[row._name] === 'auto') { row._out.textContent = 'auto · nothing matched'; row._out.className = 'warn'; }
+      else { row._out.textContent = 'not in file'; row._out.className = 'warn'; }
     } else if (row._num) {
       row._input.value = c.anim[row._num];
       row._out.textContent = (+c.anim[row._num]).toFixed(row._dec);
@@ -198,11 +213,16 @@ function syncAnim() {
   on.classList.toggle('on', !!c.anim.on);
   const names = fileClips();
   const parts = [];
+  if (skinStale) parts.push('SKIN CHANGED — the rows above still describe the PREVIOUS file. SAVE, then reload this tab.');
   parts.push(names.length ? names.length + ' clip(s) here: ' + names.join(' · ')
     : (h.rig.glb ? 'this file has NO clips — the transform layer is all it can do' : 'procedural rig — no GLB file in use'));
   if (h.anim && h.anim.miss.length) parts.push('named but missing: ' + h.anim.miss.join(', '));
+  if (h.anim && h.anim.clash.length) {
+    parts.push('one clip drives one layer — ' + h.anim.clash.map((c) =>
+      c.clip + ' is also named for ' + c.slot + (c.takenBy ? ' (held by ' + c.takenBy + ')' : '')).join(' · '));
+  }
   $('animnote').innerHTML = parts.join('<br>');
-  $('animnote').className = h.anim ? 'ok' : '';
+  $('animnote').className = skinStale ? 'warn' : (h.anim ? 'ok' : '');
   const sel = $('mdl');
   if (sel) sel.value = c.model || '';
   $('mdlnote').textContent = c.model ? c.model.replace('models/uploads/', '') : 'default';
@@ -210,6 +230,9 @@ function syncAnim() {
 $('animon').onclick = () => {
   const c = cfg[heroId()];
   c.anim.on = c.anim.on ? 0 : 1;
+  /* the mixer's existence is decided in build(), so this one really does need a reload —
+     unlike the name rows, which re-bind live through Hero.rebindClip */
+  skinStale = true;
   flash(c.anim.on ? 'CLIPS ENABLED — SAVE, THEN RELOAD THIS TAB (the mixer is built at load)'
     : 'CLIPS IGNORED — the file still drives nothing; SAVE, THEN RELOAD', '#ffb14a');
   syncAnim();
@@ -222,6 +245,7 @@ function buildModelSelect() {
     glbs.map((f) => '<option value="' + UPDIR + f.name + '">' + f.name + ' · ' + Math.round(f.size / 1024) + 'k</option>').join('');
   sel.onchange = () => {
     cfg[heroId()].model = sel.value || null;
+    skinStale = true;              // nothing below this row can be previewed until the body is rebuilt
     flash(sel.value ? 'SKIN = ' + sel.value.replace(UPDIR, '') + ' — SAVE, THEN RELOAD THIS TAB'
       : 'SKIN = the manifest default — SAVE, THEN RELOAD THIS TAB', '#ffb14a');
     syncAnim();

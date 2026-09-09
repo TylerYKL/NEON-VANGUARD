@@ -67,6 +67,54 @@ export const HERO_DEFS = [
   },
 ];
 
+/* ---------- clip slots: one owner per clip ----------
+   `mixer.clipAction(clip, root, …)` is keyed by CLIP + ROOT — in three 0.169 the third
+   argument is `blendMode`, not a cache name — so two slots naming the same clip get the SAME
+   action, and one `setEffectiveWeight` per frame between them means whichever slot was
+   written last wins. That is not a bug to work around but a fact to expose: a slot claims a
+   clip, a claim can take it from whoever held it, and every transfer lands in `anim.clash`
+   for the studio to print. "Walk is bound to my attack clip" is a sentence the tuner can act
+   on; a pose that half-works is not. */
+function unbindSlot(an, slotName) {
+  const prev = an.act[slotName];
+  if (prev) { prev.setEffectiveWeight(0); prev.stop(); }
+  delete an.act[slotName];
+  delete an.used[slotName];
+  const want = String(an.a[slotName] == null ? '' : an.a[slotName]).trim();
+  const i = an.miss.indexOf(want);
+  if (i >= 0) an.miss.splice(i, 1);               // a report belongs to the name, not the slot
+  for (let k = an.clash.length - 1; k >= 0; k--) {
+    if (an.clash[k].slot === slotName || an.clash[k].takenBy === slotName) an.clash.splice(k, 1);
+  }
+}
+
+function bindSlot(an, skin, slotName, steal) {
+  const want = an.a[slotName];
+  unbindSlot(an, slotName);
+  const clip = clipFor(skin && skin.clips, want, slotName);
+  if (!clip) {
+    /* a name the tuner wrote that the file does not have is a *report*, not a guess — but
+       'off'/'none'/'' is an answer, not a typo, so it stays quiet */
+    if (!clipOff(want) && want !== 'auto') an.miss.push(String(want).trim());
+    return null;
+  }
+  const holder = ANIM_NAME_KEYS.find((o) => o !== slotName && an.used[o] === clip.name);
+  if (holder) {
+    if (!steal) { an.clash.push({ slot: slotName, clip: clip.name, takenBy: holder }); return null; }
+    unbindSlot(an, holder);
+    an.clash.push({ slot: holder, clip: clip.name, takenBy: slotName });
+  }
+  const ac = an.mixer.clipAction(clip);
+  ac.enabled = true;
+  ac.setLoop(THREE.LoopRepeat, Infinity);
+  ac.setEffectiveTimeScale(Number.isFinite(an.a.speed) ? an.a.speed : 1);
+  ac.setEffectiveWeight(slotName === 'idle' ? 1 : 0);
+  ac.play();
+  an.act[slotName] = ac;
+  an.used[slotName] = clip.name;
+  return clip;
+}
+
 /* ============================================================ */
 
 export class Hero {
@@ -175,24 +223,12 @@ export class Hero {
       const A = Object.assign({}, DEFAULT_ANIM, tun.anim || {});
       if (skin.clips && skin.clips.length && A.on) {
         const mixer = new THREE.AnimationMixer(this.body);
-        const an = { mixer, act: {}, used: {}, miss: [], a: A, w: { idle: 1, walk: 0, attack: 0, hurt: 0, death: 0 } };
-        for (const slot of ANIM_NAME_KEYS) {
-          const clip = clipFor(skin.clips, A[slot], slot);
-          if (!clip) {
-            /* a name the tuner wrote that the file does not have is a *report*, not a
-               guess — but 'off'/'none'/'' is an answer, not a typo, so it stays quiet */
-            if (!clipOff(A[slot]) && A[slot] !== 'auto') an.miss.push(A[slot]);
-            continue;
-          }
-          an.used[slot] = clip.name;
-          const ac = mixer.clipAction(clip);
-          ac.setLoop(THREE.LoopRepeat, Infinity);
-          ac.enabled = true;
-          ac.setEffectiveTimeScale(A.speed);
-          ac.setEffectiveWeight(slot === 'idle' ? 1 : 0);
-          ac.play();
-          an.act[slot] = ac;
-        }
+        const an = { mixer, act: {}, used: {}, miss: [], clash: [], a: A, w: { idle: 1, walk: 0, attack: 0, hurt: 0, death: 0 } };
+        /* `false` = first claim wins at load. Two slots naming one clip is a tuner error at
+           build time (they meant two different animations), so the second gets a report
+           instead of an action; through `rebindClip` the same collision is a deliberate
+           grab, because the row you are typing in is the thing you mean. */
+        for (const slot of ANIM_NAME_KEYS) bindSlot(an, skin, slot, false);
         if (Object.keys(an.act).length) this.anim = an;
         else mixer.stopAllAction();
       }
@@ -1365,6 +1401,30 @@ export class Hero {
     if (act.hurt) act.hurt.setEffectiveTimeScale(sp).setEffectiveWeight(w.hurt);
     if (act.death) act.death.setEffectiveTimeScale(sp).setEffectiveWeight(w.death);
     an.mixer.update(dt);
+  }
+
+  /** Point ONE slot at a different clip in the file the hero already wears, without
+      rebuilding the body — so the studio's name rows take effect AS YOU TYPE. Without it the
+      config is written while the hero keeps the clip it resolved at load, and the row's echo
+      (which reads the mixer, not the config) becomes a lie one sync later.
+
+      Releasing a clip hands it back to whichever neighbour that name was blocking, so a
+      round trip — walk to the attack clip and back — does not leave attack permanently deaf.
+      `steal: true`: this is the one place a later slot may take a clip from an earlier one. */
+  rebindClip(slotName, want) {
+    const an = this.anim;
+    if (!an) return { ok: false, why: 'no mixer', clip: null, clash: [] };
+    an.a[slotName] = want;
+    const skin = this.G.glbSkins && this.G.glbSkins[this.def.id];
+    const displaced = an.clash.filter((c) => c.takenBy === slotName && c.slot !== slotName).map((c) => c.slot);
+    const clip = bindSlot(an, skin, slotName, true);
+    const held = new Set(Object.keys(an.used).map((k) => an.used[k]));
+    for (const other of displaced) {
+      if (an.act[other]) continue;
+      const c2 = clipFor(skin && skin.clips, an.a[other], other);
+      if (c2 && !held.has(c2.name)) { bindSlot(an, skin, other, false); held.add(c2.name); }
+    }
+    return { ok: true, clip: clip ? clip.name : null, clash: an.clash.slice() };
   }
 
   animateGLB(dt, G, spd) {
