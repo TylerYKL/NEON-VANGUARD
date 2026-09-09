@@ -33,6 +33,17 @@
 
   #right{position:fixed;right:24px;top:96px;width:310px;max-height:calc(100% - 190px);overflow-y:auto;
          padding:16px 20px;z-index:4;scrollbar-width:thin}
+  #propTools{position:sticky;top:-16px;z-index:3;display:flex;justify-content:flex-end;gap:5px;
+        padding:0 0 8px;background:linear-gradient(180deg,rgba(8,14,28,.98) 65%,transparent)}
+  #propTools .act{padding:5px 8px;font-size:7px;letter-spacing:.08em}
+  .propSection{border-top:1px solid rgba(24,224,255,.10);padding:1px 0 6px}
+  .propSection:first-of-type{border-top:0}
+  .propSection.isCollapsed> :not(.sectionHead){display:none}
+  .sectionHead{display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;margin:10px 0 5px}
+  .sectionHead::before{content:'▾';display:inline-block;width:9px;color:#7cf9ff;opacity:.8;transition:transform .15s}
+  .propSection.isCollapsed .sectionHead::before{transform:rotate(-90deg)}
+  .sectionHead:focus-visible{outline:1px solid var(--c2);outline-offset:3px}
+  .sectionHead #simtools,.sectionHead #fxlibtools{margin-left:auto;float:none}
   .lbl{font-size:8px;letter-spacing:.26em;opacity:.55;margin:14px 0 6px;color:#9ff}
   #gname{font-size:15px;font-weight:800;color:#fff;letter-spacing:.05em}
   .st{display:flex;justify-content:space-between;font-size:10.5px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.06)}

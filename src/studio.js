@@ -20,6 +20,66 @@ import { clamp } from './util.js';
    ============================================================ */
 
 const $ = (id) => document.getElementById(id);
+
+/* The properties rail is long by design: it contains the body fit, clip binding,
+   CAST SIM, and every FX slot. Keep every parameter available, but let artists
+   narrow the rail to the sections they are actively editing. The section wrapper
+   is built from the existing labels so the editor's stable element IDs and live
+   bindings do not change. */
+function initPropertySections() {
+  const panel = $('right');
+  if (!panel) return;
+  const tools = document.createElement('div');
+  tools.id = 'propTools';
+  tools.innerHTML = '<button class="act" id="propsNarrow" title="Collapse every settings section">narrow all</button>' +
+    '<button class="act" id="propsExpand" title="Expand every settings section">expand all</button>';
+  panel.insertBefore(tools, panel.firstChild);
+  const heads = Array.from(panel.children).filter((n) => n.classList && n.classList.contains('lbl'));
+  const sections = [];
+  for (const head of heads) {
+    const section = document.createElement('section');
+    section.className = 'propSection';
+    panel.insertBefore(section, head);
+    section.appendChild(head);
+    head.classList.add('sectionHead');
+    head.setAttribute('role', 'button');
+    head.setAttribute('tabindex', '0');
+    const move = () => {
+      const collapsed = section.classList.toggle('isCollapsed');
+      head.setAttribute('aria-expanded', String(!collapsed));
+    };
+    head.addEventListener('click', (e) => {
+      if (e.target.closest('button, input, select, a')) return;
+      move();
+    });
+    head.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); move(); }
+    });
+    let node = section.nextSibling;
+    while (node && !(node.nodeType === 1 && node.classList.contains('lbl'))) {
+      const next = node.nextSibling;
+      section.appendChild(node);
+      node = next;
+    }
+    sections.push(section);
+  }
+  const setAll = (open) => {
+    for (const section of sections) {
+      section.classList.toggle('isCollapsed', !open);
+      const head = section.querySelector('.sectionHead');
+      if (head) head.setAttribute('aria-expanded', String(open));
+    }
+    try { localStorage.setItem('nv.studio.properties', open ? 'expanded' : 'narrow'); } catch (e) {}
+  };
+  $('propsNarrow').onclick = () => setAll(false);
+  $('propsExpand').onclick = () => setAll(true);
+  try {
+    const saved = localStorage.getItem('nv.studio.properties');
+    if (saved === 'narrow') setAll(false);
+  } catch (e) {}
+}
+initPropertySections();
+
 const app = $('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
