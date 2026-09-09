@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildWorld, ARENA } from './world.js';
 import { FX } from './fx.js';
 import { Hero, HERO_DEFS } from './heroes.js';
-import { ensureGLBSkins, ensureTuning, loadFXBank } from './glbskin.js';
+import { ensureGLBSkins, ensureTuning, loadFXBank, clipReport } from './glbskin.js';
 import { Enemy, ENEMY_TYPES, ProjectileSystem, ELITES } from './entities.js';
 import { UI } from './ui.js';
 import { SFX } from './audio.js';
@@ -816,6 +816,12 @@ const keys = {};
 let mouseDown = false;
 let mouseHeld = false;
 const raycaster = new THREE.Raycaster();
+/* Scratch for the per-frame aim path (MOTION-AUDIT F5). Safe to reuse: everything
+   downstream copies out of them (aimPoint.copy, damp on .x/.z) and keeps no reference —
+   which is the same contract G.damageEnemy already relies on for borrowed vectors. */
+const AIM_HIT = new THREE.Vector3();
+const AIM_LEAD = new THREE.Vector3();
+const IDLE_DIR = new THREE.Vector3();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 addEventListener('keydown', (e) => {
@@ -860,7 +866,7 @@ addEventListener('blur', () => { mouseDown = false; mouseHeld = false; for (cons
 function updateAim() {
   if (PAD.on && (Math.abs(PAD.aimX) + Math.abs(PAD.aimZ)) > 0.05) return;
   raycaster.setFromCamera(G.mouse, camera);
-  const hit = new THREE.Vector3();
+  const hit = AIM_HIT;                     // scratch (F5): aimPoint.copy reads it immediately
   if (raycaster.ray.intersectPlane(groundPlane, hit)) {
     G.aimPoint.copy(hit);
   }
@@ -874,7 +880,7 @@ function updateCamera(dt) {
   const a = G.active;
   if (!a) return;
   // look slightly toward aim
-  const lead = new THREE.Vector3().subVectors(G.aimPoint, a.pos).clampLength(0, 12).multiplyScalar(0.22);
+  const lead = AIM_LEAD.subVectors(G.aimPoint, a.pos).clampLength(0, 12).multiplyScalar(0.22);
   camTarget.x = damp(camTarget.x, a.pos.x + lead.x, 5, dt);
   camTarget.z = damp(camTarget.z, a.pos.z + lead.z, 5, dt);
   const h = 23.5, back = 15.5;
@@ -916,13 +922,20 @@ async function startGame(training) {
   G.drafting = false;
   document.getElementById('draft').classList.add('hidden');
   renderBuild();
+  // effects are coroutines, and some borrow pooled resources (fx lights, video
+  // elements). Dropping the array would strand them, so dispose first.
+  for (const e of G.effects) { if (e.dispose) { try { e.dispose(); } catch (err) {} } }
   G.effects.length = 0;
   G.score = 0; G.kills = 0; G.combo = 1; G.wave = 0;
   G.over = false; G.paused = false;
-  G.glbSkins = await ensureGLBSkins();   // uploaded hero models (models/uploads/*.glb), if any
-  G.glbTuning = await ensureTuning();    // studio-saved size / motion / skill-fx config
-  G.fxBank = await loadFXBank(G.glbTuning);
+  G.glbTuning = await ensureTuning(true);  // re-read studio config (saved while this tab was open)
+  // skins SECOND, because the tuning's `model` field can override which file a hero wears
+  G.glbSkins = await ensureGLBSkins(G.glbTuning);   // uploaded hero models (models/uploads/<id>.glb), if any
+  G.fxBank = await loadFXBank(G.glbTuning);   // skill-effect files, keyed by URL (see fxpack.js)
   createSquad();
+  /* after the squad exists, because the clip slots are resolved inside Hero.build() —
+     this is the only place a shipped tuning file says "that clip is not in the file" */
+  for (const r of clipReport(G)) (r.bad ? console.warn : console.info)('[clips] ' + r.msg);
   G.running = true;
   G.waveActive = false;
   G.waveTimer = 2.2;
@@ -1369,7 +1382,7 @@ function frame(now) {
         a.aim.set(G.aimPoint.x - a.pos.x, 0, G.aimPoint.z - a.pos.z).normalize();
         a.move(dt, dir);
         if (mouseDown) a.tryAttack(G);
-      } else a.move(dt, new THREE.Vector3());
+      } else a.move(dt, IDLE_DIR);          // move() reads dir, never writes it (F5)
 
       for (const h of G.heroes) {
         if (h !== a) h.updateAI(dt, G, a);

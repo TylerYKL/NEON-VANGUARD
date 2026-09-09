@@ -3,8 +3,10 @@ import {
   buildHumanoid, animateRig, buildIonGauntlets, buildRiotShield,
   buildMedGloves, buildRailPistol, buildDrone,
 } from './rig.js';
+import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import { addMat, metalMat, TAU, rand, clamp, damp, lerp, flatDist, angleTo, shortAngle, disposeObj } from './util.js';
-import { DEFAULT_MOTION } from './glbskin.js';
+import { DEFAULT_MOTION, DEFAULT_ANIM, ANIM_NAME_KEYS, clipFor, clipOff } from './glbskin.js';
+import { clampFX, fxFor, spawnFX } from './fxpack.js';
 import { ARENA } from './world.js';
 import { SFX } from './audio.js';
 import { BALANCE as B } from './balance.js';
@@ -12,6 +14,16 @@ import { BALANCE as B } from './balance.js';
 /* ============================================================
    HERO ROSTER — 3 switchable operatives, cyber-modern loadouts
    ============================================================ */
+
+const ZERO3 = new THREE.Vector3();
+/* Scratch for the paths that run every frame for every hero (MOTION-AUDIT F5). They are
+   module-level because they are only ever touched from inside one function call at a
+   time, and a Color literal was still a Color literal at 60 Hz. */
+const DRONE_OFF = new THREE.Vector3();
+const DRONE_TO = new THREE.Vector3();
+const DOWN_EMBER = new THREE.Color(0xff3355);
+const FIST_EMBER = new THREE.Color();        // .set() per swing — the value varies, the Color doesn't
+const SLAM_EMBER = new THREE.Color(0xffa03a);
 
 export const HERO_DEFS = [
   {
@@ -55,6 +67,54 @@ export const HERO_DEFS = [
   },
 ];
 
+/* ---------- clip slots: one owner per clip ----------
+   `mixer.clipAction(clip, root, …)` is keyed by CLIP + ROOT — in three 0.169 the third
+   argument is `blendMode`, not a cache name — so two slots naming the same clip get the SAME
+   action, and one `setEffectiveWeight` per frame between them means whichever slot was
+   written last wins. That is not a bug to work around but a fact to expose: a slot claims a
+   clip, a claim can take it from whoever held it, and every transfer lands in `anim.clash`
+   for the studio to print. "Walk is bound to my attack clip" is a sentence the tuner can act
+   on; a pose that half-works is not. */
+function unbindSlot(an, slotName) {
+  const prev = an.act[slotName];
+  if (prev) { prev.setEffectiveWeight(0); prev.stop(); }
+  delete an.act[slotName];
+  delete an.used[slotName];
+  const want = String(an.a[slotName] == null ? '' : an.a[slotName]).trim();
+  const i = an.miss.indexOf(want);
+  if (i >= 0) an.miss.splice(i, 1);               // a report belongs to the name, not the slot
+  for (let k = an.clash.length - 1; k >= 0; k--) {
+    if (an.clash[k].slot === slotName || an.clash[k].takenBy === slotName) an.clash.splice(k, 1);
+  }
+}
+
+function bindSlot(an, skin, slotName, steal) {
+  const want = an.a[slotName];
+  unbindSlot(an, slotName);
+  const clip = clipFor(skin && skin.clips, want, slotName);
+  if (!clip) {
+    /* a name the tuner wrote that the file does not have is a *report*, not a guess — but
+       'off'/'none'/'' is an answer, not a typo, so it stays quiet */
+    if (!clipOff(want) && want !== 'auto') an.miss.push(String(want).trim());
+    return null;
+  }
+  const holder = ANIM_NAME_KEYS.find((o) => o !== slotName && an.used[o] === clip.name);
+  if (holder) {
+    if (!steal) { an.clash.push({ slot: slotName, clip: clip.name, takenBy: holder }); return null; }
+    unbindSlot(an, holder);
+    an.clash.push({ slot: holder, clip: clip.name, takenBy: slotName });
+  }
+  const ac = an.mixer.clipAction(clip);
+  ac.enabled = true;
+  ac.setLoop(THREE.LoopRepeat, Infinity);
+  ac.setEffectiveTimeScale(Number.isFinite(an.a.speed) ? an.a.speed : 1);
+  ac.setEffectiveWeight(slotName === 'idle' ? 1 : 0);
+  ac.play();
+  an.act[slotName] = ac;
+  an.used[slotName] = clip.name;
+  return clip;
+}
+
 /* ============================================================ */
 
 export class Hero {
@@ -86,6 +146,14 @@ export class Hero {
     this.iframe = 0;
     this.dmgBuffT = 0;
     this.dashDir = new THREE.Vector3();
+    /* Reused vectors for the per-frame paths (move, updateAI) — allocated here, once per
+       hero, never per frame (MOTION-AUDIT F5, and the rule in HANDOFF). */
+    this._moveTarget = new THREE.Vector3();
+    this._fxAt = new THREE.Vector3();     // anchor handed to spawnFX, reused every cast
+    this._fistOrigin = new THREE.Vector3();  // swing origin for damageEnemy + the three fx calls
+    this._aiDir = new THREE.Vector3();
+    this._aiSlot = new THREE.Vector3();
+    this._aiTmp = new THREE.Vector3();
     this.combo = 0;
     this.comboT = 0;
     this.buffs = { speed: 0, dr: 0, regen: 0 };
@@ -105,7 +173,18 @@ export class Hero {
       // two hooks the rest of the code expects (root + hips for the slam).
       this.group = new THREE.Group();
       const hips = new THREE.Group();
-      this.body = skin.template.clone(true);
+      /* NOT `template.clone(true)`: that copies the bones but leaves
+         `SkinnedMesh.skeleton` pointing at the TEMPLATE's skeleton, so a hero's mesh
+         deforms from bones no hero owns — and the first clip anyone plays would move
+         all four squad members at once (or none, since nothing writes a bone today).
+         `cloneRig` deep-copies the skeleton and rebinds it, while still sharing
+         materials and geometry by pointer, which is what the material caches rely on.
+         MOTION-AUDIT §4 phase A; `glbtest` pins both halves of that contract. */
+      this.body = cloneRig(skin.template);
+      /* …but SkeletonUtils.clone does NOT carry `userData`, and the stage stamp is the
+         one thing every consumer of a fitted body reads (`studio.js` PLACEMENT row,
+         herofit). Losing it silently turned that readout into `—`. Copy it forward. */
+      if (skin.template.userData && skin.template.userData.stage) this.body.userData.stage = skin.template.userData.stage;
       this._yaw = skin.yaw || 0;
       this.body.rotation.y = this._yaw;
       // studio tuning: size multiplier on top of the normalised template
@@ -114,22 +193,54 @@ export class Hero {
       this.tunScale = tun.scale || 1;
       this.body.scale.multiplyScalar(this.tunScale);
       this.motion = Object.assign({}, DEFAULT_MOTION, tun.motion || {});
-      // studio placement: rebuilders sometimes sink or rotate the body
+      /* Studio placement: rebuilders sometimes sink or rotate the body.
+         `pos` is an ADJUSTMENT on top of what normalizeToStage already applied —
+         that fitter centres the model and lifts it by its own half-height (for a
+         2.4 m hero: +1.199) by writing into root.position. animateGLB() owns
+         that position every frame, so the base has to be remembered here or the
+         lift is thrown away and the hero buries itself to the waist. */
+      this._basePos = this.body.position.clone();   // pre-size centring; scaled with tunScale
       this.offset = Object.assign({ x: 0, y: 0, z: 0 }, tun.pos || {});
       this._baseYaw = skin.yaw || 0;
       this._yaw = this._baseYaw + ((tun.yawDeg || 0) * Math.PI) / 180;
       hips.add(this.body);
       this.group.add(hips);
-      this.rig = { root: this.group, hips, glb: true };
-      this.hipsRest = 0;
+      /* A GLB skin's hips exist only as the leap's lever: the model's own feet are put
+         on the deck by `normalizeToStage`, whose lift lives in `body.position`. So the
+         rest height here is 0 — and `animateGLB` never touches `hips`, which is exactly
+         why a hardcoded restore (MOTION-AUDIT F1) left the whole body floating. */
+      this.rig = { root: this.group, hips, hipsRest: 0, glb: true };
+      this.hipsRest = this.rig.hipsRest;
+      /* ---------- clips (MOTION-AUDIT §4, phases B+C) ----------
+         Only built when the file actually carries something to play. A clip is data the
+         loader already handed us; the mixer is per-hero because the *bones* are per-hero
+         (phase A's `cloneRig` is what makes that meaningful — replaying a clip on a shared
+         skeleton would animate the whole squad at once). */
+      this.anim = null;
+      /* merged, so a hand-rolled or partial block still has every key — and note the
+         `on` test reads the MERGED value: the old short form treated "no tuning anim"
+         and "anim.on = 0" as the same thing, which turned the switch inside out. */
+      const A = Object.assign({}, DEFAULT_ANIM, tun.anim || {});
+      if (skin.clips && skin.clips.length && A.on) {
+        const mixer = new THREE.AnimationMixer(this.body);
+        const an = { mixer, act: {}, used: {}, miss: [], clash: [], a: A, w: { idle: 1, walk: 0, attack: 0, hurt: 0, death: 0 } };
+        /* `false` = first claim wins at load. Two slots naming one clip is a tuner error at
+           build time (they meant two different animations), so the second gets a report
+           instead of an action; through `rebindClip` the same collision is a deliberate
+           grab, because the row you are typing in is the thing you mean. */
+        for (const slot of ANIM_NAME_KEYS) bindSlot(an, skin, slot, false);
+        if (Object.keys(an.act).length) this.anim = an;
+        else mixer.stopAllAction();
+      }
       this.G.scene.add(this.group);
     } else {
+      this.anim = null;
       this.rig = buildHumanoid({
         accent: d.color, visor: d.color2, bulk: d.bulk, scale: d.scale,
         pauldrons: d.pauldrons, hood: d.hood, crest: d.crest, plate: d.plate,
       });
       this.group = this.rig.root;
-      this.hipsRest = 0.95;
+      this.hipsRest = this.rig.hipsRest;   // measured by buildHumanoid, never a literal
       this.motion = Object.assign({}, DEFAULT_MOTION);
       this.tunScale = 1;
       this.offset = { x: 0, y: 0, z: 0 };
@@ -276,7 +387,10 @@ export class Hero {
   /* ---------------- movement ---------------- */
   move(dt, dir, sprint) {
     const spd = this.def.speed * (1 + this.buffs.speed + (this.G.mods ? this.G.mods.speed : 0)) * (this.downed ? 0 : 1);
-    const target = dir.clone().multiplyScalar(spd);
+    /* This was dir.clone().multiplyScalar(spd) — one Vector3 per hero per frame, the
+       hottest allocation in the hero layer (4 heroes at 60 Hz). Only .x/.z of the target
+       are ever read, so scaling the two axes into a reused vector is the same maths. */
+    const target = this._moveTarget.set(dir.x * spd, 0, dir.z * spd);
     const accel = this.dashT > 0 ? 30 : 14;
     this.vel.x = damp(this.vel.x, target.x, accel, dt);
     this.vel.z = damp(this.vel.z, target.z, accel, dt);
@@ -362,9 +476,11 @@ export class Hero {
     this.comboT = 1.1;
     this.combo = (this.combo + 1) % 3;
     const third = this.combo === 0;
-    const reach = 3.4 + (third ? G.mods.fistCleave : 0), arc = Math.cos(third ? 1.4 : 0.85);
+    /* F6: `G.mods` is read unguarded here while `useSkill` guards it — the bench had to
+       know which abilities assume a live mod set. Guarded, so any caller with a fake G is fine. */
+    const reach = 3.4 + (third && G.mods ? G.mods.fistCleave : 0), arc = Math.cos(third ? 1.4 : 0.85);
     const dmg = third ? 52 : 28;
-    const origin = new THREE.Vector3(this.pos.x + Math.sin(this.facing) * 1.2, 1.1, this.pos.z + Math.cos(this.facing) * 1.2);
+    const origin = this._fistOrigin.set(this.pos.x + Math.sin(this.facing) * 1.2, 1.1, this.pos.z + Math.cos(this.facing) * 1.2);
     let hits = 0;
     for (const e of G.enemies) {
       if (e.dead) continue;
@@ -379,6 +495,7 @@ export class Hero {
     // fx
     SFX.play(third ? 'fistHeavy' : 'fist', { pan: G.panOf(this.pos), gap: 0.05 });
     const c = third ? 0xffd06a : this.def.color;
+    const col = FIST_EMBER.set(c);              // one Color for the whole cone, not 26 (F5)
     G.fx.ring(origin, c, { r0: 0.4, r1: third ? 4.6 : 2.6, dur: third ? 0.45 : 0.28, y: -0.6 });
     G.fx.burst(origin, c, third ? 34 : 14, { speed: third ? 15 : 8, life: 0.4, size: 0.45 });
     G.fx.sparkBurst(origin, c, third ? 18 : 6, third ? 20 : 12);
@@ -389,7 +506,7 @@ export class Hero {
         G.fx.spawn({
           x: this.pos.x, y: rand(1.8, 0.3), z: this.pos.z,
           vx: Math.sin(a) * rand(24, 12), vy: rand(3, 0), vz: Math.cos(a) * rand(24, 12),
-          color: new THREE.Color(c), life: 0.4, size: 0.55, drag: 3.5, grav: -2,
+          color: col, life: 0.4, size: 0.55, drag: 3.5, grav: -2,
         });
       }
       G.fx.addShake(0.35);
@@ -439,7 +556,7 @@ export class Hero {
     if (sk.ult) { this.energy = 0; this.ultMul = 1; G.onUltCast(this, sk); }
     else this.cds[i] = sk.cd * (1 - (G.mods ? G.mods.cdr : 0));
     this.castAnim = 1;
-    this.playFX(G);
+    this.playFX(G, i);   // per-skill effect from the Hero Studio
     G.announceSkill(this, sk);
 
     const key = this.def.id + i;
@@ -465,7 +582,7 @@ export class Hero {
       t: 0, dur: 0.34, fired: false,
       update(dt) {
         this.t += dt;
-        self.rig.hips.position.y = 0.95 + Math.sin(Math.min(1, this.t / 0.24) * Math.PI) * 1.5;
+        self.rig.hips.position.y = self.rig.hipsRest + Math.sin(Math.min(1, this.t / 0.24) * Math.PI) * 1.5;
         if (!this.fired && this.t > 0.22) {
           this.fired = true;
           const p = self.pos.clone();
@@ -495,14 +612,19 @@ export class Hero {
               G.fx.spawn({
                 x: p.x + Math.cos(a) * k * 0.75, y: 0.15, z: p.z + Math.sin(a) * k * 0.75,
                 vx: rand(1, -1), vy: rand(6, 1), vz: rand(1, -1),
-                color: new THREE.Color(0xffa03a), life: 0.55 - k * 0.02, size: 0.55, drag: 2.5, grav: -8,
+                color: SLAM_EMBER, life: 0.55 - k * 0.02, size: 0.55, drag: 2.5, grav: -8,
               });
             }
           }
         }
-        if (this.t >= this.dur) { self.rig.hips.position.y = 0.95; return false; }
+        // back to the rig's OWN rest — 1.05-ish for a procedural body, 0 for a GLB skin
+        if (this.t >= this.dur) { self.rig.hips.position.y = self.rig.hipsRest; return false; }
         return true;
       },
+      // and the same restore from dispose(): startGame() truncates G.effects (main.js:921
+      // disposes what it drops), so a reset DURING the leap used to leave the body at
+      // whatever height the arc was at — up to 2.45 m — with nothing left to write it back
+      dispose() { self.rig.hips.position.y = self.rig.hipsRest; },
     });
   }
 
@@ -892,7 +1014,13 @@ export class Hero {
       t: 0, fired: false,
       update(dt) {
         this.t += dt;
-        self.charge = Math.min(1, this.t / 0.3);
+        /* Gate the charge-up on `!fired`. It sat ahead of the fire block and ran EVERY
+           frame of the 0.45 s effect, so the last thing the cast did was re-set
+           `charge = 1` after the fire frame had cleared it — NYX kept the overcharge
+           aura, a max coil and +8 muzzle light for the rest of the run, refired or not
+           (MOTION-AUDIT F8: invisible until something outside the hero ticked the
+           flourish it feeds). */
+        if (!this.fired) self.charge = Math.min(1, this.t / 0.3);
         if (!this.fired && this.t >= 0.3) {
           this.fired = true;
           const from = self.handPos();
@@ -1091,7 +1219,7 @@ export class Hero {
       if (Math.random() < 0.4) {
         G.fx.spawn({
           x: this.pos.x + rand(0.8, -0.8), y: rand(0.6, 0.05), z: this.pos.z + rand(0.8, -0.8),
-          vx: 0, vy: rand(1.4, 0.4), vz: 0, color: new THREE.Color(0xff3355), life: 0.8, size: 0.3, drag: 1, grav: 0,
+          vx: 0, vy: rand(1.4, 0.4), vz: 0, color: DOWN_EMBER, life: 0.8, size: 0.3, drag: 1, grav: 0,
         });
       }
     } else if (this.def.id === 'lyra') {
@@ -1170,8 +1298,11 @@ export class Hero {
     const spd = Math.hypot(this.vel.x, this.vel.z) / this.def.speed;
     if (this.rig.glb) {
       this.animateGLB(dt, G, spd);
+      if (this.anim) this.poseClips(dt, spd);      // bones under the root transform
     } else {
+      /* `recoil` (F7) is handed over here: the gun block in animateRig is what it drives. */
       animateRig(this.rig, dt, {
+        recoil: this.recoil,
         speed: clamp(spd, 0, 1.4), time: G.time, attack: this.attackAnim,
         cast: this.castAnim, dead: this.downed, hurt: this.hurtAnim,
         style: this.def.style, block: this.def.id === 'aegis',
@@ -1218,8 +1349,8 @@ export class Hero {
         d.hull.rotation.x += dt * 2;
       } else {
       d.bob += dt;
-      const off = new THREE.Vector3(Math.sin(this.facing + 2.3) * 1.15, 2.25 + Math.sin(d.bob * 2) * 0.16, Math.cos(this.facing + 2.3) * 1.15);
-      d.group.position.lerp(new THREE.Vector3(this.pos.x + off.x, this.pos.y + off.y, this.pos.z + off.z), Math.min(1, dt * 7));
+      const off = DRONE_OFF.set(Math.sin(this.facing + 2.3) * 1.15, 2.25 + Math.sin(d.bob * 2) * 0.16, Math.cos(this.facing + 2.3) * 1.15);
+      d.group.position.lerp(DRONE_TO.set(this.pos.x + off.x, this.pos.y + off.y, this.pos.z + off.z), Math.min(1, dt * 7));
       d.group.rotation.y += dt * 1.4;
       d.ringA.rotation.z += dt * 3;
       d.hull.rotation.x += dt * 0.8;
@@ -1240,18 +1371,88 @@ export class Hero {
 
   /* ---------- GLB skin motion: unrigged statues get game-feel transforms.
      Every coefficient is a studio-tunable motion parameter. ---------- */
+  /**
+   * Four envelopes in, five weighted layers out — the same state machine `animateRig`
+   * implements with sines, reading the animator's curves instead. Weights are damped by
+   * `anim.fade`, so a clip can never pop: three.js' own `fadeIn/fadeOut` needs the caller
+   * to know the edges of its transitions, and the edges here are analogue on purpose
+   * (walk follows speed, attack follows the envelope, death follows `downed`).
+   * The mixer writes the BONES; `animateGLB` still owns the ROOT — that is what lets a
+   * rigged file, a half-rigged file and a static mesh all go through this one line.
+   */
+  poseClips(dt, spd) {
+    const an = this.anim, A = an.a, w = an.w, act = an.act;
+    const nz = (v, hi) => (Number.isFinite(v) ? Math.min(hi, Math.max(0, v)) : 0);
+    const rate = A.fade > 0.005 ? 1 / A.fade : 400;
+    const die = this.downed ? 1 : 0;
+    const live = 1 - die;
+    const s = nz(spd, 1.4);
+    w.death = damp(w.death, die, rate, dt);
+    w.walk = damp(w.walk, Math.min(1, s) * live, rate, dt);
+    w.attack = act.attack ? damp(w.attack, nz(this.attackAnim, 1) * live, rate, dt) : 0;
+    w.hurt = act.hurt ? damp(w.hurt, nz(this.hurtAnim, 1) * live, rate, dt) : 0;
+    w.idle = Math.max(0, 1 - w.walk - w.attack - w.hurt - w.death);
+    /* `A.speed` is clamped at load, but the studio writes it live, and a NaN timeScale
+       becomes a NaN bone on the next sample — which poisons the bloom chain (§4.8). */
+    const sp = Number.isFinite(A.speed) ? A.speed : 1;
+    if (act.idle) act.idle.setEffectiveTimeScale(sp).setEffectiveWeight(w.idle);
+    if (act.walk) act.walk.setEffectiveTimeScale(sp * (0.55 + 0.75 * s)).setEffectiveWeight(w.walk);
+    if (act.attack) act.attack.setEffectiveTimeScale(sp).setEffectiveWeight(w.attack);
+    if (act.hurt) act.hurt.setEffectiveTimeScale(sp).setEffectiveWeight(w.hurt);
+    if (act.death) act.death.setEffectiveTimeScale(sp).setEffectiveWeight(w.death);
+    an.mixer.update(dt);
+  }
+
+  /** Point ONE slot at a different clip in the file the hero already wears, without
+      rebuilding the body — so the studio's name rows take effect AS YOU TYPE. Without it the
+      config is written while the hero keeps the clip it resolved at load, and the row's echo
+      (which reads the mixer, not the config) becomes a lie one sync later.
+
+      Releasing a clip hands it back to whichever neighbour that name was blocking, so a
+      round trip — walk to the attack clip and back — does not leave attack permanently deaf.
+      `steal: true`: this is the one place a later slot may take a clip from an earlier one. */
+  rebindClip(slotName, want) {
+    const an = this.anim;
+    if (!an) return { ok: false, why: 'no mixer', clip: null, clash: [] };
+    an.a[slotName] = want;
+    const skin = this.G.glbSkins && this.G.glbSkins[this.def.id];
+    const displaced = an.clash.filter((c) => c.takenBy === slotName && c.slot !== slotName).map((c) => c.slot);
+    const clip = bindSlot(an, skin, slotName, true);
+    const held = new Set(Object.keys(an.used).map((k) => an.used[k]));
+    for (const other of displaced) {
+      if (an.act[other]) continue;
+      const c2 = clipFor(skin && skin.clips, an.a[other], other);
+      if (c2 && !held.has(c2.name)) { bindSlot(an, skin, other, false); held.add(c2.name); }
+    }
+    return { ok: true, clip: clip ? clip.name : null, clash: an.clash.slice() };
+  }
+
   animateGLB(dt, G, spd) {
-    const b = this.body, M = this.motion, O = this.offset;
+    const b = this.body, M = this.motion, O = this.offset, B = this._basePos || ZERO3;
     const move = clamp(spd, 0, 1.4);
     this._stepT = (this._stepT || 0) + dt * (2 + M.stepRate * move);
     this._fall = damp(this._fall || 0, this.downed ? 1 : 0, M.fallSpeed, dt);
     const f = this._fall;
-    // topple when downed; else walk-lean, cast-lean-back, hurt recoil
-    b.rotation.x = -f * 1.45 + move * M.walkLean + this.castAnim * M.castLean - this.hurtAnim * M.hurtLean;
+    /* MOTION-AUDIT F7's other half: `recoil` was wired into the procedural gun arm, but a GLB
+       skin's weapon is baked into the mesh, so there is no shoulder to hand it to — the number
+       has to land on the ROOT, which is the one thing this function owns (invariant 20). It
+       rides `recoil`, which whoever shoots sets, so a fist hero stays exactly where it was.
+       One coefficient for both the pitch and the shove, so a tuner has one knob to reason about. */
+    const kick = (this.recoil || 0) * M.recoilKick;
+    // topple when downed; else walk-lean, cast-lean-back, hurt recoil, gun kick
+    b.rotation.x = -f * 1.45 + move * M.walkLean + this.castAnim * M.castLean - this.hurtAnim * M.hurtLean - kick;
     b.rotation.z = Math.sin(this._stepT) * 0.035 * move + Math.sin(G.time * 40) * 0.05 * this.hurtAnim;
     b.rotation.y = (this._yaw || 0) + this.attackAnim * M.twist;
     const bob = Math.abs(Math.sin(this._stepT)) * M.bob * move + Math.sin(G.time * 2.1) * M.idleSway;
-    b.position.set(O.x, O.y + bob - f * 0.15 + this.castAnim * M.castLean * 0.8, O.z + this.attackAnim * M.lunge);
+    /* The loader's centring lives in the root position, and scaling the body
+       scales the geometry AROUND that root — so the size multiplier has to be
+       carried by the base too, or every hero bigger than 1.0 sinks through the
+       deck by (scale - 1) x its own half-height. */
+    const S = this.tunScale || 1;
+    b.position.set(
+      B.x * S + O.x,
+      B.y * S + O.y + bob - f * 0.15 + this.castAnim * M.castLean * 0.8,
+      B.z * S + O.z + this.attackAnim * M.lunge - kick * 1.2);
   }
 
   /** live size edit from the Hero Studio (persisted via hero_tuning.json) */
@@ -1265,79 +1466,43 @@ export class Hero {
     this._yaw = (this._baseYaw || 0) + (clamp(d, -180, 180) * Math.PI) / 180;
   }
 
-  /** spawn this hero's uploaded skill effect (GLB or video, studio-assigned).
-     GLB clones share the bank template's buffers, so never dispose them. */
-  playFX(G) {
-    const t = (G.glbTuning || {})[this.def.id];
-    const entry = G.fxBank && G.fxBank[this.def.id];
-    if (!entry || !t || t.fxOn === false) return null;
-
-    if (entry.kind === 'video') {
-      // billboard video burst: additive plane facing the camera, one play
-      const vid = document.createElement('video');
-      vid.src = entry.url;
-      vid.muted = true; vid.playsInline = true; vid.loop = false;
-      const tex = new THREE.VideoTexture(vid);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const mat = new THREE.MeshBasicMaterial({
-        map: tex, transparent: true, blending: THREE.AdditiveBlending,
-        depthWrite: false, side: THREE.DoubleSide,
-      });
-      const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 2.8), mat);
-      pl.position.set(this.pos.x, 1.6, this.pos.z);
-      pl.renderOrder = 15;
-      G.scene.add(pl);
-      vid.play().catch(() => {});
-      G.addEffect({
-        t: 0, dur: 2.2,
-        update(dt) {
-          this.t += dt;
-          const k = this.t / this.dur;
-          if (G.camera) pl.lookAt(G.camera.position);
-          pl.scale.setScalar(0.8 + k * 0.6);
-          mat.opacity = k > 0.7 ? (1 - k) / 0.3 : 1;
-          if (this.t >= this.dur || vid.ended) {
-            G.scene.remove(pl);
-            try { vid.pause(); } catch (e) {}
-            tex.dispose(); mat.dispose(); pl.geometry.dispose();
-            return false;
-          }
-          return true;
-        },
-      });
-      return pl;
-    }
-
-    const obj = entry.template.clone(true);
-    obj.position.set(this.pos.x, 0.05, this.pos.z);
-    obj.rotation.y = Math.random() * TAU;
-    G.scene.add(obj);
+  /** Spawn the studio-assigned skill effect for one skill slot (Q / E / R).
+      A per-slot assignment wins; otherwise the hero-wide "shared" one plays,
+      which is what a v1 tuning file only had. Everything heavy — pooled GLB
+      clones, cached material sets, refcounted <video> elements, a borrowed
+      light from the fixed pool — lives in fxpack.js, so the studio preview
+      shows exactly the object the match will show. */
+  playFX(G, slot = -1) {
+    const asg = fxFor(G.glbTuning, this.def.id, slot);
+    if (!asg) return null;
+    const entry = G.fxBank && G.fxBank[asg.src];
+    if (!entry) return null;
+    const p = asg.p || clampFX(null, entry.kind);
+    /* Scratch, not a fresh Vector3 per cast (the rule). `spawnFX` copies the anchor out
+       of it immediately, so reusing it is safe — and `this` is passed so a follow-anchored
+       effect can ride the body instead of being stranded at the cast point (F3). */
+    const inst = spawnFX(G, entry, p, this._fxAt.set(this.pos.x, p.y, this.pos.z), this.facing, this);
     G.addEffect({
-      t: 0, dur: 0.9,
-      update(dt) {
-        this.t += dt;
-        const k = this.t / this.dur;
-        obj.scale.setScalar(0.5 + Math.sin(Math.min(1, k * 1.15) * Math.PI) * 0.7);
-        obj.rotation.y += dt * 3.5;
-        obj.position.y = 0.05 + k * 1.4;
-        if (this.t >= this.dur) { G.scene.remove(obj); return false; }
-        return true;
-      },
+      t: 0, dur: p.dur,
+      update(dt) { return inst.update(dt); },
+      // a run reset truncates G.effects, so borrowed resources must be
+      // released from dispose() too (fxpack.kill() is idempotent)
+      dispose() { inst.kill(); },
     });
-    return obj;
+    return inst.obj;
   }
 
   /* ---------------- AI ---------------- */
   updateAI(dt, G, leader) {
-    if (this.downed || this.dead) { this.move(dt, new THREE.Vector3()); return; }
+    if (this.downed || this.dead) { this.move(dt, ZERO3); return; }   // move() reads, never writes, dir
     const target = G.nearestEnemy(this.pos, 40);
     const id = this.def.id;
     const preferred = id === 'aegis' ? 3.0 : id === 'lyra' ? 13 : 15;
 
-    let dir = new THREE.Vector3();
+    let dir = this._aiDir.set(0, 0, 0);          // scratch, not fresh — this is 60 Hz
     // formation slot behind leader
     const slotA = leader.facing + (this.index === 0 ? 2.4 : this.index === 1 ? -2.4 : Math.PI);
-    const slot = new THREE.Vector3(
+    const slot = this._aiSlot.set(
       leader.pos.x + Math.sin(slotA) * (id === 'aegis' ? 3.5 : 4.5),
       0,
       leader.pos.z + Math.cos(slotA) * (id === 'aegis' ? 3.5 : 4.5)
@@ -1357,7 +1522,7 @@ export class Hero {
         dir.set(Math.sin(a), 0, Math.cos(a)).multiplyScalar(Math.sin(G.time * 0.7 + this.index) * 0.7);
       }
       // pull back toward leader if straying
-      if (distLeader > 20) dir.add(new THREE.Vector3(slot.x - this.pos.x, 0, slot.z - this.pos.z).normalize().multiplyScalar(1.2));
+      if (distLeader > 20) dir.add(this._aiTmp.set(slot.x - this.pos.x, 0, slot.z - this.pos.z).normalize().multiplyScalar(1.2));
       if (d < (id === 'aegis' ? 3.6 : 34)) this.tryAttack(G);
 
       // skill usage heuristics

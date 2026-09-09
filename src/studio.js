@@ -2,16 +2,21 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { Hero, HERO_DEFS } from './heroes.js';
-import { ensureGLBSkins, ensureTuning, loadFXBank } from './glbskin.js';
+import { ensureGLBSkins, ensureTuning, loadFXBank, ANIM_NAME_KEYS } from './glbskin.js';
 import { parseGLB, normalizeToStage, gatherStats } from './gltfutil.js';
 import { animateRig } from './rig.js';
-import { TAU, clamp } from './util.js';
+import { clampFX, fxCount, fxDefsFor, fxEdit, fxKind, fxPreviewFor, FX_SHARED, FX_SLOTS, spawnFX } from './fxpack.js';
+import { createSim, SIM_TARGETS, SIM_SPEEDS } from './sim.js';
+import { clamp } from './util.js';
 
 /* ============================================================
    HERO STUDIO — tune the uploaded GLB heroes: size, action
-   motion, and per-hero skill-effect GLB. SAVE writes
-   models/uploads/hero_tuning.json through the :8081 dropbox
-   server; the game reads it at startGame().
+   motion, placement, and a skill-effect slot per skill (Q / E / R)
+   plus a shared slot. An effect is a .GLB prop or a video
+   billboard, uploaded here, recorded from this canvas, or picked
+   out of models/uploads/. SAVE writes models/uploads/
+   hero_tuning.json through the :8081 dropbox server; the game
+   reads it at startGame().
    ============================================================ */
 
 const $ = (id) => document.getElementById(id);
@@ -53,21 +58,44 @@ const grid = new THREE.GridHelper(20, 40, 0x18e0ff, 0x10203a);
 grid.material.transparent = true; grid.material.opacity = 0.22; grid.position.y = 0.01;
 scene.add(grid);
 
+/* the game's "glow light" parameter borrows from the fixed pool (src/lights.js);
+   the studio mirrors the API with four real lights so the slider previews honestly */
+const studioLights = (() => {
+  const free = [];
+  for (let i = 0; i < 4; i++) {
+    const l = new THREE.PointLight(0xffffff, 0, 20, 2);
+    l.position.set(0, -50, 0);
+    scene.add(l);
+    free.push(l);
+  }
+  return {
+    acquire() { return free.length ? free.pop() : null; },
+    release(l) { if (l && free.indexOf(l) < 0) { l.intensity = 0; l.position.set(0, -50, 0); free.push(l); } },
+    set(l, color, intensity, distance, decay = 2) {
+      if (!l) return null;
+      l.color.set(color); l.intensity = intensity; l.distance = distance; l.decay = decay;
+      return l;
+    },
+  };
+})();
+
 function flash(msg, color) {
   const el = $('msg'); el.textContent = msg; el.style.color = color || '#9ff';
-  clearTimeout(flash.t); flash.t = setTimeout(() => { el.textContent = ''; }, 3000);
+  clearTimeout(flash.t); flash.t = setTimeout(() => { el.textContent = ''; }, 3600);
 }
 
 /* studio-side copy of the upload server origin (same sandbox, port 8081) */
 const UP = 'https://' + location.hostname.replace(/^\d+-/, '8081-');
+const UPDIR = 'models/uploads/';
 
-/* ---------- boot ---------- */
+/* ---------- boot state ---------- */
 const effects = [];
 let heroes = [], active = 0, action = 'idle';
 let cfg = null, fxBank = null;
 const G = {
   scene, time: 0, camera,
   addEffect: (e) => effects.push(e),
+  lights: studioLights,
   glbSkins: null, glbTuning: null, fxBank: null,
 };
 
@@ -79,76 +107,631 @@ const MOT_DEFS = [
   ['twist', 'atk twist', 0, 0.8, 0.01],
   ['castLean', 'cast lean', 0, 0.4, 0.005],
   ['hurtLean', 'hurt recoil', 0, 0.5, 0.005],
+  ['recoilKick', 'recoil kick', 0, 0.3, 0.005],
   ['idleSway', 'idle sway', 0, 0.05, 0.002],
   ['fallSpeed', 'fall speed', 1, 12, 0.1],
 ];
 
-/* placement: fix rebuilder sinks / rotations (the "half body" fix) */
+/* Placement is an ADJUSTMENT on top of what the loader already did:
+   normalizeToStage() centres the model and lifts it by its own half-height, and
+   those numbers are what a rebuilder gets wrong. 0 / 0 / 0 must therefore mean
+   "as the loader placed it" — not "origin", which buries the hero to the waist. */
 const PL_DEFS = [
-  ['x', 'offset x', -2, 2, 0.01],
-  ['y', 'offset y', -2, 2, 0.01],
-  ['z', 'offset z', -2, 2, 0.01],
+  ['x', 'offset x', -3, 3, 0.01],
+  ['y', 'offset y', -3, 3, 0.01],
+  ['z', 'offset z', -3, 3, 0.01],
   ['yawDeg', 'yaw deg', -180, 180, 1],
 ];
+
+function sliderRow(label, min, max, step, onInput) {
+  const row = document.createElement('div');
+  row.className = 'mrow';
+  row.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}"><b></b>`;
+  const inp = row.querySelector('input'), out = row.querySelector('b');
+  inp.oninput = () => onInput(+inp.value, out, inp);
+  row._input = inp; row._out = out;
+  return row;
+}
+
+/* ---------------- GLB MODEL + CLIPS (tuning v3) ----------------
+   Two rows that answer the same complaint from the other side: the file a hero wears is
+   not a code change any more, and neither is which clip means "walk". */
+const AN_DEFS = [
+  ['speed', 'clip speed', 0.1, 4, 0.01],
+  ['fade', 'cross-fade s', 0, 1, 0.005],
+];
+const AN_LABELS = { idle: 'idle clip', walk: 'walk clip', attack: 'attack clip', hurt: 'hurt clip', death: 'death clip' };
+
+function buildAnim() {
+  const box = $('anim');
+  box.innerHTML = '';
+  for (const k of ANIM_NAME_KEYS) {
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    row.innerHTML = '<span>' + AN_LABELS[k] + '</span><input type="text" maxlength="64" spellcheck="false"><b></b>';
+    const inp = row.querySelector('input'), out = row.querySelector('b');
+    inp.oninput = () => {
+      const c = cfg[heroId()];
+      c.anim[k] = inp.value.trim() || 'auto';
+      /* Re-resolve on the hero, not just in the config: `syncAnim` below reads what the
+         mixer actually bound, so the echo and the pose agree. When there is no mixer (clips
+         off, or a file with nothing to play) this is a no-op and the row says why. */
+      const h = heroes[active];
+      if (h && h.rebindClip && !skinStale) h.rebindClip(k, c.anim[k]);
+      syncAnim();
+    };
+    row._name = k; row._input = inp; row._out = out;
+    box.appendChild(row);
+  }
+  for (const [k, label, min, max, step] of AN_DEFS) {
+    const row = sliderRow(label, min, max, step, (v, out) => {
+      cfg[heroId()].anim[k] = v;
+      const h = heroes[active];
+      if (h.anim) h.anim.a[k] = v;                 // takes effect on the next pose frame
+      out.textContent = v.toFixed(k === 'fade' ? 3 : 2);
+    });
+    row._num = k; row._dec = k === 'fade' ? 3 : 2;
+    box.appendChild(row);
+  }
+}
+/* the clip census of the file this hero is currently wearing, and a name → clip check */
+const fileClips = () => {
+  const skin = (G.glbSkins || {})[heroId()];
+  return skin && skin.clips ? skin.clips.map((c) => c.name || 'clip') : [];
+};
+function matched(want) {
+  const list = fileClips(), w = String(want || '').toLowerCase();
+  const hit = list.find((n) => n.toLowerCase() === w) || list.find((n) => n.toLowerCase().includes(w));
+  return hit || null;
+}
+/* True once `model` or `clips on/off` moved: the mixer was built at load against the
+ * PREVIOUS file, so every echo in this block would be describing a body that is about to be
+ * replaced. Saying so is the whole point — a stale "Walk" next to a slot is exactly how
+ * "the game ignores my animation" gets misdiagnosed as a loader bug. */
+let skinStale = false;
+function syncAnim() {
+  const c = cfg[heroId()], h = heroes[active], box = $('anim');
+  for (const row of box.children) {
+    if (row._name) {
+      row._input.value = c.anim[row._name];
+      const resolved = h.anim && h.anim.used[row._name];
+      const lost = h.anim && h.anim.clash.find((c) => c.slot === row._name);
+      if (skinStale) { row._out.textContent = 'not applied yet'; row._out.className = 'warn'; }
+      else if (resolved) { row._out.textContent = resolved; row._out.className = 'ok'; }
+      else if (lost) { row._out.textContent = '`' + lost.clip + '` → ' + lost.takenBy; row._out.className = 'warn'; }
+      else if (!h.rig.glb) { row._out.textContent = 'n/a (procedural)'; row._out.className = ''; }
+      else if (!h.anim) { row._out.textContent = fileClips().length ? 'clips are off' : 'no clips in file'; row._out.className = 'warn'; }
+      else if (c.anim[row._name] === 'auto') { row._out.textContent = 'auto · nothing matched'; row._out.className = 'warn'; }
+      else { row._out.textContent = 'not in file'; row._out.className = 'warn'; }
+    } else if (row._num) {
+      row._input.value = c.anim[row._num];
+      row._out.textContent = (+c.anim[row._num]).toFixed(row._dec);
+    }
+  }
+  const on = $('animon');
+  on.textContent = c.anim.on ? 'clips on' : 'clips off';
+  on.classList.toggle('on', !!c.anim.on);
+  const names = fileClips();
+  const parts = [];
+  if (skinStale) parts.push('SKIN CHANGED — the rows above still describe the PREVIOUS file. SAVE, then reload this tab.');
+  parts.push(names.length ? names.length + ' clip(s) here: ' + names.join(' · ')
+    : (h.rig.glb ? 'this file has NO clips — the transform layer is all it can do' : 'procedural rig — no GLB file in use'));
+  if (h.anim && h.anim.miss.length) parts.push('named but missing: ' + h.anim.miss.join(', '));
+  if (h.anim && h.anim.clash.length) {
+    parts.push('one clip drives one layer — ' + h.anim.clash.map((c) =>
+      c.clip + ' is also named for ' + c.slot + (c.takenBy ? ' (held by ' + c.takenBy + ')' : '')).join(' · '));
+  }
+  $('animnote').innerHTML = parts.join('<br>');
+  $('animnote').className = skinStale ? 'warn' : (h.anim ? 'ok' : '');
+  const sel = $('mdl');
+  if (sel) sel.value = c.model || '';
+  $('mdlnote').textContent = c.model ? c.model.replace('models/uploads/', '') : 'default';
+}
+$('animon').onclick = () => {
+  const c = cfg[heroId()];
+  c.anim.on = c.anim.on ? 0 : 1;
+  /* the mixer's existence is decided in build(), so this one really does need a reload —
+     unlike the name rows, which re-bind live through Hero.rebindClip */
+  skinStale = true;
+  flash(c.anim.on ? 'CLIPS ENABLED — SAVE, THEN RELOAD THIS TAB (the mixer is built at load)'
+    : 'CLIPS IGNORED — the file still drives nothing; SAVE, THEN RELOAD', '#ffb14a');
+  syncAnim();
+};
+function buildModelSelect() {
+  const sel = $('mdl');
+  if (!sel) return;
+  const glbs = libFiles.filter((f) => /\.(glb|gltf)$/i.test(f.name));
+  sel.innerHTML = '<option value="">&lt;id&gt;.glb (manifest)</option>' +
+    glbs.map((f) => '<option value="' + UPDIR + f.name + '">' + f.name + ' · ' + Math.round(f.size / 1024) + 'k</option>').join('');
+  sel.onchange = () => {
+    cfg[heroId()].model = sel.value || null;
+    skinStale = true;              // nothing below this row can be previewed until the body is rebuilt
+    flash(sel.value ? 'SKIN = ' + sel.value.replace(UPDIR, '') + ' — SAVE, THEN RELOAD THIS TAB'
+      : 'SKIN = the manifest default — SAVE, THEN RELOAD THIS TAB', '#ffb14a');
+    syncAnim();
+  };
+  sel.value = (cfg[heroId()] || {}).model || '';   // the list arrives after the first sync
+}
 
 function buildSliders() {
   $('mot').innerHTML = '';
   for (const [k, label, min, max, step] of MOT_DEFS) {
-    const row = document.createElement('div');
-    row.className = 'mrow';
-    row.innerHTML = `<span>${label}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}"><b></b>`;
-    const inp = row.querySelector('input');
-    inp.oninput = () => {
-      const v = +inp.value;
+    const row = sliderRow(label, min, max, step, (v, out) => {
       cfg[HERO_DEFS[active].id].motion[k] = v;
       heroes[active].motion[k] = v;
-      row.querySelector('b').textContent = v.toFixed(step < 0.01 ? 3 : 2);
-    };
+      out.textContent = v.toFixed(step < 0.01 ? 3 : 2);
+    });
+    row._key = k; row._dec = step < 0.01 ? 3 : 2;
     $('mot').appendChild(row);
   }
-  $('plc').innerHTML = '';
+  buildPlacement();
+}
+
+/* one row = label, slider, editable number — both controls drive the same value */
+function buildPlacement() {
+  const box = $('plc');
+  box.innerHTML = '';
   for (const [k, label, min, max, step] of PL_DEFS) {
     const row = document.createElement('div');
-    row.className = 'mrow';
-    row.innerHTML = `<span>${label}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}"><b></b>`;
-    const inp = row.querySelector('input');
-    inp.oninput = () => {
-      const v = +inp.value;
-      const c = cfg[HERO_DEFS[active].id], h = heroes[active];
+    row.className = 'prow';
+    row.innerHTML = `<span>${label}</span>` +
+      `<input type="range" min="${min}" max="${max}" step="${step}">` +
+      `<input type="number" min="${min}" max="${max}" step="${step}">`;
+    row._key = k; row._min = min; row._max = max; row._step = step;
+    row._dec = step < 1 ? 2 : 0;
+    const rng = row.children[1], num = row.children[2];
+    const apply = (v, from) => {
+      v = clamp(+v || 0, min, max);
+      const c = cfg[heroId()], h = heroes[active];
       if (k === 'yawDeg') { c.yawDeg = v; h.setYawDeg(v); }
       else { c.pos[k] = v; h.offset[k] = v; }
-      row.querySelector('b').textContent = v.toFixed(step < 1 ? 2 : 0);
+      if (from !== rng) rng.value = v;
+      if (from !== num) num.value = v.toFixed(row._dec);
+      measureFit();
     };
-    $('plc').appendChild(row);
+    rng.oninput = () => apply(rng.value, rng);
+    num.oninput = () => apply(num.value, num);
+    num.onblur = () => { num.value = (+num.value || 0).toFixed(row._dec); };
+    box.appendChild(row);
   }
 }
 
-function syncPanel() {
-  const h = heroes[active], d = HERO_DEFS[active], c = cfg[d.id];
-  document.documentElement.style.setProperty('--c', '#' + d.color.toString(16).padStart(6, '0'));
-  $('gname').textContent = d.name;
-  $('tris').textContent = gatherStats(h.rig.glb ? h.body : h.group).tris.toLocaleString();
-  $('hgt').textContent = (2.4 * h.tunScale).toFixed(2) + ' m';
-  $('sz').value = h.tunScale;
-  for (const row of $('mot').children) {
-    const k = row.querySelector('input').dataset.k;
-    row.querySelector('input').value = c.motion[k];
-    row.querySelector('b').textContent = (+c.motion[k]).toFixed(2);
+/** Where the body actually sits, so "I fixed it" is a number and not a vibe.
+    Measured at the REST pose — animateGLB writes this position next frame with
+    bob / lunge on top, and the preview's current transform is whatever the last
+    frame left there, so measuring it as-is would read one frame stale. */
+const _bb = new THREE.Box3();
+function measureFit() {
+  const h = heroes[active];
+  if (!h) return null;
+  const b = h.body, snap = h.rig.glb
+    ? [b.position.x, b.position.y, b.position.z, b.rotation.x, b.rotation.y, b.rotation.z] : null;
+  if (h.rig.glb) {
+    const B = h._basePos || { x: 0, y: 0, z: 0 }, O = h.offset, S = h.tunScale || 1;
+    b.position.set(B.x * S + O.x, B.y * S + O.y, B.z * S + O.z);   // same maths as animateGLB
+    b.rotation.set(0, h._yaw || 0, 0);
   }
+  h.group.updateMatrixWorld(true);
+  _bb.setFromObject(h.rig.glb ? h.body : h.group);
+  if (snap) {   // restore: this runs inside the render loop, and leaving the
+    b.position.set(snap[0], snap[1], snap[2]);      // rest pose there would drop a
+    b.rotation.set(snap[3], snap[4], snap[5]);      // frame of walk bob every 0.3 s
+  }
+  const st = (h.rig.glb && h.body.userData.stage) || null;
+  const clipped = _bb.min.y < -0.02;
+  const el = $('pcfeet');
+  el.textContent = 'feet ' + _bb.min.y.toFixed(2) + ' m · head ' + _bb.max.y.toFixed(2) + ' m' +
+    (clipped ? ' · ' + (-_bb.min.y).toFixed(2) + ' m BURIED' : '');
+  el.classList.toggle('bad', clipped);
+  $('pcnote').textContent = (st
+    ? 'loader lift ' + st.lift.toFixed(3) + ' m (its own centring) — offsets add to that'
+    : 'procedural rig — no loader lift') +
+    (Math.abs(cfg[heroId()].pos.y) > 0.4 && !clipped ? ' · note: a saved Y this large may be an old pre-fix compensation' : '');
+  return { min: _bb.min.y, max: _bb.max.y, clipped };
+}
+
+function nudgePlacementTo(fn) {
+  const h = heroes[active];
+  if (!h || !h.rig.glb) { flash('PLACEMENT APPLIES TO UPLOADED GLB SKINS', '#ffb14a'); return; }
+  const c = cfg[heroId()];
+  for (const k of ['x', 'y', 'z']) { c.pos[k] = clamp(fn(k), -3, 3); h.offset[k] = c.pos[k]; }
+  syncPlacement();
+  measureFit();
+}
+
+function syncPlacement() {
+  const c = cfg[heroId()];
   for (const row of $('plc').children) {
-    const k = row.querySelector('input').dataset.k;
-    const v = k === 'yawDeg' ? c.yawDeg : c.pos[k];
-    row.querySelector('input').value = v;
-    row.querySelector('b').textContent = (+v).toFixed(k === 'yawDeg' ? 0 : 2);
+    const v = row._key === 'yawDeg' ? c.yawDeg : c.pos[row._key];
+    row.children[1].value = v;
+    row.children[2].value = (+v).toFixed(row._dec);
   }
+}
+
+/* ============================================================
+   SKILL EFFECT EDITOR
+   One FX slot per skill + a shared slot ("ALL") that covers every
+   skill — which is all a v1 tuning file had. The runtime resolves
+   the same way (fxpack.fxFor), so what plays here is what plays
+   in the match.
+   ============================================================ */
+let slot = FX_SHARED;
+let fxKindShown = null;
+let libFiles = [];
+
+const heroId = () => HERO_DEFS[active].id;
+/* the editor and the match read the same record through fxpack.fxEdit, so a
+   slot that previews correctly here cannot resolve differently in-game */
+const asg = () => fxEdit(cfg, heroId(), slot);
+
+function buildFXPanel() {
+  const kind = asg().src ? fxKind(asg().src) : 'glb';
+  fxKindShown = kind;
+  $('fxkind').textContent = '· ' + (kind === 'video' ? 'video billboard' : 'glb prop');
+  const { num, opt } = fxDefsFor(kind);
+  const box = $('fxp');
+  box.innerHTML = '';
+  const a = asg();
+  for (const [k, label, min, max, step] of num) {
+    const row = sliderRow(label, min, max, step, (v, out) => {
+      asg().p[k] = v;
+      out.textContent = (+v).toFixed(step < 0.1 ? 2 : 1);
+    });
+    row._key = k;
+    row._input.value = a.p[k];
+    row._out.textContent = (+a.p[k]).toFixed(step < 0.1 ? 2 : 1);
+    box.appendChild(row);
+  }
+  for (const [k, label, opts] of opt) {
+    const row = sliderRow(label, 0, opts.length - 1, 1, (v, out) => {
+      asg().p[k] = v;
+      out.textContent = opts[v] || '';
+    });
+    row._key = k; row._opts = opts;
+    row._input.value = a.p[k];
+    row._out.textContent = opts[a.p[k]] || '';
+    box.appendChild(row);
+  }
+  /* tint is a colour, not a range — same grid, different control */
+  const crow = document.createElement('div');
+  crow.className = 'mrow';
+  crow.innerHTML = '<span>tint</span><input type="color"><b></b>';
+  crow._key = 'tint';
+  const cin = crow.querySelector('input'), cout = crow.querySelector('b');
+  cin.value = asg().p.tint;
+  cout.textContent = asg().p.tint;
+  cin.oninput = () => { asg().p.tint = cin.value; cout.textContent = cin.value; };
+  box.appendChild(crow);
+}
+
+function syncFXPanel() {
+  const kind = asg().src ? fxKind(asg().src) : 'glb';
+  if (kind !== fxKindShown) buildFXPanel();
+  const a = asg();
+  for (const row of $('fxp').children) {
+    const k = row._key;
+    const v = a.p[k];
+    if (k === 'tint') { row.querySelector('input').value = v; row.querySelector('b').textContent = v; continue; }
+    row._input.value = v;
+    row._out.textContent = row._opts ? (row._opts[v] || '') : (+v).toFixed(+row._input.step < 0.1 ? 2 : 1);
+  }
+}
+
+function slotLabel(i) {
+  if (i === FX_SHARED) return 'ALL';
+  const sk = HERO_DEFS[active].skills[i];
+  return sk ? sk.key : 'S' + i;
+}
+
+function buildChips() {
+  const box = $('fxslots');
+  box.innerHTML = '';
+  const mk = (i, label, title) => {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.innerHTML = `<b>${label}</b>${i === FX_SHARED ? 'shared' : slotName(i)}<i></i>`;
+    b.title = title;
+    b.onclick = () => setSlot(i);
+    b._slot = i;
+    box.appendChild(b);
+  };
+  mk(FX_SHARED, 'ALL', 'One effect for every skill (the v1 behaviour)');
+  for (let i = 0; i < FX_SLOTS; i++) mk(i, slotLabel(i), 'Effect for skill ' + slotLabel(i));
+}
+const slotName = (i) => {
+  const sk = HERO_DEFS[active].skills[i];
+  return sk ? sk.name.toLowerCase().split(' ')[0] : 'skill ' + i;
+};
+
+function setSlot(i) {
+  slot = i;
   syncFX();
 }
 
+async function bankPut(url, buf) {
+  if (fxBank[url]) return fxBank[url];
+  if (/\.(mp4|webm|ogv)$/i.test(url)) {
+    fxBank[url] = { kind: 'video', url };
+  } else {
+    const ab = buf || (await (await fetch(url)).arrayBuffer());
+    const gltf = await parseGLB(ab);
+    const tpl = gltf.scene || gltf.scenes[0];
+    normalizeToStage(tpl, 1.8);
+    fxBank[url] = { kind: 'glb', url, template: tpl, stats: gatherStats(tpl) };
+  }
+  G.fxBank = fxBank;
+  return fxBank[url];
+}
+
+/** point this slot at a file (uploaded or already sitting in models/uploads/).
+    Returns true when the effect is too heavy to be a per-cast prop. */
+async function assign(url) {
+  await bankPut(url);
+  const a = asg();                            // re-read: the await may have moved the user
+  a.setSrc(url);
+  a.setOn(true);
+  a.setP(clampFX(a.p, fxKind(url)));          // kind-only rows get their defaults
+  if (fxKind(url) === 'video') probeClip(url);
+  syncFX();
+  refreshLib();
+  const st = fxBank[url] && fxBank[url].stats;
+  if (st && (st.meshes > 24 || st.tris > 60000)) {
+    flash('ASSIGNED, BUT HEAVY: ' + st.meshes + ' MESHES / ' + st.tris.toLocaleString() +
+      ' TRIS PER CAST — DECIMATE IN THE DCC AND RE-DROP', '#ffb14a');
+    return true;
+  }
+  flash('FX ASSIGNED → ' + slotLabel(slot).toUpperCase() + ' · ' + HERO_DEFS[active].name, '#3dffb0');
+  return false;
+}
+
+async function uploadFX(file) {
+  if (!file) return;
+  const mVid = file.name.match(/\.(mp4|webm|ogv)$/i);
+  if (!/\.glb$/i.test(file.name) && !mVid) { flash('USE .GLB OR VIDEO (.MP4/.WEBM/.OGV)', '#ff3b5c'); return; }
+  const id = heroId();
+  const name = id + (slot === FX_SHARED ? '-fx' : '-s' + slot + '-fx') + '.' + (mVid ? mVid[1].toLowerCase() : 'glb');
+  flash('UPLOADING ' + file.name + ' → ' + name + '…');
+  try {
+    const r = await fetch(UP + '/upload/' + name, { method: 'PUT', body: file });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const url = UPDIR + name;
+    const ab = await file.arrayBuffer();
+    if (!/\.(mp4|webm|ogv)$/i.test(name)) fxBank[url] = null;   // re-parse the fresh bytes
+    if (!(await assign(url))) flash('UPLOADED + ASSIGNED ' + name + ' — SAVE TO KEEP', '#3dffb0');
+  } catch (e) {
+    flash('FX UPLOAD FAILED: ' + (e.message || e), '#ff3b5c');
+  }
+}
+
+/* a video billboard should live as long as the clip — read its metadata and
+   snap `duration` to it, so the plane never holds a frozen last frame */
+function probeClip(url) {
+  if (typeof document === 'undefined') return;
+  const el = document.createElement('video');
+  el.preload = 'metadata';
+  el.onloadedmetadata = () => {
+    const d = Number(el.duration);
+    const a = asg();
+    if (Number.isFinite(d) && d > 0 && a.src === url) {
+      a.setP(clampFX(Object.assign({}, a.p, { dur: Math.min(4.95, +d.toFixed(2)) }), 'video'));
+      syncFX();
+    }
+    el.removeAttribute('src');
+  };
+  el.onerror = () => {};
+  el.src = url;
+}
+
+/* record the studio canvas while this slot's effect plays, then assign the
+   recording to the slot as a video effect */
+let rec = null;
+function recordFX() {
+  if (rec) return;
+  if (pv.url) stopPreview();        // the plate is the slot's effect, not a stray preview
+  if (!renderer.domElement.captureStream || typeof MediaRecorder === 'undefined') {
+    flash('RECORDING NOT SUPPORTED IN THIS BROWSER', '#ff3b5c');
+    return;
+  }
+  const id = heroId();
+  const name = id + (slot === FX_SHARED ? '-fx' : '-s' + slot + '-fx') + '.webm';
+  const ms = Math.round(clamp(asg().p.dur, 0.6, 5) * 1000);
+  const chunks = [];
+  rec = new MediaRecorder(renderer.domElement.captureStream(30));
+  rec.ondataavailable = (e) => chunks.push(e.data);
+  rec.onstop = async () => {
+    rec = null;
+    $('fxrec').classList.remove('on');
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    flash('SAVING RECORDING…');
+    try {
+      const r = await fetch(UP + '/upload/' + name, { method: 'PUT', body: blob });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      fxBank[UPDIR + name] = null;
+      if (!(await assign(UPDIR + name))) flash('RECORDED + ASSIGNED ' + name + ' — SAVE TO KEEP', '#3dffb0');
+    } catch (e) {
+      flash('RECORD SAVE FAILED: ' + (e.message || e), '#ff3b5c');
+    }
+  };
+  $('fxrec').classList.add('on');
+  rec.start();
+  setAction('cast');
+  heroes[active].playFX(G, slot);        // capture this slot's effect as it plays
+  setTimeout(() => { if (rec) rec.stop(); }, ms);
+}
+
+let libFilter = 'all';        // 'all' | 'glb' | 'video' — the media tab of the panel
+
+async function refreshLib() {
+  const box = $('fxlib');
+  try {
+    const r = await fetch(UP + '/files');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    libFiles = (await r.json()).filter((f) => /\.(glb|mp4|webm|ogv)$/i.test(f.name));
+    buildModelSelect();            // the SKIN picker is the same list, filtered to models
+  } catch (e) {
+    box.innerHTML = '<div id="note">dropbox offline — start it with<br>python3 tools/upload_server.py</div>';
+    buildModelSelect();
+    return;
+  }
+  const used = new Map();
+  for (const d of HERO_DEFS) {
+    const c = cfg[d.id];
+    if (!c) continue;
+    if (c.fx) used.set(c.fx, (used.get(c.fx) || '') + ' ' + d.name + ':all');
+    for (let i = 0; i < FX_SLOTS; i++) {
+      const s = (c.fxSlots || [])[i];
+      if (s && s.src) used.set(s.src, (used.get(s.src) || '') + ' ' + d.name + ':' + slotLabel(i));
+    }
+  }
+  box.innerHTML = '';
+  const shown = libFiles.filter((f) => libFilter === 'all' || fxKind(f.name) !== (libFilter === 'glb' ? 'video' : 'glb'));
+  if (!shown.length) {
+    box.innerHTML = '<div id="note">' + (libFiles.length
+      ? 'no ' + libFilter + ' files in models/uploads — try the other filter'
+      : 'nothing in models/uploads yet — drop a file above') + '</div>';
+    syncLibTools();
+    return;
+  }
+  const cur = asg().src;
+  for (const f of shown) {
+    const url = UPDIR + f.name;
+    const kind = fxKind(url);
+    const row = document.createElement('div');
+    row.className = 'lib' + (url === cur ? ' on' : '') + (url === pv.url ? ' pv' : '');
+    row._url = url;
+    const kb = f.bytes > 0 ? (f.bytes / 1024).toFixed(1) + ' kb' : '—';
+    const ent = fxBank[url];
+    const cost = ent && ent.stats ? ent.stats.tris.toLocaleString() + ' tris · ' + ent.stats.meshes + ' mesh' + (ent.stats.meshes === 1 ? '' : 'es') : kind;
+    const tag = used.has(url) ? used.get(url).trim()
+      : /^(aegis|lyra|nyx)\.glb$/i.test(f.name) ? 'hero skin' : 'assign';
+    row.innerHTML = `<span>${f.name.replace(/\.(glb|mp4|webm|ogv)$/i, '')}</span>` +
+      `<i>${kb} · ${cost}</i><u>${tag}</u>`;
+    row.title = used.has(url) ? 'in use by:' + used.get(url) : 'click to assign to slot ' + slotLabel(slot).toUpperCase();
+    row.onclick = () => assign(url);
+    /* ▶ previews WITHOUT assigning: the same spawnFX a real cast uses, fired at
+       the hero, so a file can be judged before it costs a slot. */
+    const play = document.createElement('button');
+    play.className = 'act mini';
+    play.textContent = url === pv.url ? '■' : '▶';
+    play.title = 'preview in the arena (no assignment)';
+    play.onclick = (e) => { e.stopPropagation(); togglePreview(url); };
+    row.appendChild(play);
+    box.appendChild(row);
+  }
+  syncLibTools();
+}
+
+/** loop / stop / filter buttons + the line that explains what a preview is using */
+function syncLibTools() {
+  for (const b of $('fxlibfilter').children) b.classList.toggle('on', b._f === libFilter);
+  $('fxloop').classList.toggle('on', pv.loop);
+  $('fxstop').style.opacity = pv.url ? '1' : '0.35';
+  if (!pv.url) { $('fxlibnote').textContent = '▶ previews any file in the arena without assigning it — click the row to assign.'; return; }
+  const ent = fxBank[pv.url], st = ent && ent.stats;
+  const r = fxPreviewFor(cfg, heroId(), slot, pv.url);
+  $('fxlibnote').textContent = '▶ ' + pv.url.split('/').pop() +
+    ' · ' + (ent ? ent.kind + ' · ' : '') + (st ? st.tris.toLocaleString() + ' tris · ' + st.meshes + ' meshes · ' : '') +
+    'params from ' + (r.from === 'slot' ? slotLabel(slot).toUpperCase() : r.from === 'shared' ? 'ALL'
+      : r.from === 'defaults' ? 'kind defaults' : 'slot ' + r.from.slice(-1)) +
+    (pv.loop ? ' · looping' : '') + ' · ▶ again to stop';
+}
+
+/* ---------- LIBRARY PREVIEW -------------------------------------------------
+   Fire any file in models/uploads at the hero, through the same fxpack.spawnFX
+   a real cast uses, without writing anything into the config. That last part is
+   the point: fxPreviewFor reads the tuning and hands back a CLAMPED COPY of the
+   params the file would cast with, so previewing cannot dirty a save.
+   Loop is for the 0.6 s things you cannot judge from one play. */
+const pv = { url: null, live: false, loop: false, gap: 0, inst: null, at: 0 };
+
+async function togglePreview(url) {
+  if (pv.url === url) { stopPreview(); return; }
+  try {
+    await bankPut(url);                                  // fetch + parse on demand
+  } catch (e) {
+    flash('PREVIEW FAILED: ' + (e.message || e), '#ff3b5c');
+    return;
+  }
+  if (!fxBank[url]) { flash('PREVIEW FAILED: NOT IN THE BANK', '#ff3b5c'); return; }
+  setAction('idle');      // judge the effect, not the walk cycle (loop keeps your action)
+  pv.loop = false;
+  firePreview(url);
+  const st = fxBank[url] && fxBank[url].stats;
+  if (st && (st.meshes > 24 || st.tris > 60000)) {
+    flash('PREVIEW LOOKS FINE, BUT IT IS HEAVY: ' + st.meshes + ' MESHES / ' + st.tris.toLocaleString() +
+      ' TRIS PER CAST', '#ffb14a');
+  }
+}
+
+function firePreview(url, quiet) {
+  const ent = fxBank[url];
+  const { p } = fxPreviewFor(cfg, heroId(), slot, url);
+  const h = heroes[active];
+  const inst = spawnFX(G, ent, p, new THREE.Vector3(h.pos.x, p.y, h.pos.z), h.facing || 0);
+  pv.url = url; pv.inst = inst; pv.live = true; pv.at = G.time; pv.gap = 0.22;
+  G.addEffect({
+    t: 0, dur: p.dur,
+    update(dt) { const alive = inst.update(dt); pv.live = alive; return alive; },
+    dispose() { inst.kill(); pv.live = false; },
+  });
+  if (!quiet) flash('PREVIEW · ' + url.split('/').pop().toUpperCase() + (p.dur > 0 ? ' · ' + p.dur.toFixed(2) + ' s' : ''), '#7cf9ff');
+  refreshLibRows();
+  syncLibTools();
+}
+
+function stopPreview() {
+  const had = !!pv.url;
+  pv.loop = false; pv.url = null; pv.gap = 0;
+  if (pv.inst) { pv.inst.kill(); pv.inst = null; }
+  pv.live = false;
+  if (had) { refreshLibRows(); syncLibTools(); }
+}
+
+/* class-only refresh: a full refreshLib() re-fetches the listing, and the loop
+   would be doing that every time a preview ends */
+function refreshLibRows() {
+  for (const row of $('fxlib').children) {
+    if (!row._url) continue;
+    row.classList.toggle('pv', row._url === pv.url);
+    const b = row.querySelector('button');
+    if (b) b.textContent = row._url === pv.url ? '■' : '▶';
+  }
+}
+
+/* called from the render loop: re-fire while looping, drop the highlight after a
+   one-shot preview finishes */
+function tickPreview(dt) {
+  if (!pv.url || pv.live) return;
+  if (pv.loop) { if ((pv.gap -= dt) <= 0) firePreview(pv.url, true); return; }   // quiet: a flash per fire is a strobe
+  if (G.time - pv.at > 0.05) { pv.url = null; pv.inst = null; refreshLibRows(); syncLibTools(); }
+}
+
 function syncFX() {
-  const c = cfg[HERO_DEFS[active].id];
-  $('fxname').textContent = c.fx ? 'assigned: ' + c.fx.split('/').pop() + (c.fxOn ? '' : ' (disabled)') : 'none assigned';
-  $('fxon').classList.toggle('on', !!c.fxOn);
-  $('fxon').textContent = c.fxOn ? 'fx on' : 'fx off';
+  const a = asg();
+  const c = cfg[heroId()];
+  for (const b of $('fxslots').children) {
+    b.classList.toggle('on', b._slot === slot);
+    const s = b._slot === FX_SHARED ? { src: c.fx } : (c.fxSlots || [])[b._slot];
+    b.classList.toggle('has', !!(s && s.src));
+  }
+  const nm = a.src ? a.src.split('/').pop() : null;
+  const shared = a.src && slot !== FX_SHARED && a.src === c.fx;
+  if (nm) {
+    const ent = fxBank[a.src];
+    const cost = ent && ent.stats ? ' <em>' + ent.stats.tris.toLocaleString() + ' tris · ' + ent.stats.meshes + ' mesh' + (ent.stats.meshes === 1 ? '' : 'es') + '</em>' : '';
+    $('fxname').innerHTML = a.src.split('/').pop() + cost +
+      (a.on ? '' : ' <em>(muted)</em>') +
+      (fxKind(a.src) === 'video' ? ' <em>video billboard</em>' : ' <em>glb prop</em>') +
+      (shared ? ' <em>(same as ALL)</em>' : '');
+  } else {
+    $('fxname').innerHTML = c.fx
+      ? 'this slot is empty → falls back to ALL'
+      : 'none assigned — drop a .glb / video, or pick from the library';
+  }
+  $('fxon').classList.toggle('on', !!a.on);
+  $('fxon').textContent = a.on ? 'on' : 'muted';
+  $('fxclear').style.opacity = a.src ? '1' : '0.35';
+  syncFXPanel();
 }
 
 function setActive(i) {
@@ -159,84 +742,25 @@ function setActive(i) {
     if (h.drone) h.drone.group.visible = on;
   });
   document.querySelectorAll('#head .tab').forEach((t, k) => t.classList.toggle('on', k === i));
+  buildChips();
   syncPanel();
 }
 
 function setAction(a) {
   action = a;
   const h = heroes[active];
+  /* POSE is a preview input; the bench is a real cast. They write the same envelopes, so
+     say which one the eye is looking at (MOTION-AUDIT F4). down is left alone: a
+     deliberately held death pose is the only way to see the death FX at all. */
+  if (sim.on && a !== 'idle' && a !== 'down') {
+    flash('POSE · ' + a.toUpperCase() + ' OVER A LIVE CAST — ENVELOPES COMBINE, MOVE DRIVES THE LEGS', '#ffb14a');
+  }
   if (a === 'attack') h.attackAnim = 1;
   if (a === 'cast') h.castAnim = 1;
   if (a === 'hurt') h.hurtAnim = 1;
   if (a === 'down') h.downed = true;
   if (a === 'idle' || a === 'walk') h.downed = false;
   document.querySelectorAll('#bottom [data-a]').forEach((b) => b.classList.toggle('on', b.dataset.a === a));
-}
-
-async function uploadFX(file) {
-  if (!file) return;
-  const mVid = file.name.match(/\.(mp4|webm|ogv)$/i);
-  if (!/\.glb$/i.test(file.name) && !mVid) { flash('USE .GLB OR VIDEO', '#ff3b5c'); return; }
-  const id = HERO_DEFS[active].id;
-  const name = id + '-fx.' + (mVid ? mVid[1].toLowerCase() : 'glb');
-  flash('UPLOADING ' + file.name + '…');
-  try {
-    const r = await fetch(UP + '/upload/' + name, { method: 'PUT', body: file });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    if (mVid) {
-      fxBank[id] = { kind: 'video', url: 'models/uploads/' + name };
-    } else {
-      const gltf = await parseGLB(await file.arrayBuffer());
-      const tpl = gltf.scene || gltf.scenes[0];
-      normalizeToStage(tpl, 1.8);
-      fxBank[id] = { kind: 'glb', template: tpl };
-    }
-    G.fxBank = fxBank;
-    cfg[id].fx = 'models/uploads/' + name;
-    cfg[id].fxOn = true;
-    syncFX();
-    flash('FX ASSIGNED TO ' + HERO_DEFS[active].name, '#3dffb0');
-  } catch (e) {
-    flash('FX UPLOAD FAILED: ' + (e.message || e), '#ff3b5c');
-  }
-}
-
-/* record ~2.4s of the studio canvas while the current effect plays,
-   then assign the recording as the hero's video skill effect */
-let rec = null;
-function recordFX() {
-  if (rec) return;
-  if (!renderer.domElement.captureStream || typeof MediaRecorder === 'undefined') {
-    flash('RECORDING NOT SUPPORTED IN THIS BROWSER', '#ff3b5c');
-    return;
-  }
-  const chunks = [];
-  rec = new MediaRecorder(renderer.domElement.captureStream(30));
-  rec.ondataavailable = (e) => chunks.push(e.data);
-  rec.onstop = async () => {
-    rec = null;
-    $('fxrec').classList.remove('on');
-    const blob = new Blob(chunks, { type: 'video/webm' });
-    const id = HERO_DEFS[active].id, name = id + '-fx.webm';
-    flash('SAVING RECORDING…');
-    try {
-      const r = await fetch(UP + '/upload/' + name, { method: 'PUT', body: blob });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      fxBank[id] = { kind: 'video', url: 'models/uploads/' + name };
-      G.fxBank = fxBank;
-      cfg[id].fx = 'models/uploads/' + name;
-      cfg[id].fxOn = true;
-      syncFX();
-      flash('RECORDED + ASSIGNED ' + name + ' — SAVE TO KEEP', '#3dffb0');
-    } catch (e) {
-      flash('RECORD SAVE FAILED: ' + (e.message || e), '#ff3b5c');
-    }
-  };
-  $('fxrec').classList.add('on');
-  rec.start();
-  setAction('cast');
-  heroes[active].playFX(G);   // capture the current effect mid-play
-  setTimeout(() => { if (rec) rec.stop(); }, 2400);
 }
 
 async function save() {
@@ -248,32 +772,106 @@ async function save() {
       body: JSON.stringify(cfg),
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    flash('SAVED — START THE GAME TO APPLY', '#3dffb0');
+    const n = fxCount(cfg);
+    flash('SAVED — ' + n + ' FX SLOT' + (n === 1 ? '' : 'S') + ' · RESTART THE RUN TO APPLY', '#3dffb0');
+    refreshLib();
   } catch (e) {
-    flash('SAVE FAILED: ' + (e.message || e), '#ff3b5c');
+    flash('SAVE FAILED: ' + (e.message || e) + ' (is tools/upload_server.py running?)', '#ff3b5c');
   }
 }
-
 /* ---------- wire UI ---------- */
 $('sz').oninput = () => {
   const v = +$('sz').value;
   heroes[active].setScale(v);
-  cfg[HERO_DEFS[active].id].scale = heroes[active].tunScale;
+  cfg[heroId()].scale = heroes[active].tunScale;
   $('hgt').textContent = (2.4 * heroes[active].tunScale).toFixed(2) + ' m';
+  measureFit();          // size moves the feet unless the base rides with it
 };
 $('save').onclick = save;
+$('simon').onclick = () => simToggle();
+$('simbasic').onclick = doBasic;
+$('simq').onclick = () => doCast(0);
+$('sime').onclick = () => doCast(1);
+$('simr').onclick = () => doCast(2);
+$('simauto').onclick = () => { $('simauto').classList.toggle('on'); simNext = G.time + 0.2; };
+$('sp1').onclick = () => setSpeed(0);
+$('sp2').onclick = () => setSpeed(1);
+$('sp3').onclick = () => setSpeed(2);
+$('tg0').onclick = () => setTargets(0);
+$('tg3').onclick = () => setTargets(3);
+$('tg6').onclick = () => setTargets(6);
+$('simreset').onclick = () => { sim.reset(); flash('SIM RESET — TARGETS BACK IN PLACE, EFFECTS KILLED', '#7cf9ff'); syncMove(); };
+/* MOVE + DASH — MOTION-AUDIT F4. Motion is a layer no button here used to reach: the
+   game's frame runs `h.move(dt, inputDir)` and only the player's keys set that dir, so
+   a range that could never be seen from the studio. These are PREVIEW inputs (the bench
+   philosophy in sim.js), and dash keeps the real cooldown — an on-cooldown press is
+   reported, not forced, because a dodge you cannot see at full length is a lie. */
+for (const b of $('simmove').querySelectorAll('[data-m]')) b.onclick = () => { if (!simOn) simToggle(true); sim.setMove(b.dataset.m); syncMove(); sayMove(); sim.tickCaption(); };
+$('simdash').onclick = () => { if (!simOn) simToggle(true); sim.dash(); sim.tickCaption(); };
+function syncMove() {
+  const box = $('simmove');
+  if (!box) return;
+  for (const b of box.querySelectorAll('[data-m]')) b.classList.toggle('on', sim.on && b.dataset.m === sim.mmode);
+}
+function sayMove() {
+  const el = $('simsay');
+  el.textContent = 'MOVE · ' + sim.mmode + (sim.mmode === 'idle' ? ' · the hero stands' : ' · ' + sim.dist.toFixed(1) + 'm travelled');
+  el.classList.add('on');
+  saySkill.t = G.time + 1.2;
+}
+$('fxhelphide').onclick = () => {
+  const h = $('fxhelp');
+  h.style.display = h.style.display === 'none' ? '' : 'none';
+  $('fxhelphide').textContent = h.style.display === 'none' ? 'how fx work' : 'hide';
+};
+$('pclift').onclick = () => nudgePlacementTo((k) => {
+  const before = measureFit();
+  return k === 'y' ? cfg[heroId()].pos.y - (before ? before.min : 0) : cfg[heroId()].pos[k];
+});
+$('pcreset').onclick = () => { nudgePlacementTo(() => 0); flash('PLACEMENT RESET TO THE LOADER\u2019S OWN', '#7cf9ff'); };
 $('spin').onclick = () => {
   const on = $('spin').classList.toggle('on');
   controls.autoRotate = on; controls.autoRotateSpeed = 2.2;
 };
 $('fxplay').onclick = () => {
-  if (!heroes[active].playFX(G)) flash('NO FX ASSIGNED — DROP A .GLB OR VIDEO', '#ffb14a');
+  const a = asg();
+  if (!a.src) { flash('NO FX IN ' + slotLabel(slot).toUpperCase() + ' — DROP A FILE OR PICK ONE', '#ffb14a'); return; }
+  if (!heroes[active].playFX(G, slot)) flash('FX FILE NOT IN THE BANK — RE-ASSIGN IT', '#ffb14a');
 };
 $('fxrec').onclick = recordFX;
-$('fxon').onclick = () => {
-  const c = cfg[HERO_DEFS[active].id];
-  c.fxOn = !c.fxOn; syncFX();
+$('fxon').onclick = () => { const a = asg(); a.setOn(!a.on); syncFX(); };
+$('fxclear').onclick = () => {
+  const a = asg();
+  if (!a.src) { flash('NOTHING TO CLEAR IN ' + slotLabel(slot).toUpperCase(), '#ffb14a'); return; }
+  a.setSrc(null);
+  a.setP(clampFX(a.p, 'glb'));
+  syncFX();
+  flash('CLEARED ' + slotLabel(slot).toUpperCase() + ' — SAVE TO KEEP', '#ff8a2b');
 };
+$('fxcopy').onclick = () => {
+  if (slot === FX_SHARED) { flash('PICK Q / E / R FIRST — ALL IS THE SOURCE', '#ffb14a'); return; }
+  const c = cfg[heroId()];
+  if (!c.fx) { flash('NOTHING IN ALL TO COPY', '#ffb14a'); return; }
+  const a = asg();
+  a.setP(clampFX(Object.assign({}, c.fxP), fxKind(c.fx)));
+  a.setSrc(c.fx);
+  a.setOn(true);
+  syncFX();
+  flash('COPIED ALL → ' + slotLabel(slot).toUpperCase() + ' · TUNE FREELY', '#3dffb0');
+};
+$('fxref').onclick = refreshLib;
+const FILTERS = { 'fxf-all': 'all', 'fxf-glb': 'glb', 'fxf-video': 'video' };
+for (const b of $('fxlibfilter').children) {
+  b._f = FILTERS[b.id] || 'all';
+  b.onclick = () => { libFilter = b._f; refreshLib(); };
+}
+$('fxloop').onclick = () => {
+  if (!pv.url) { flash('CLICK ▶ ON A LIBRARY ROW FIRST', '#ffb14a'); return; }
+  pv.loop = !pv.loop;
+  if (pv.loop && !pv.live) firePreview(pv.url);
+  syncLibTools();
+};
+$('fxstop').onclick = () => stopPreview();
 $('fxdrop').onclick = () => $('fxfile').click();
 $('fxfile').onchange = (e) => uploadFX(e.target.files[0]);
 addEventListener('dragover', (e) => { e.preventDefault(); $('fxdrop').classList.add('hot'); });
@@ -290,11 +888,116 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+/* ---------- CAST SIM (src/sim.js) ----------
+   Everything below is glue: buttons in, caption out. The behaviour lives in the
+   real Hero.useSkill, so a cast here is a cast in the match. */
+const sim = createSim(G, {
+  hero: () => heroes[active],
+  allies: () => heroes,
+  effects: () => effects,
+  announce: (h, sk) => saySkill(sk),
+  caption: (t) => {
+    const el = $('simcap');
+    el.textContent = t;
+    el.className = sim.faults ? 'bad' : (sim.stats.blocked || sim.stats.forced ? 'warn' : '');
+  },
+  fault: (msg) => { flash(msg, '#ff3b5c'); const el = $('simcap'); el.textContent = msg; el.className = 'bad'; },
+});
+G.timeScale = 1;
+let simOn = false, simNext = 0, simSeq = 1;
+
+function saySkill(sk) {
+  const el = $('simsay');
+  el.textContent = (sk.key || '') + ' · ' + sk.name;
+  el.classList.add('on');
+  saySkill.t = G.time + (sk.ult ? 1.6 : 1.1);
+}
+
+function simToggle(force) {
+  simOn = force === undefined ? !simOn : !!force;
+  $('simon').textContent = simOn ? 'on' : 'off';
+  $('simon').classList.toggle('on', simOn);
+  if (simOn) { if (!sim.on) sim.setTargets(sim.n); sim.setFXVisible(true); stopPreview(); }
+  else { sim.setTargets(0); sim.setFXVisible(false); sim.reset(); }   // reset walks the hero home and drops MOVE
+  syncMove();
+  sim.tickCaption();
+}
+
+/* simSeq: what auto fires next — 0 = basic, 1..3 = skills Q,E,R — so auto always
+   continues from the button you just pressed instead of restarting on it. */
+function doCast(i) {
+  if (!simOn) simToggle(true);
+  stopPreview();
+  sim.cast(i);
+  simSeq = (i + 2) % 4;
+  simNext = G.time + 0.45;
+  sim.tickCaption();
+}
+function doBasic() {
+  if (!simOn) simToggle(true);
+  stopPreview();
+  sim.basic();
+  simSeq = 1;
+  simNext = G.time + 0.3;
+  sim.tickCaption();
+}
+
+/* auto = re-cast when the stage is clear, so long abilities (an 8 s dome) hold
+   the queue instead of stacking on top of themselves */
+function tickSim(dt, rdt) {
+  const say = $('simsay');
+  if (say.classList.contains('on') && G.time > (saySkill.t || 0)) say.classList.remove('on');
+  if (!sim.on) return;
+  sim.update(dt);
+  if ($('simauto').classList.contains('on') && !effects.length && G.time > simNext) {
+    if (simSeq === 0) sim.basic(); else sim.cast(simSeq - 1);
+    simSeq = (simSeq + 1) % 4;
+    simNext = G.time + 0.5;
+    sim.tickCaption();
+  }
+  if (G.time - (sim.tick || 0) > 0.25) { sim.tick = G.time; sim.tickCaption(); }
+}
+function setSpeed(i) {
+  G.timeScale = SIM_SPEEDS[i] || 1;
+  sim.speed = G.timeScale;                 // the caption quotes this, so it must not drift
+  for (let k = 0; k < 3; k++) $('sp' + (k + 1)).classList.toggle('on', k === i);
+}
+function setTargets(n) {
+  sim.setTargets(n);
+  for (const k of SIM_TARGETS) $('tg' + k).classList.toggle('on', k === n);
+  sim.tickCaption();
+}
+
+function syncPanel() {
+  const h = heroes[active], d = HERO_DEFS[active], c = cfg[d.id];
+  document.documentElement.style.setProperty('--c', '#' + d.color.toString(16).padStart(6, '0'));
+  $('gname').textContent = d.name;
+  $('tris').textContent = gatherStats(h.rig.glb ? h.body : h.group).tris.toLocaleString();
+  $('hgt').textContent = (2.4 * h.tunScale).toFixed(2) + ' m';
+  $('sz').value = h.tunScale;
+  for (const row of $('mot').children) {
+    const v = c.motion[row._key];
+    row._input.value = v;
+    row._out.textContent = (+v).toFixed(row._dec);
+  }
+  syncPlacement();
+  syncAnim();
+  measureFit();
+  syncFX();
+}
+
 /* ---------- boot ---------- */
 (async () => {
-  G.glbSkins = await ensureGLBSkins();
+  /* the tuning is read FIRST now, because its `model` field can point a hero at a
+     different file than the manifest's <id>.glb — the skins are what that chooses */
   cfg = await ensureTuning();
   G.glbTuning = cfg;
+  G.glbSkins = await ensureGLBSkins(cfg);
+  for (const d of HERO_DEFS) {                       // normalise for the editor
+    const c = cfg[d.id];
+    c.fxP = clampFX(c.fxP, fxKind(c.fx || ''));
+    for (let i = 0; i < FX_SLOTS; i++) fxEdit(cfg, d.id, i);   // materialise every slot
+  }
   fxBank = await loadFXBank(cfg);
   G.fxBank = fxBank;
 
@@ -314,35 +1017,63 @@ addEventListener('resize', () => {
   });
 
   buildSliders();
+  buildAnim();
+  buildChips();
   setActive(0);
   setAction('idle');
+  refreshLib();
 
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
-    const dt = Math.min(clock.getDelta(), 0.05);
+    const rdt = Math.min(clock.getDelta(), 0.05);
+    /* Slow motion scales dt ONCE, here, so the hero, the effects, the sim and the
+       camera all slow together — a bench that slows only the FX would lie about
+       timing, and timing is most of what an effect is. */
+    const dt = rdt * G.timeScale;
     G.time += dt;
     controls.update();
     const h = heroes[active];
-    h.attackAnim = Math.max(0, h.attackAnim - dt * 5);
-    h.castAnim = Math.max(0, h.castAnim - dt * 2.2);
-    h.hurtAnim = Math.max(0, h.hurtAnim - dt * 4);
+    /* Who owns the body (MOTION-AUDIT F4/F5). While the bench is installed, sim.update
+       calls the REAL Hero.update, which decays attackAnim/castAnim/hurtAnim and ticks
+       hurtT/comboT — so this loop must not decay them a second time, or every timing
+       read here runs at 2× the match. Off, this loop IS the owner, so it still does. */
+    if (!sim.on) {
+      h.attackAnim = Math.max(0, h.attackAnim - dt * 5);
+      h.castAnim = Math.max(0, h.castAnim - dt * 2.2);
+      h.hurtAnim = Math.max(0, h.hurtAnim - dt * 4);
+    }
     if (action === 'attack' && h.attackAnim <= 0) h.attackAnim = 1;   // loop the preview
     if (action === 'cast' && h.castAnim <= 0) h.castAnim = 1;
     if (action === 'hurt' && h.hurtAnim <= 0) h.hurtAnim = 1;
-    const spd = action === 'walk' ? 1 : 0;
-    if (h.rig.glb) {
-      h.animateGLB(dt, G, spd);
-    } else {
-      animateRig(h.rig, dt, {
-        speed: clamp(spd, 0, 1.4), time: G.time, attack: h.attackAnim,
-        cast: h.castAnim, dead: h.downed, hurt: h.hurtAnim,
-        style: h.def.style, block: h.def.id === 'aegis',
-      });
+    /* …and it owns the POSE too, not just the decay. `animateGLB` advances `_stepT`
+       itself and the mixer has its own clock, so a second call per frame doubles the walk
+       cadence and runs the clip at 2× — the same class of bug, one more node down.
+       When the bench is off, this loop is the only thing that poses anything, so it
+       still does, and there is no velocity here to measure (spd is an intent, not a lie). */
+    if (!sim.on) {
+      const spd = action === 'walk' ? 1 : 0;
+      if (h.rig.glb) {
+        h.animateGLB(dt, G, spd);
+        if (h.anim) h.poseClips(dt, spd);
+      } else {
+        animateRig(h.rig, dt, {
+          speed: clamp(spd, 0, 1.4), time: G.time, attack: h.attackAnim, recoil: h.recoil,
+          cast: h.castAnim, dead: h.downed, hurt: h.hurtAnim,
+          style: h.def.style, block: h.def.id === 'aegis',
+        });
+      }
     }
     for (let i = effects.length - 1; i >= 0; i--) {
-      if (!effects[i].update(dt)) effects.splice(i, 1);
+      const e = effects[i];
+      if (!e.update(dt)) { if (e.dispose) e.dispose(); effects.splice(i, 1); }
     }
+    if (G.time - (measureFit.t || 0) > 0.3) { measureFit.t = G.time; measureFit(); }
+    tickPreview(dt);
+    tickSim(dt, rdt);
+    sim.applyShake(camera);
     renderer.render(scene, camera);
+    sim.clearShake(camera);
+    $('simflash').style.opacity = (sim.flash() * 0.55).toFixed(3);
   });
   flash('STUDIO READY — TUNE & SAVE', '#7cf9ff');
 })();

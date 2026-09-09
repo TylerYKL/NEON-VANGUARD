@@ -26,7 +26,9 @@ animation, sound effect and music cue is generated at runtime.
 | `neon-vanguard.html` | the game — 3 switchable operatives, waves, boss, ultimate chain, audio |
 | `character-bay.html` | character turntable viewer — orbit, poses, weapon detail, ability preview |
 | `model-viewer.html` | art-direction tool — drop any GLB (Tripo/Meshy) next to the procedural rig, see tri/mat/bone cost |
+| `hero-studio.html` | Hero Studio — tune uploaded skins (size / placement / motion) and edit each hero's skill effects |
 | `concept/*.jpg` | rendered concept sheets (art-direction target for Phase 3) |
+| `models/ref/` | bind-pose sheets for the three heroes + **`RIG-SPEC.md`**, the contract a rigged `.glb` must satisfy to animate |
 
 ## Play it
 
@@ -76,12 +78,19 @@ pose buttons drive the procedural rig (idle / move / attack / cast / downed).
 
 ```bash
 npm install          # three + esbuild (+ puppeteer for the smoke test)
-node build.mjs       # bundles src/ and inlines it into neon-vanguard.html and character-bay.html
+node build.mjs       # bundles src/ into neon-vanguard / character-bay / model-viewer / hero-studio .html
 
 # headless — plain Node, no browser, run these first
 node tools/lighttest.mjs # 35 assertions: the scene's point-light count never changes
 node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materials, pooling leak check
-node tools/glbtest.mjs   # 10 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+node tools/glbtest.mjs   # 25 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+node tools/skintest.mjs  # 173 assertions: uploaded skins, hero_tuning.json v1→v3, per-skill FX slots + pooling,
+                       #   the clip resolver, the mixer (and its absence), the boot clip report
+node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
+node tools/simtest.mjs   # 41 assertions: the cast bench — 9 abilities + basics run, expire and leak nothing
+node tools/animcheck.mjs # read-only review of the motion layer: feet vs deck, GLB slam float, clips per file
+node tools/fxsample.mjs  # writes + validates the AEGIS sample skill FX (see FX-AEGIS.md)
+node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB in models/uploads/
 
 # headless art loop — look at the characters without a browser
 node tools/charpreview.mjs [aegis|lyra|nyx|all]        # run the real rig + animator, dump tris to JSON
@@ -116,8 +125,12 @@ src/devtools.js  the dev overlay (backtick): sliders, cheats, perf, JSON round-t
 src/showcase.js  Character Bay entry point (studio lighting, turntable, pose driver)
 src/viewer.js    Model Viewer entry point (GLB drop + procedural rig side-by-side)
 src/gltfutil.js  DOM-free GLB parse / stats / normalise (shared by viewer + glbtest)
-src/glbskin.js   loads uploaded hero GLBs (models/uploads/*.glb); procedural fallback per hero
-src/studio.js    Hero Studio entry: size / action-motion / skill-FX tuning, saved as hero_tuning.json
+src/glbskin.js   loads uploaded hero GLBs + their clips, models/uploads/hero_tuning.json (v3), and prints
+               the boot clip report — what bound, what is not in the file, what one clip two slots claimed
+src/fxpack.js    skill-effect layer: per-skill slots, parameter clamping, pooled clones, video + light reuse
+src/studio.js    Hero Studio entry: size / placement / action-motion / per-skill FX editor → hero_tuning.json
+src/sim.js       CAST SIM — the studio bench: real useSkill() + real move()/update() + real FX against stand-in
+                 targets, MOVE + dash, slow-mo
 src/ui.js        HUD binding (DOM overlay)
 src/util.js      math / material / procedural-texture helpers
 ```
@@ -134,6 +147,10 @@ src/util.js      math / material / procedural-texture helpers
 * `?shot=1` in the URL enables `preserveDrawingBuffer` for headless screenshots.
 * **Enemies are pooled per type.** `spawnEnemy` reuses an instance via `reset()` rather than rebuilding the
   mesh tree; overflow calls `disposeMeshes()`. Don't `new Enemy()` in gameplay code.
+* **Uploaded skill effects borrow, they never own.** `fxpack.spawnFX()` pulls a subtree from a per-file free
+  list, reuses cached material sets, shares one `<video>` + `VideoTexture` per clip (refcounted) and borrows a
+  light from the fixed pool. So: never `disposeObj()` a spawned effect, and never `dispose()` its materials
+  either — call `kill()` (idempotent, wired to the coroutine's `dispose()` so a run reset releases it too).
 * **Telegraphs come from a pool too** (`fx.telegraph` / `tellSet` / `tellRelease`). Always release on death
   or interrupt or you will starve the pool of 28.
 * Particle counts pass through `fx.pMul` and shake through `fx.shakeMul` — both driven by the settings.
@@ -164,6 +181,74 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 
 `src/balance.js` is the single source of truth — don't reintroduce balance literals into gameplay files.
 `applyBalance()` pushes values into `HERO_DEFS` / `ENEMY_TYPES`.
+
+### Hero Studio — skins and skill effects
+
+> Want a worked example with real files? **[`FX-AEGIS.md`](FX-AEGIS.md)** — four sample skill effects for
+> AEGIS (in `models/uploads/`), the assign → tune → save loop, what `● REC` records, and every FX slider with
+> its range. Regenerate them with `node tools/fxsample.mjs`.
+>
+> The layer *under* the FX — how a hero is posed, how it walks, how an attack starts — is reviewed in
+> **[`MOTION-AUDIT.md`](MOTION-AUDIT.md)**; `node tools/animcheck.mjs` re-measures its numbers (and refuses to
+> pass if a per-frame path starts allocating again).
+
+`hero-studio.html` is the art-direction side of the upload pipeline. It boots the real `Hero` class with the
+GLBs from `models/uploads/`, so what you see is what the match will draw. Everything is written to
+`models/uploads/hero_tuning.json`, which the game re-reads on every `startGame()` — tune, SAVE, then
+restart the run; no page reload. Files already parsed are reused, so a restart only pays for what changed.
+That file is gitignored — it is this workspace's session, not the game; `git add -f` it when a setup is worth
+shipping. At boot the game prints what it made of it: `[clips] aegis (aegis-rig.glb): bound idle=Aegis Idle
+walk=Walk … NOT IN FILE: Run02`, a warning line only when something failed to bind, so a shipped tuning file
+that names a clip the file does not have says so where it is actually played.
+Two rows at the top of the panel decide what the hero *is*: **SKIN FILE** points a hero at any `.glb` in the
+dropbox instead of `models/uploads/<id>.glb`, and **CLIPS** binds that file's animation clips to the hero's
+five states (`auto` resolves by name; `clips on/off` ignores them entirely and gives you the v2 behaviour). A
+file with no clips — which is every file in `models/uploads/` today — keeps the transform layer it always had.
+
+The panel ends in a **CAST SIM**: `basic · Q · E · R · ⟳ auto`, 0/3/6 targets, `1× · ½× · ¼×` slow motion and a
+**MOVE** row (`idle · walk · strafe · circle` + `dash`). It calls the real `Hero.useSkill` *and* the real
+`Hero.move`/`Hero.update`, so you judge an uploaded effect against the ability's own rings, particles, shake,
+knockback and footwork instead of on an empty stage — a slam that carries the hero 1.18 m carries your FX along
+with it if its `anchor` row says *follow hero*. Turning the bench on hands the body over to the hero: the `ACTION`
+buttons can only overlay a pose, and walk speed is measured off real velocity rather than assumed.
+
+Placement needs that framing: a GLB exported around its own centre is *fitted* by the loader (centred, lifted
+by half its height), and `pos` is an **adjustment** on top of it — not an absolute position. The same lift is
+carried through the size multiplier, so scaling a hero to 1.35 still leaves its feet on the deck. `node
+tools/herofit.mjs` measures the real `models/uploads/*.glb` and asserts it.
+
+```bash
+python3 -m http.server 8080 --bind 0.0.0.0 --directory . &   # the pages
+python3 tools/upload_server.py                                # the :8081 dropbox (save + file list)
+```
+
+| Panel | Writes |
+|---|---|
+| SIZE / PLACEMENT (x, y, z, yaw) | `scale`, `pos`, `yawDeg` — offsets sit **on top of** the loader's own fit, so 0/0/0 is already right; sliders + type-in boxes, a feet/head readout, `auto-lift` and `reset` |
+| ACTION MOTION | `motion` — step rate, bob, lean, lunge, twist, cast lean, hurt recoil, recoil kick, idle sway, fall speed |
+| SKILL EFFECT | `fx` / `fxOn` / `fxP` (the shared slot) and `fxSlots[0..2]` — one effect per skill, Q / E / R |
+| LIBRARY · models/uploads | `▶` previews any file at the hero **without assigning it** (params via `fxPreviewFor`, always a clamped copy), `⟳ loop` re-fires it, `all · glb · video` filters |
+
+An effect is a **`.glb` prop** or a **video billboard** (`.mp4` / `.webm` / `.ogv`). Drop it on the panel,
+record it from the studio canvas (`● REC` captures the slot's own playback and saves `<id>-s<n>-fx.webm`),
+or pick a file already in `models/uploads/` from the LIBRARY list — that path needs no re-upload, and
+because the effect bank is keyed by **URL**, the same file can serve several heroes or slots for free.
+
+Config shape (v2; a v1 file still loads — its hero-wide `fx` becomes the shared slot):
+
+```json
+{ "aegis": {
+    "scale": 1.0, "pos": { "x": 0, "y": 0, "z": 0 }, "yawDeg": 0, "motion": { "bob": 0.06 },
+    "fx": "models/uploads/aegis-fx.glb", "fxOn": true, "fxP": { "scale": 1.2, "tint": "#ff8a2b" },
+    "fxSlots": [null, { "src": "models/uploads/aegis-s1-fx.glb", "on": true, "p": { "y": 0.4 } }, null]
+} }
+```
+
+A slot entry's `p` block is the whole look: `scale y dur grow spin rise fade opacity light` (+ `tint`),
+`blend` for props, `rate vblend face loop` for video. Every value is clamped in
+`fxpack.clampFX()` when the file is read, so a hand-edited JSON cannot push a NaN into the bloom chain.
+Resolving one cast is `fxpack.fxFor(tuning, heroId, slot)`: a per-skill entry wins, otherwise the shared
+`fx` plays, otherwise nothing — and `Hero.playFX(G, i)` is called with the skill index from `useSkill`.
 
 ### Render budget
 
