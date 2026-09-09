@@ -69,6 +69,7 @@ stack caps. Your build shows on the pause screen and the end-of-run summary.
 **Gamepad:** left stick move, right stick aim, RT fire, B dash, X/Y skills, LT ultimate, d-pad switch, Start pause.
 
 **Character Bay controls:** drag to orbit · scroll to zoom · `1 2 3` switch · `Space` fire signature ·
+`F` toggles **FOLLOW** (keeps the subject framed) / **FREE VIEW** (keeps your composition) ·
 pose buttons drive the procedural rig (idle / move / attack / cast / downed).
 
 ## Develop

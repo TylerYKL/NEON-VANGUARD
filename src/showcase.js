@@ -179,6 +179,7 @@ const models = HERO_DEFS.map((d) => {
 const S = {
   index: 0, model: models[0],
   yaw: 0.62, pitch: 0.20, dist: 7.6, targetY: 1.78,
+  cameraMode: 'follow',
   spin: true, pose: 'idle', poseT: 0, attack: 0, cast: 0,
   drag: false, lastX: 0, lastY: 0, time: 0, flash: 0,
   detail: false, focus: new THREE.Vector3(0, 1.78, 0),
@@ -320,6 +321,32 @@ document.getElementById('spin').onclick = (e) => {
   e.currentTarget.classList.toggle('on', S.spin);
   e.currentTarget.textContent = S.spin ? 'AUTO-SPIN ON' : 'AUTO-SPIN OFF';
 };
+
+/* ---------- camera view ---------- */
+const cameraModeEl = document.getElementById('cameraMode');
+const cameraModeButtons = cameraModeEl.querySelectorAll('[data-camera-mode]');
+function setCameraMode(mode, silent = false) {
+  if (mode !== 'follow' && mode !== 'free') return;
+  S.cameraMode = mode;
+  // A free view should hold its composition; auto-spin can still be
+  // re-enabled explicitly with the separate control.
+  if (mode === 'free' && S.spin) {
+    S.spin = false;
+    const spinButton = document.getElementById('spin');
+    spinButton.classList.remove('on');
+    spinButton.textContent = 'AUTO-SPIN OFF';
+  }
+  cameraModeButtons.forEach((b) => {
+    const active = b.dataset.cameraMode === mode;
+    b.classList.toggle('on', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+  cameraModeEl.dataset.mode = mode;
+  if (!silent && SFX.ready) SFX.play('uiClick');
+}
+cameraModeButtons.forEach((b) => {
+  b.onclick = () => setCameraMode(b.dataset.cameraMode);
+});
 /** frame the actual weapon mesh rather than a guessed height */
 function focusPoint() {
   if (!S.detail) return new THREE.Vector3(0, S.targetY, 0);
@@ -350,6 +377,7 @@ addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === '1') select(0); if (k === '2') select(1); if (k === '3') select(2);
   if (k === ' ') { e.preventDefault(); signature(); }
+  if (k === 'f') setCameraMode(S.cameraMode === 'follow' ? 'free' : 'follow');
   if (k === 'm') SFX.toggleMute();
 });
 addEventListener('resize', () => {
@@ -376,8 +404,10 @@ function frame(now) {
 
   if (S.spin && !S.drag) S.yaw += dt * 0.24;
 
-  // camera orbit around the current focus (body centre, or the weapon in detail mode)
-  S.focus.lerp(focusPoint(), Math.min(1, dt * 4.5));
+  // Follow mode keeps the framing on the body or weapon detail. Free mode
+  // leaves the orbit pivot where the viewer put it, so changing pose/detail
+  // cannot pull the camera away from a hand-picked composition.
+  if (S.cameraMode === 'follow') S.focus.lerp(focusPoint(), Math.min(1, dt * 4.5));
   const cd = S.dist, cp = S.pitch;
   const cx = S.focus.x + Math.sin(S.yaw) * Math.cos(cp) * cd;
   const cz = S.focus.z + Math.cos(S.yaw) * Math.cos(cp) * cd;
@@ -456,4 +486,5 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-window.BAY = { S, select, signature, models };
+setCameraMode('follow', true);
+window.BAY = { S, select, signature, setCameraMode, models };

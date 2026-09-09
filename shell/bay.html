@@ -74,6 +74,11 @@
   .act.hero{background:linear-gradient(90deg,var(--c),#fff);color:#04070f;font-weight:800;border:none;
             clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)}
   .act.on{color:#04070f;background:var(--c);border-color:var(--c);font-weight:700}
+  #cameraMode{display:flex;align-items:center;gap:3px;padding:3px 4px;background:rgba(8,14,28,.8);border:1px solid rgba(24,224,255,.25)}
+  #cameraMode .camLabel{font-size:8px;letter-spacing:.14em;color:#8aa;opacity:.7;padding:0 5px 0 3px}
+  #cameraMode .cam{cursor:pointer;font-family:var(--font);text-transform:uppercase;letter-spacing:.13em;font-size:8px;padding:7px 9px;color:#9aa;background:transparent;border:1px solid transparent;transition:all .15s}
+  #cameraMode .cam:hover{color:#fff;border-color:rgba(24,224,255,.55)}
+  #cameraMode .cam.on{color:#04070f;background:var(--c2);border-color:var(--c2);font-weight:700}
   .sep{width:1px;height:26px;background:rgba(255,255,255,.14);margin:0 4px}
   #hint{position:fixed;bottom:66px;left:50%;transform:translateX(-50%);font-size:8.5px;opacity:.32;letter-spacing:.24em;z-index:5}
   #back{display:inline-block;margin-top:8px;font-size:8.5px;letter-spacing:.2em;color:#8fd8ff;text-decoration:none;
@@ -111,9 +116,15 @@
   <div id="abilities"></div>
 </div>
 
-<div id="hint">Drag to orbit · scroll to zoom · 1 2 3 switch · Space fire signature</div>
+<div id="hint">Drag to orbit · scroll to zoom · F toggles follow/free · 1 2 3 switch · Space fire signature</div>
 <div id="bottom">
   <div id="poses" style="display:flex;gap:6px"></div>
+  <div class="sep"></div>
+  <div id="cameraMode" data-mode="follow" role="group" aria-label="Camera view mode">
+    <span class="camLabel">Camera</span>
+    <button class="cam on" data-camera-mode="follow" aria-pressed="true" title="Keep the camera framed on the subject">Follow</button>
+    <button class="cam" data-camera-mode="free" aria-pressed="false" title="Keep the current camera composition">Free view</button>
+  </div>
   <div class="sep"></div>
   <button class="act hero" id="sig">▶ FIRE SIGNATURE</button>
   <button class="act on" id="spin">AUTO-SPIN ON</button>
