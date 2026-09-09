@@ -106,6 +106,9 @@ function check(name, cond, detail = '') {
 }
 
 const { ensureGLBSkins, ensureTuning, loadFXBank, DEFAULT_MOTION } = await import('../src/glbskin.js');
+/* the rigged fixture, so the v3 paths (model override + clips) have something real to load */
+const { riggedGLB, FIXTURE_CLIPS, buildRigged } = await import('./lib/rigged.mjs');
+const RIG_CLIPS = buildRigged().clips.map((c) => ({ name: c.name, duration: c.duration }));
 const skins = await ensureGLBSkins();
 check('all three skins loaded', ['aegis', 'lyra', 'nyx'].every((id) => skins[id]),
   'got: ' + Object.keys(skins).join(','));
@@ -604,6 +607,86 @@ check('a restart only pays for what changed', Object.keys(bank3).length === Obje
   check('a skinned FX clone never disposes the template material',
     skEntry.template.getObjectByName('body').material !== null, 'template material gone');
 
+}
+
+
+/* ---------- v3: the skin file is tunable, and clips ride along ---------- */
+{
+  const { clipFor, clipOff, clampAnim, DEFAULT_ANIM } = await import('../src/glbskin.js');
+  const before = FILES['models/uploads/hero_tuning.json'];
+  FILES['models/uploads/aegis-rig.glb'] = await riggedGLB();
+  FILES['models/uploads/hero_tuning.json'] = new TextEncoder().encode(JSON.stringify({
+    aegis: {
+      model: 'models/uploads/aegis-rig.glb',
+      anim: { on: 1, idle: 'Aegis Idle', walk: 'auto', attack: 'nope-not-here',
+              hurt: 'off', death: 'auto', speed: 99, fade: 'x' },
+      scale: 1,
+    },
+    nyx: { model: 'models/uploads/nyx.png', anim: { on: 0 } },
+  }));
+  const t3 = await ensureTuning(true);
+  check('v3: anim is read and clamped — speed to the ceiling, an unparseable fade to the default',
+    t3.aegis.anim.idle === 'Aegis Idle' && t3.aegis.anim.walk === 'auto' &&
+    t3.aegis.anim.speed === 4 && t3.aegis.anim.fade === DEFAULT_ANIM.fade && t3.aegis.anim.on === 1,
+    JSON.stringify(t3.aegis.anim));
+  check('…a missing anim block is the defaults, not a half-written object',
+    t3.lyra.anim.idle === 'auto' && t3.lyra.anim.fade === DEFAULT_ANIM.fade && t3.lyra.anim.on === 1,
+    JSON.stringify(t3.lyra.anim));
+  check('…on:0 and on:false both read as off; anything else reads as on',
+    t3.nyx.anim.on === 0 && clampAnim({ on: false }).on === 0 && clampAnim({ on: 'sure' }).on === 1);
+  check('…model is only honoured for a real skin file, never for a stray string',
+    t3.aegis.model === 'models/uploads/aegis-rig.glb' && t3.nyx.model === null && t3.lyra.model === null,
+    t3.aegis.model + ' / ' + t3.nyx.model);
+  check('…a name that could break the next write of the file is scrubbed, not trusted',
+    !/[<>&"']/.test(clampAnim({ idle: '<b>x</b>' }).idle) && clampAnim({ idle: '  Walk  ' }).idle === 'Walk',
+    JSON.stringify(clampAnim({ idle: '<b>x</b>' }).idle));
+
+  check('clipFor resolves auto through the slot aliases',
+    ['idle', 'walk', 'attack', 'death'].every((k) => clipFor(RIG_CLIPS, 'auto', k)) &&
+    clipFor(RIG_CLIPS, 'auto', 'hurt') === null,
+    ['idle', 'walk', 'attack', 'death', 'hurt'].map((k) => {
+      const c = clipFor(RIG_CLIPS, 'auto', k); return k + ':' + (c ? c.name : 'none');
+    }).join(' '));
+  check('…an explicit name matches case-insensitively and by substring',
+    clipFor(RIG_CLIPS, 'aegis idle', 'idle').name === 'Aegis Idle' &&
+    clipFor(RIG_CLIPS, 'DEATH', 'death').name === 'Death01');
+  check('…and a name that is not there is null — never a silent substitute; off/none/empty mean no clip',
+    clipFor(RIG_CLIPS, 'nope-not-here', 'attack') === null && clipFor(RIG_CLIPS, 'off', 'walk') === null &&
+    clipFor(RIG_CLIPS, '', 'idle') === null && clipFor([], 'auto', 'idle') === null &&
+    clipFor(null, 'auto', 'idle') === null);
+  check('…with clipOff saying so, which is what keeps a deliberate “off” out of the missing list',
+    clipOff('off') && clipOff('NONE') && clipOff('') && clipOff(null) && !clipOff('off-duty walk') &&
+    !clipOff('auto'), 'clipOff from glbskin.js');
+
+  const skins3 = await ensureGLBSkins(t3);
+  check('the tuning’s model wins over the manifest, and its clips come back with it',
+    skins3.aegis.url === 'models/uploads/aegis-rig.glb' &&
+    skins3.aegis.clips.length === FIXTURE_CLIPS.length,
+    'url ' + skins3.aegis.url + ' clips ' + skins3.aegis.clips.length);
+  check('…a hero with no override still gets <id>.glb, and an empty clip list — not undefined',
+    skins3.lyra.clips.length === 0 && Array.isArray(skins3.lyra.clips) &&
+    skins3.lyra.url === 'models/uploads/lyra.glb', 'clips ' + JSON.stringify(skins3.lyra.clips.length));
+  check('…and the template is reused per URL across calls (a restart is not a re-parse)',
+    skins3.aegis.template === (await ensureGLBSkins(t3)).aegis.template);
+
+  const G3 = { scene: new THREE.Scene(), time: 0, glbSkins: skins3, glbTuning: t3,
+    addEffect: () => {}, lights: { acquire: () => null, release: () => {}, set: () => {} } };
+  const h3 = new Hero(HERO_DEFS[0], G3, 0);
+  check('a rigged skin gives the hero a mixer, and every slot the file can fill',
+    !!h3.anim && h3.anim.used.idle === 'Aegis Idle' && h3.anim.used.walk === 'Walk' &&
+    h3.anim.used.death === 'Death01' && h3.anim.used.attack === undefined,
+    JSON.stringify(h3.anim && h3.anim.used));
+  check('…a name the tuner wrote that the file does not have is REPORTED, not substituted',
+    h3.anim.miss.length === 1 && h3.anim.miss[0] === 'nope-not-here', h3.anim.miss.join(','));
+  const G4 = { scene: new THREE.Scene(), time: 0, glbSkins: skins3,
+    glbTuning: { aegis: { scale: 1, pos: {}, yawDeg: 0, motion: {}, anim: { on: 0 } } },
+    addEffect: () => {}, lights: { acquire: () => null, release: () => {}, set: () => {} } };
+  const h4 = new Hero(HERO_DEFS[0], G4, 0);
+  check('anim.on = 0 leaves a rigged file exactly as v2 left it — no mixer at all',
+    h4.anim === null && !!h4.rig.glb, 'anim ' + h4.anim);
+  FILES['models/uploads/hero_tuning.json'] = before;
+  delete FILES['models/uploads/aegis-rig.glb'];
+  await ensureTuning(true);
 }
 
 console.log('\n' + (fail ? 'FAILURES: ' + fail : 'ERRORS none') + '  (' + pass + ' passed, ' + fail + ' failed)');

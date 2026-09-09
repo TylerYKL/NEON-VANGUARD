@@ -5,7 +5,7 @@ import {
 } from './rig.js';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import { addMat, metalMat, TAU, rand, clamp, damp, lerp, flatDist, angleTo, shortAngle, disposeObj } from './util.js';
-import { DEFAULT_MOTION } from './glbskin.js';
+import { DEFAULT_MOTION, DEFAULT_ANIM, ANIM_NAME_KEYS, clipFor, clipOff } from './glbskin.js';
 import { clampFX, fxFor, spawnFX } from './fxpack.js';
 import { ARENA } from './world.js';
 import { SFX } from './audio.js';
@@ -163,8 +163,42 @@ export class Hero {
          why a hardcoded restore (MOTION-AUDIT F1) left the whole body floating. */
       this.rig = { root: this.group, hips, hipsRest: 0, glb: true };
       this.hipsRest = this.rig.hipsRest;
+      /* ---------- clips (MOTION-AUDIT §4, phases B+C) ----------
+         Only built when the file actually carries something to play. A clip is data the
+         loader already handed us; the mixer is per-hero because the *bones* are per-hero
+         (phase A's `cloneRig` is what makes that meaningful — replaying a clip on a shared
+         skeleton would animate the whole squad at once). */
+      this.anim = null;
+      /* merged, so a hand-rolled or partial block still has every key — and note the
+         `on` test reads the MERGED value: the old short form treated "no tuning anim"
+         and "anim.on = 0" as the same thing, which turned the switch inside out. */
+      const A = Object.assign({}, DEFAULT_ANIM, tun.anim || {});
+      if (skin.clips && skin.clips.length && A.on) {
+        const mixer = new THREE.AnimationMixer(this.body);
+        const an = { mixer, act: {}, used: {}, miss: [], a: A, w: { idle: 1, walk: 0, attack: 0, hurt: 0, death: 0 } };
+        for (const slot of ANIM_NAME_KEYS) {
+          const clip = clipFor(skin.clips, A[slot], slot);
+          if (!clip) {
+            /* a name the tuner wrote that the file does not have is a *report*, not a
+               guess — but 'off'/'none'/'' is an answer, not a typo, so it stays quiet */
+            if (!clipOff(A[slot]) && A[slot] !== 'auto') an.miss.push(A[slot]);
+            continue;
+          }
+          an.used[slot] = clip.name;
+          const ac = mixer.clipAction(clip);
+          ac.setLoop(THREE.LoopRepeat, Infinity);
+          ac.enabled = true;
+          ac.setEffectiveTimeScale(A.speed);
+          ac.setEffectiveWeight(slot === 'idle' ? 1 : 0);
+          ac.play();
+          an.act[slot] = ac;
+        }
+        if (Object.keys(an.act).length) this.anim = an;
+        else mixer.stopAllAction();
+      }
       this.G.scene.add(this.group);
     } else {
+      this.anim = null;
       this.rig = buildHumanoid({
         accent: d.color, visor: d.color2, bulk: d.bulk, scale: d.scale,
         pauldrons: d.pauldrons, hood: d.hood, crest: d.crest, plate: d.plate,
@@ -1228,6 +1262,7 @@ export class Hero {
     const spd = Math.hypot(this.vel.x, this.vel.z) / this.def.speed;
     if (this.rig.glb) {
       this.animateGLB(dt, G, spd);
+      if (this.anim) this.poseClips(dt, spd);      // bones under the root transform
     } else {
       /* `recoil` (F7) is handed over here: the gun block in animateRig is what it drives. */
       animateRig(this.rig, dt, {
@@ -1300,6 +1335,38 @@ export class Hero {
 
   /* ---------- GLB skin motion: unrigged statues get game-feel transforms.
      Every coefficient is a studio-tunable motion parameter. ---------- */
+  /**
+   * Four envelopes in, five weighted layers out — the same state machine `animateRig`
+   * implements with sines, reading the animator's curves instead. Weights are damped by
+   * `anim.fade`, so a clip can never pop: three.js' own `fadeIn/fadeOut` needs the caller
+   * to know the edges of its transitions, and the edges here are analogue on purpose
+   * (walk follows speed, attack follows the envelope, death follows `downed`).
+   * The mixer writes the BONES; `animateGLB` still owns the ROOT — that is what lets a
+   * rigged file, a half-rigged file and a static mesh all go through this one line.
+   */
+  poseClips(dt, spd) {
+    const an = this.anim, A = an.a, w = an.w, act = an.act;
+    const nz = (v, hi) => (Number.isFinite(v) ? Math.min(hi, Math.max(0, v)) : 0);
+    const rate = A.fade > 0.005 ? 1 / A.fade : 400;
+    const die = this.downed ? 1 : 0;
+    const live = 1 - die;
+    const s = nz(spd, 1.4);
+    w.death = damp(w.death, die, rate, dt);
+    w.walk = damp(w.walk, Math.min(1, s) * live, rate, dt);
+    w.attack = act.attack ? damp(w.attack, nz(this.attackAnim, 1) * live, rate, dt) : 0;
+    w.hurt = act.hurt ? damp(w.hurt, nz(this.hurtAnim, 1) * live, rate, dt) : 0;
+    w.idle = Math.max(0, 1 - w.walk - w.attack - w.hurt - w.death);
+    /* `A.speed` is clamped at load, but the studio writes it live, and a NaN timeScale
+       becomes a NaN bone on the next sample — which poisons the bloom chain (§4.8). */
+    const sp = Number.isFinite(A.speed) ? A.speed : 1;
+    if (act.idle) act.idle.setEffectiveTimeScale(sp).setEffectiveWeight(w.idle);
+    if (act.walk) act.walk.setEffectiveTimeScale(sp * (0.55 + 0.75 * s)).setEffectiveWeight(w.walk);
+    if (act.attack) act.attack.setEffectiveTimeScale(sp).setEffectiveWeight(w.attack);
+    if (act.hurt) act.hurt.setEffectiveTimeScale(sp).setEffectiveWeight(w.hurt);
+    if (act.death) act.death.setEffectiveTimeScale(sp).setEffectiveWeight(w.death);
+    an.mixer.update(dt);
+  }
+
   animateGLB(dt, G, spd) {
     const b = this.body, M = this.motion, O = this.offset, B = this._basePos || ZERO3;
     const move = clamp(spd, 0, 1.4);

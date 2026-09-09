@@ -717,6 +717,27 @@ overcharge aura, a maxed coil and a particle per frame **for the rest of the run
 out to move the caster 1.18 m past where its uploaded effect was planted (F3), and that is a choice for the person
 making the effect, not one a bug fix should make for them.
 
+**v1.11.4 — the clips, now that the body is honest.** Every hero frame is four decaying envelopes, and until this
+point an uploaded skin had nothing to plug them into: the loader had `gltf.animations` in hand and dropped it. Now
+`glbskin` keeps the clips, `clipFor()` resolves a slot by exact name, substring or alias list, and
+`Hero.poseClips()` blends five weighted layers — idle, walk, attack, hurt, death — with `walk` from the hero's
+measured velocity, `attack` from `attackAnim`, `hurt` from `hurtAnim` and `death` from `downed`, all cross-faded by
+one `anim.fade` number. It is a *layer*, not a mode: `animateGLB` still owns the root, so bob/lean/lunge keep
+working on top of a clip, a file with half its states rigged plays the half it has, and a file with no clips (all
+seven files in `models/uploads/`, still) behaves exactly as it did — plus `anim.on: 0` to opt out per hero. The
+studio got the two rows that make this reachable without a code change: pick which `.glb` a hero wears, and name
+the clip for each state — the field echoes back what it resolved to, so `not in file` is visible instead of being
+inferred from a hero that stands still. `hero_tuning.json` is v3; v1 and v2 files load untouched.
+
+Eleven new measurements in `animcheck` are the proof, run against a rigged 3-bone fixture the repo generates in
+memory (`tools/lib/rigged.mjs`) because nothing in `models/uploads/` has a skeleton: an idle clip lifts hips no
+transform layer can reach; the walk clip rocks an axis the idle clip never touches; `attackAnim` takes the spine;
+`downed` puts the hips on the floor and standing back up hands the weight over *through the fade*; one
+`poseClips` call is exactly one frame of `mixer.time`; two heroes playing the *same* clip animate independently
+(that is phase A earning its keep); and a poisoned `speed` or NaN `spd` cannot put a NaN in a bone. Two bugs fell
+out of writing it: `anim.on: 0` did not switch anything off (the merge happened after the test), and a deliberate
+`off` in a name field was reported as a typo — the second is why `clipOff()` exists as its own function.
+
 **Judging a file before you spend a slot.** The LIBRARY list got its own preview: every row ends in `▶`,
 which fires that file at the hero through the same `spawnFX` a real cast uses, with the params the file would
 actually cast with (edited slot → shared → this hero's other slot → kind defaults, via `fxpack.fxPreviewFor`).

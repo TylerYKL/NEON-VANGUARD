@@ -193,6 +193,11 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 GLBs from `models/uploads/`, so what you see is what the match will draw. Everything is written to
 `models/uploads/hero_tuning.json`, which the game re-reads on every `startGame()` — tune, SAVE, then
 restart the run; no page reload. Files already parsed are reused, so a restart only pays for what changed.
+Two rows at the top of the panel decide what the hero *is*: **SKIN FILE** points a hero at any `.glb` in the
+dropbox instead of `models/uploads/<id>.glb`, and **CLIPS** binds that file's animation clips to the hero's
+five states (`auto` resolves by name; `clips on/off` ignores them entirely and gives you the v2 behaviour). A
+file with no clips — which is every file in `models/uploads/` today — keeps the transform layer it always had.
+
 The panel ends in a **CAST SIM**: `basic · Q · E · R · ⟳ auto`, 0/3/6 targets, `1× · ½× · ¼×` slow motion and a
 **MOVE** row (`idle · walk · strafe · circle` + `dash`). It calls the real `Hero.useSkill` *and* the real
 `Hero.move`/`Hero.update`, so you judge an uploaded effect against the ability's own rings, particles, shake,

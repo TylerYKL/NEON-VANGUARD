@@ -123,6 +123,8 @@ else {
   tick(300);
   const after = feet();
   check('aegis (GLB): feet on the deck before the slam', Math.abs(before) < 0.02, 'feet ' + before.toFixed(3));
+  check('…and a file with no clips gives this hero no mixer at all (the v2 path, untouched)',
+    hero.anim === null && hero.rig.glb === true, 'anim ' + hero.anim);
   check('aegis (GLB): the leap is real — the hips leave their rest by ~1.5 m', peak > 0.9,
     'peak lift ' + peak.toFixed(2) + ' m (a hard-coded 0.95 baseline used to make this a float, not a jump)');
   check('aegis (GLB): ONE slam leaves the feet exactly where they were (MOTION-AUDIT F1)',
@@ -223,6 +225,71 @@ else {
     kicked < still - 0.1, 'shoulder.x ' + still.toFixed(3) + ' → ' + kicked.toFixed(3) + ' at recoil 1.6');
   check('…and a kick decays: 1.6 bleeds to 0 in the hero\u2019s own dt×6', (1.6 / (1 / 60 * 6)) > 15,
     '≈16 frames, i.e. a 0.27 s snap-back — longer than the shot\u2019s own flash');
+}
+
+
+/* ---------- 2d. a RIGGED skin: clips drive bones (MOTION-AUDIT §4 phase C) ---------- */
+{
+  const { clampAnim } = await import('../src/glbskin.js');
+  const { riggedGLB } = await import('./lib/rigged.mjs');
+  const g3 = await parseGLB(await riggedGLB());
+  const tpl3 = g3.scene;
+  normalizeToStage(tpl3, 2.4);
+  const clips3 = (g3.animations || []).filter((c) => c.duration > 0);
+  const G3 = {
+    scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(40, 1.6, 0.1, 200), time: 0,
+    addEffect: () => {}, lights: { acquire: () => null, release: () => {}, set: () => {} },
+    glbSkins: { aegis: { template: tpl3, clips: clips3, yaw: 0, url: 'aegis-rig.glb' } },
+    glbTuning: { aegis: { scale: 1, pos: {}, yawDeg: 0, motion: {}, anim: clampAnim(null) } },
+  };
+  const h3 = new Hero(HERO_DEFS[0], G3, 0);
+  const bone = (nm) => h3.body.getObjectByName(nm);
+  const restY = bone('hips').position.y;
+  const n = (x) => (+x).toFixed(3);
+  /* extremes, not instants: a curve sampled after an arbitrary number of frames can be
+     back at zero, and a test that fails once every few runs is worse than no test */
+  const run = (frames, spd, get) => {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < frames; i++) { h3.poseClips(1 / 60, spd); const v = get(); if (v < lo) lo = v; if (v > hi) hi = v; }
+    return [lo, hi];
+  };
+
+  check('the rigged hero got a mixer; the static-file hero did not', !!h3.anim && !!h3.anim.act.idle);
+  for (let i = 0; i < 24; i++) h3.poseClips(1 / 60, 0);
+  check('idle: a CLIP moved the hips — a height no transform layer can write',
+    Math.abs(bone('hips').position.y - restY) > 0.005, 'rest ' + n(restY) + ' → ' + n(bone('hips').position.y));
+  check('…and one poseClips call is exactly one frame of the mixer (never twice — invariant 18)',
+    Math.abs(h3.anim.mixer.time - 24 / 60) < 1e-9, 'mixer.time ' + n(h3.anim.mixer.time) + ' vs ' + n(24 / 60));
+  let [wlo, whi] = run(90, 1, () => bone('hips').rotation.x);
+  check('walk: the hips rock on their own axis, which no idle curve touches',
+    Math.max(-wlo, whi) > 0.05, 'hips.x ' + n(wlo) + '…' + n(whi));
+  h3.attackAnim = 1;
+  const [alo, ahi] = run(12, 1, () => bone('spine').rotation.x);
+  check('the attack envelope takes the spine over — weight off the envelope, not a state flag',
+    alo < -0.15, 'spine.x ' + n(alo) + '…' + n(ahi));
+  h3.attackAnim = 0; h3.downed = true;
+  const [dlo] = run(60, 0, () => bone('hips').position.y);
+  check('downed: the death clip owns the layer and puts the hips on the floor', dlo < 0.8,
+    'hips.y min ' + n(dlo));
+  h3.downed = false;
+  const [, yhi] = run(90, 0, () => bone('hips').position.y);
+  check('…and standing up hands the weight back to idle through the fade, not a switch',
+    yhi > 0.9 && h3.anim.w.death < 0.02, 'hips.y max ' + n(yhi) + ' · death weight ' + n(h3.anim.w.death));
+  h3.anim.a.speed = NaN; h3.poseClips(1 / 60, NaN);
+  check('a poisoned clip speed or a NaN spd cannot put a NaN in a bone',
+    Number.isFinite(bone('hips').position.y) && Number.isFinite(bone('hips').rotation.x) &&
+    Number.isFinite(h3.anim.mixer.time), 'hips.y ' + bone('hips').position.y);
+  h3.animateGLB(1 / 60, { time: 0 }, 1);
+  check('animateGLB still owns the ROOT while the mixer owns the bones (additive, not either/or)',
+    Math.abs(h3._stepT) > 0 && h3.body.position.lengthSq() > 0,
+    'stepT ' + n(h3._stepT) + ' · root |p| ' + n(h3.body.position.length()));
+  /* the squad must not share a pose: two heroes, two mixers, one clip library */
+  const h3b = new Hero(HERO_DEFS[0], { ...G3, scene: new THREE.Scene() }, 1);
+  h3.anim.mixer.setTime(0); h3b.anim.mixer.setTime(0.37);
+  for (let i = 0; i < 10; i++) { h3.poseClips(1 / 60, 1); h3b.poseClips(1 / 60, 1); }
+  check('two heroes playing the same clip animate independently (phase A is what allows this)',
+    h3.anim.mixer !== h3b.anim.mixer && Math.abs(bone('hips').rotation.x - h3b.body.getObjectByName('hips').rotation.x) > 1e-4,
+    'A ' + n(bone('hips').rotation.x) + ' vs B ' + n(h3b.body.getObjectByName('hips').rotation.x));
 }
 
 /* ---------- 3. the asset census (what a mixer would have to work with) ---------- */

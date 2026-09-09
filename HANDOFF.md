@@ -3,10 +3,10 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-09 (v1.11.3, MOTION-AUDIT F3–F8: the bench drives the body) ·
-`neon-vanguard.html` 797 KB · 21 modules in `src/`. Headless suites all pass: `lighttest` 35/35,
-`geocheck` clean, `glbtest` 25/25, `skintest` 153/153, `herofit` 18/18, `simtest` 56/56,
-`animcheck` 30/30, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
+Last verified: 2026-09-09 (v1.11.4, MOTION-AUDIT §4 B/C/D: GLB clips on a mixer) ·
+`neon-vanguard.html` 813 KB · `hero-studio.html` 756 KB · 21 modules in `src/`. Headless suites all pass:
+`lighttest` 35/35, `geocheck` clean, `glbtest` 25/25, `skintest` 168/168, `herofit` 18/18, `simtest` 56/56,
+`animcheck` 41/41, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
 before trusting anything visual, and say so plainly in the commit. See §6.
 
@@ -78,21 +78,25 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
 ├── screenshots/            12 gameplay + 7 character-bay captures
 ├── tools/                  headless puppeteer test suites (see §6)
 └── src/
-    ├── main.js      1474  bootstrap, post FX, input, gamepad, camera, wave director, draft,
+    ├── main.js      1481  bootstrap, post FX, input, gamepad, camera, wave director, draft,
     │                      hazards, settings, dev-tool wiring, the shared context object `G`
-    ├── heroes.js    1389  hero data, all 12 abilities, buffs, damage/heal, squad AI, playFX per skill slot
-    ├── sim.js         411  CAST SIM: the studio bench — real useSkill against stand-in targets + hooks
+    ├── heroes.js    1489  hero data, all 12 abilities, buffs, damage/heal, squad AI, playFX per skill slot,
+    │                        clips for a rigged skin (poseClips) — the single pose owner for both renderers
+    ├── sim.js         481  CAST SIM: the studio bench — real useSkill + real move/update against stand-in
+    │                        targets; MOVE modes + dash, hooks in/out, hero position restored
     ├── entities.js   704  projectile pool, enemy types + AI, elites, telegraph driver, pooling
     ├── audio.js      587  WebAudio synth toolkit, 38 SFX cues, adaptive music sequencer
     ├── showcase.js   459  character bay (separate entry point)
     ├── viewer.js     215  model viewer: GLB drop + procedural rig side-by-side (art tool)
     ├── gltfutil.js    78  DOM-free GLB parse/stats/normalise + the stage stamp a clone keeps (viewer/herofit)
-    ├── studio.js     913  Hero Studio: size / placement / motion / per-skill FX editor / CAST SIM → hero_tuning.json
-    ├── fxpack.js     454  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
-    ├── glbskin.js    159  uploaded hero skins + hero_tuning.json reader (v2) + URL-keyed effect bank
+    ├── studio.js    1053  Hero Studio: size / placement / motion / per-skill FX editor / CAST SIM /
+    │                        skin-file + clip binds → hero_tuning.json
+    ├── fxpack.js     468  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
+    ├── glbskin.js    257  uploaded hero skins (+ their clips) + hero_tuning.json reader (v3) + URL-keyed
+    │                        effect bank; the model override, clipFor/clampAnim/DEFAULT_ANIM live here
     ├── fx.js         431  pooled particles/rings/beams/sparks/telegraphs, shake, flash
     ├── world.js      311  arena, floor shader, baked skyline, billboards, rain, cover pylons
-    ├── rig.js        354  faceted humanoid rig (chamfer/seg + flat shading) + animator + weapons
+    ├── rig.js        358  faceted humanoid rig (chamfer/seg + flat shading) + animator + weapons
     ├── ui.js         205  HUD binding (DOM overlay)
     ├── devtools.js   180  the dev overlay (backtick): sliders, cheats, perf, JSON round-trip
     ├── pickups.js    169  charge shards + Charge Cores
@@ -170,7 +174,8 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
     its own, and even those come from a free list keyed by look and are *returned*, never `dispose()`d —
     disposing would drop a shader program's refcount between casts and make the next one recompile.
 14. **Studio tuning is clamped on read, never trusted.** `glbskin.ensureTuning()` + `fxpack.clampFX()` bound
-    every value in `hero_tuning.json` — scale, offsets, motion and all eleven FX parameters. That file is a
+    every value in `hero_tuning.json` — scale, offsets, motion, all twelve FX parameters, the skin file a hero
+    wears (`model`) and its clip binds (`anim.{on,idle,walk,attack,hurt,death,speed,fade}`). That file is a
     hand-editable input now, not a build input, and one unclamped NaN scale goes straight into the bloom chain
     and blacks out the frame (trap #1).
 
@@ -207,6 +212,13 @@ modifiers), `taken` (implants owned), `wave waveActive spawnQueue`, `hpScale dmg
     ~0.15 s of its own coroutine wrote `1` back over the clear and NYX kept the overcharge aura, a max coil and a
     60-per-second particle spawn for the rest of the run (MOTION-AUDIT F8). Gate the write (`if (!this.fired)`);
     and if a field has no consumer at all, delete it (F7 was that, and is now wired instead).
+
+20. **The root belongs to `animateGLB`, the bones to the mixer.** A GLB skin's pose is two layers, and the
+    split is what makes the feature safe: `Hero.poseClips` writes bones through the mixer, `Hero.animateGLB`
+    writes `body.position/rotation`, and neither can fight the other — so a rigged file, a half-rigged file
+    (walk but no attack) and a static mesh all go through the same line, and `anim.on: 0` reproduces v2 exactly.
+    Two consequences: the mixer is **per hero** (which is what phase A's `cloneRig` exists for — a shared
+    skeleton would animate the squad in lockstep), and `mixer.update(dt)` is called from exactly one place.
 
 ---
 
@@ -249,12 +261,14 @@ context):
 node tools/lighttest.mjs  # 35 assertions: the point-light count never moves (v1.8 invariant)
 node tools/geocheck.mjs   # per-enemy draw calls / verts / bbox / lights / materials + pooling leak check
 node tools/glbtest.mjs    # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
-node tools/skintest.mjs   # 138 assertions: uploaded skins, hero_tuning.json v1->v2, FX slots, pooling, clamps
+node tools/skintest.mjs   # 168 assertions: uploaded skins, hero_tuning.json v1→v3, FX slots, pooling, clamps,
+                        #   the clip resolver, model override, mixer build (and its absence when anim.on = 0)
 node tools/herofit.mjs    # 18 assertions: the REAL models/uploads/*.glb stand fully on the deck (invariant 15)
 node tools/simtest.mjs    # 56 assertions: the studio cast bench — abilities + basics run, expire, leak nothing,
                         #   the body stays owned by Hero.update, MOVE/dash work, uninstall gives the page back
-node tools/animcheck.mjs  # 30 measurements: the motion layer (feet vs deck, GLB slam float, FX anchor, bones/clips
-                        #   per file) — and it statically gates that the per-frame paths allocate nothing
+node tools/animcheck.mjs  # 41 measurements: the motion layer (feet vs deck, GLB slam float, FX anchor, bones/clips
+                        #   per file, clip weights + mixer clocks) — and it statically gates that the per-frame
+                        #   paths allocate nothing
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB sitting in models/uploads/
 node tools/fxsample.mjs   # writes + self-validates the AEGIS skill-FX samples in models/uploads/ (see FX-AEGIS.md)
 
@@ -343,22 +357,20 @@ reload. Nothing in the shipped build depends on the studio: a missing file means
 The runtime path is deliberately short: `useSkill(i)` → `Hero.playFX(G, i)` → `fxpack.fxFor()` resolves the
 slot (per-skill, else shared, else nothing) → `fxpack.spawnFX()` builds it from pooled parts. Both the studio
 preview and the match go through `spawnFX`, so "it looked right in the studio" is a real claim. The shape, the
-clamping and the pooling are covered by `tools/skintest.mjs` (138 assertions) and the placement maths by
+clamping and the pooling are covered by `tools/skintest.mjs` (168 assertions) and the placement maths by
 `tools/herofit.mjs` (18), both headless. **`FX-AEGIS.md`** is the worked art-side walkthrough: four sample
 effects for AEGIS, written and self-validated by `node tools/fxsample.mjs`, how to assign one per skill, and
 what `● REC` actually captures (a canvas grab with no alpha — hence additive blending).
 
 **`MOTION-AUDIT.md` is the review of everything under the FX** (animation, movement, attack), with
-`tools/animcheck.mjs` re-measuring its numbers. Two of its findings are shipping bugs and are **not yet
-fixed**, on purpose: `seismicSlam` restores `rig.hips.position.y` to a hardcoded `0.95`, which is right for
-the procedural rig and wrong for a GLB skin (`hipsRest` is `0` there) → after one Q an AEGIS with an uploaded
-skin floats 0.95 m above the deck for the rest of the run; and `animateRig` writes a flat `0.95` where
-`buildHumanoid` built `0.95 * scale`, so every procedural hero's feet sit ~15 cm *inside* the deck. Both
-are the same root cause — the hips baseline has three sources of truth, one of which (`hero.hipsRest`) is
-read by nobody. Read the file before touching `heroes.js:477/512`, `rig.js:175` or anything to do with GLB
-animation clips: `heroes.js:111` uses `template.clone(true)`, which **shares skeletons between all four
-heroes** (and `fxpack.js:360` does the same to pooled FX clones) — harmless while nothing writes a bone,
-catastrophic the moment a mixer does, so `SkeletonUtils.clone` is phase A of that feature.
+`tools/animcheck.mjs` re-measuring its numbers. All eight findings are fixed — the two shipping bugs were
+the hips baseline (`seismicSlam` restoring to a hardcoded `0.95`, and `animateRig` writing a flat `0.95` where
+`buildHumanoid` built `0.95 * scale`: one made a GLB-skinned AEGIS float 0.95 m above the deck after a single
+Q, the other buried every procedural hero ~15 cm into it; both became the single measured `rig.hipsRest`,
+invariant 16) — and the third, found *by* the fixed bench, is why the bench was worth building (F8,
+invariant 19). `MOTION-AUDIT` §4's phases A–D are in as well: hero bodies and pooled FX clones go through
+`cloneRig` (`SkeletonUtils.clone`), `glbskin` keeps each file's `animations`, and `Hero.poseClips` blends five
+weighted clip layers off the four envelopes while `animateGLB` keeps the root.
 
 **CAST SIM (`src/sim.js`) — the bench that makes the panel honest.** `▶ play` shows one prop; the sim runs the
 real `Hero.useSkill(i, G)` — leap, impact timing, the ability's own rings/particles/shake, knockback — against
@@ -465,7 +477,7 @@ tests are meaningless; draw calls and triangle counts are accurate.
 | `NEON-VANGUARD-REVIEW.md` | the critical review that drove the last four passes; the P2 items are still open and still valid |
 | `README.md` | developer quick reference: controls, build, module map, subsystem notes |
 | `FX-AEGIS.md` | worked example for an art non-programmer: the AEGIS sample skill FX, the assign / tune / ● REC loop, and the tuning cheat sheet |
-| `MOTION-AUDIT.md` | the layer under the FX: how a hero is posed/moved/attacked, 8 findings with measured numbers (7 fixed, incl. a shipping bug the bench itself caught), and the plan for GLB animation clips — `tools/animcheck.mjs` re-measures it |
+| `MOTION-AUDIT.md` | the layer under the FX: how a hero is posed/moved/attacked, its 8 findings with measured numbers (all fixed; one was caught by the bench the audit asked for) and the GLB-clip plan — phases A–D are in, the rest is art |
 
 **Open questions still owed by the stakeholder** (§9 of the proposal): monetisation/platform, whether co-op
 is the product or a nice-to-have (this changes the architecture *now*), art budget, and final roster size.

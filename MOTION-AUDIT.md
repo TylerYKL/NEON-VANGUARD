@@ -285,7 +285,7 @@ against the branch that clears it, or the clear is undone by the tail of its own
 | Facing | mouse-lerped | fixed | still true — but the hero can now turn *under* the cast via circle/strafe |
 | Combo reset | 1.1 s | 1.1 s, decayed by the hero | ✅ F4 |
 | FX anchor | cast point (or `follow hero`, per effect) | same, since the bench travels like the match | ✅ F3 |
-| Any clip | none exist | `model-viewer.html` **does** play them | §4 |
+| Animation clips | `Hero.poseClips` (mixer, five weighted layers) if the file has any | **the same** — the studio's loop yields to the hero while the bench is on | ✅ §4 phase C; `model-viewer.html` still plays them raw, which is the way to audition a file before binding it |
 
 The pattern is worth naming: `ACTION` (the pose preview) and `CAST SIM` (the ability bench) were
 two systems that never saw each other — `ACTION` had the body without the ability, `CAST SIM` the
@@ -325,9 +325,22 @@ one, assert the other's world matrix is unchanged.
 | Phase | Work | Notes |
 |---|---|---|
 | **A** ✅ done | `cloneRig` (that is `SkeletonUtils.clone`) for hero bodies (`heroes.js:116`) and pooled FX clones (`fxpack.js:363`); a rigged fixture in `tools/lib/rigged.mjs`; 13 new assertions across `glbtest` + `skintest` | Two surprises worth keeping. (1) The hazard was **not** "all four heroes share one skeleton" — `clone(true)` does copy the bones; what it keeps is the **template's `Skeleton`**, so each clone deforms from bones no hero owns and its own copies are inert decoration. (2) `SkeletonUtils.clone` **drops `userData`**, so `normalizeToStage`'s stage stamp stopped riding along — which is exactly what `studio.js:199` reads for the PLACEMENT row. `heroes.js` copies it forward; invariant 15 records the trap and `glbtest` pins both halves. |
-| **B** | carry `animations` through `ensureGLBSkins`; `Hero` gains `mixer`, `actions{}`; a `clipFor(name)` resolver matching `idle walk run attack1-3 cast hurt death` (case-insensitive, substring, first hit) | one mixer per hero, `timeScale` from `spd` |
-| **C** | blend from the **same four envelopes**: cross-fade `attack1/2/3` off `attackAnim`, `cast` off `castAnim`, `hurt` off `hurtAnim`, `death` off `downed`; keep `animateGLB` as the additive layer (bob/lunge/twist on top of the clip) | zero new state; a rigged file animates, an unrigged one behaves exactly as now |
-| **D** | studio `ANIMATION` row: clips found in this file (0 → `NO CLIPS IN THIS FILE`), a bind per state, `animRate` / `animBlend` sliders, `hero_tuning.json` **v3** `anim: { idle: "Clip 0", walk: "Walk", … }` | the bench is already there to judge it: `CAST SIM` + `⟳ auto` is the loop you want for reviewing a cycle |
+| **B** ✅ done | `ensureGLBSkins` keeps `gltf.animations` (dropping zero-duration clips) and honours a per-hero `model` override from the tuning; `clipFor(clips, want, slot)` resolves a slot — exact name, then substring, then the slot's alias list (`idle/stand/rest`, `walk/walking/run/jog`, `attack/atk/swing/slash/melee`, `hurt/hit/reaction/flinch`, `death/die/down/defeat`); `clipOff()` distinguishes *"this slot plays nothing"* from *"that name isn't in the file"* | the resolver is one pure function, so all 8 of its behaviours are asserted in `skintest` without a scene |
+| **C** ✅ done | `Hero.poseClips(dt, spd)` — five weighted layers off the **same four envelopes** (idle = what's left, walk = `spd`, attack = `attackAnim`, hurt = `hurtAnim`, death = `downed`), weights damped by `anim.fade`, `timeScale` = `anim.speed` (× the gait for walk); `animateGLB` stays the additive ROOT layer | no new state at all, and `anim.on: 0` is byte-identical to v2: no mixer is built. `glbtest`'s clone isolation is what makes two heroes able to play the same clip apart, which `animcheck` now measures instead of hoping |
+| **D** ✅ done | **SKIN FILE & CLIPS** in the studio: a `model` select over the dropbox's `.glb` files, a `clips on/off` switch, five name rows that echo back the clip each resolved to (`not in file` in amber), `clip speed` / `cross-fade s` sliders, and `hero_tuning.json` **v3** `anim: { on, idle, walk, attack, hurt, death, speed, fade }` + `model` | a v2 file needs no migration — `clampAnim(undefined)` is the defaults, which are "auto everywhere, on". Two fields instead of a wizard, because the honest failure mode here is a name that doesn't match, not a missing curve |
+
+Two things this phase had to discover rather than assume:
+
+* **`cast` has no slot.** The plan said cross-fade `cast` off `castAnim`, but there is no `cast` clip on a
+  combat rig — the swing *is* the cast for three of the four heroes — so `castAnim` keeps driving the
+  transform layer (`animateGLB`'s `castLean`) and only `attack/hurt/death/walk/idle` became bindable. If a
+  hero ever ships a separate cast animation, `ANIM_NAME_KEYS` + `CLIP_ALIASES` + `DEFAULT_ANIM` are where
+  it gets added: three lists, no other change.
+* **`anim.on: 0` was not off.** First version read `const A = (tun.anim && tun.anim.on) ? tun.anim :
+  DEFAULT_ANIM` — and since `DEFAULT_ANIM.on` is 1, "no tuning block" and "switched off" both landed on
+  *on*. The skintest assertion `anim.on = 0 leaves a rigged file exactly as v2 left it` was the thing that
+  caught it; the fix is to merge first (`Object.assign({}, DEFAULT_ANIM, tun.anim)`) and test the merged
+  value. Same trap as `clipOff`: a missing answer and a negative answer are different answers.
 
 Budget/limits to carry over: 20k-tri hero budget (`viewer.js:140`), `uploadstats` heavy guard,
 one mixer per hero (4 heroes, no per-cast alloc — so `clipAction` handles cached in `actions{}`),
@@ -341,6 +354,13 @@ aegis.glb  bones 0 · skinned 0 · clips 0
 lyra.glb   bones 0 · skinned 0 · clips 0
 nyx.glb    bones 0 · skinned 0 · clips 0
 ```
+
+**Update while writing this: that is still true of every file the game ships, and it is now
+*escapable* without art.** `node tools/riggeddemo.mjs` writes `models/uploads/aegis-rig.glb` — 9 KB, 3 bones,
+one skinned mesh, four clips (`Aegis Idle · Walk · Aegis Attack · Death01`), all tracks binding — and phase D's
+`SKIN FILE` select will put it on AEGIS. That is a stand-in to develop against and to try in a browser, not the
+asset: the real one has to come from the art pipeline, with the bone names the game will resolve. Which is the
+point of the row — the file is what was missing, not the code.
 
 **No file in `models/uploads/` has a skeleton or a single clip** — they are static meshes, which
 is why `animateGLB` exists at all. So "support GLB clips" is only half a feature until a rigged,
@@ -358,9 +378,11 @@ and the visual payoff is zero until the asset has bones. Two decisions needed fr
    per-frame allocations are gone and `animcheck` statically gates them. **This step is what found F8.**
 4. ~~**F3**~~ ✅ done as a per-effect `anchor` row (default unchanged) rather than a forced re-anchor.
    ~~F6/F7~~ ✅ guard + wire, same commit.
-5. **Phases B/C** (keep `animations` in `glbskin`, drive a mixer per hero, `hero_tuning.json` v3 with an
-   `anim{}` block — that block is also where a GLB `recoilKick` belongs), then D when a rigged hero GLB
-   exists. Not started: it needs a decision from you about asset direction, not just code.
+5. ~~**Phases B/C/D**~~ in — clips load, bind and blend off the four envelopes; the studio can point a hero
+   at any uploaded skin file and name its clips; `hero_tuning.json` is v3 (`model` + `anim`). `animcheck`
+   measures 11 clip behaviours on the generated rigged fixture (`tools/lib/rigged.mjs`) because every real
+   upload still has nothing to play — that part is an art task, not a code one. A GLB `recoilKick` still
+   belongs in the `motion` table whenever someone wants it: the procedural path has had the kick since F7.
 6. If the slam's 1.18 m of drift itself is wrong, that is a balance call in `seismicSlam` — the FX
    side of it is now a checkbox, so the two questions are finally separable.
 

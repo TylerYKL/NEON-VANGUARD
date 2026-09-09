@@ -928,8 +928,9 @@ async function startGame(training) {
   G.effects.length = 0;
   G.score = 0; G.kills = 0; G.combo = 1; G.wave = 0;
   G.over = false; G.paused = false;
-  G.glbSkins = await ensureGLBSkins();   // uploaded hero models (models/uploads/*.glb), if any
   G.glbTuning = await ensureTuning(true);  // re-read studio config (saved while this tab was open)
+  // skins SECOND, because the tuning's `model` field can override which file a hero wears
+  G.glbSkins = await ensureGLBSkins(G.glbTuning);   // uploaded hero models (models/uploads/<id>.glb), if any
   G.fxBank = await loadFXBank(G.glbTuning);   // skill-effect files, keyed by URL (see fxpack.js)
   createSquad();
   G.running = true;

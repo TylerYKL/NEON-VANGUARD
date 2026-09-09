@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { Hero, HERO_DEFS } from './heroes.js';
-import { ensureGLBSkins, ensureTuning, loadFXBank } from './glbskin.js';
+import { ensureGLBSkins, ensureTuning, loadFXBank, ANIM_NAME_KEYS } from './glbskin.js';
 import { parseGLB, normalizeToStage, gatherStats } from './gltfutil.js';
 import { animateRig } from './rig.js';
 import { clampFX, fxCount, fxDefsFor, fxEdit, fxKind, fxPreviewFor, FX_SHARED, FX_SLOTS, spawnFX } from './fxpack.js';
@@ -130,6 +130,102 @@ function sliderRow(label, min, max, step, onInput) {
   inp.oninput = () => onInput(+inp.value, out, inp);
   row._input = inp; row._out = out;
   return row;
+}
+
+/* ---------------- GLB MODEL + CLIPS (tuning v3) ----------------
+   Two rows that answer the same complaint from the other side: the file a hero wears is
+   not a code change any more, and neither is which clip means "walk". */
+const AN_DEFS = [
+  ['speed', 'clip speed', 0.1, 4, 0.01],
+  ['fade', 'cross-fade s', 0, 1, 0.005],
+];
+const AN_LABELS = { idle: 'idle clip', walk: 'walk clip', attack: 'attack clip', hurt: 'hurt clip', death: 'death clip' };
+
+function buildAnim() {
+  const box = $('anim');
+  box.innerHTML = '';
+  for (const k of ANIM_NAME_KEYS) {
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    row.innerHTML = '<span>' + AN_LABELS[k] + '</span><input type="text" maxlength="64" spellcheck="false"><b></b>';
+    const inp = row.querySelector('input'), out = row.querySelector('b');
+    inp.oninput = () => {
+      const c = cfg[heroId()];
+      c.anim[k] = inp.value.trim() || 'auto';
+      out.textContent = c.anim[k] === 'auto' ? 'auto' : matched(c.anim[k]) || 'not in file';
+      out.className = matched(c.anim[k]) ? '' : 'warn';
+    };
+    row._name = k; row._input = inp; row._out = out;
+    box.appendChild(row);
+  }
+  for (const [k, label, min, max, step] of AN_DEFS) {
+    const row = sliderRow(label, min, max, step, (v, out) => {
+      cfg[heroId()].anim[k] = v;
+      const h = heroes[active];
+      if (h.anim) h.anim.a[k] = v;                 // takes effect on the next pose frame
+      out.textContent = v.toFixed(k === 'fade' ? 3 : 2);
+    });
+    row._num = k; row._dec = k === 'fade' ? 3 : 2;
+    box.appendChild(row);
+  }
+}
+/* the clip census of the file this hero is currently wearing, and a name → clip check */
+const fileClips = () => {
+  const skin = (G.glbSkins || {})[heroId()];
+  return skin && skin.clips ? skin.clips.map((c) => c.name || 'clip') : [];
+};
+function matched(want) {
+  const list = fileClips(), w = String(want || '').toLowerCase();
+  const hit = list.find((n) => n.toLowerCase() === w) || list.find((n) => n.toLowerCase().includes(w));
+  return hit || null;
+}
+function syncAnim() {
+  const c = cfg[heroId()], h = heroes[active], box = $('anim');
+  for (const row of box.children) {
+    if (row._name) {
+      row._input.value = c.anim[row._name];
+      const resolved = h.anim && h.anim.used[row._name];
+      row._out.textContent = resolved ? resolved : (c.anim[row._name] === 'auto' ? 'auto · nothing' : 'not in file');
+      row._out.className = resolved ? 'ok' : 'warn';
+    } else if (row._num) {
+      row._input.value = c.anim[row._num];
+      row._out.textContent = (+c.anim[row._num]).toFixed(row._dec);
+    }
+  }
+  const on = $('animon');
+  on.textContent = c.anim.on ? 'clips on' : 'clips off';
+  on.classList.toggle('on', !!c.anim.on);
+  const names = fileClips();
+  const parts = [];
+  parts.push(names.length ? names.length + ' clip(s) here: ' + names.join(' · ')
+    : (h.rig.glb ? 'this file has NO clips — the transform layer is all it can do' : 'procedural rig — no GLB file in use'));
+  if (h.anim && h.anim.miss.length) parts.push('named but missing: ' + h.anim.miss.join(', '));
+  $('animnote').innerHTML = parts.join('<br>');
+  $('animnote').className = h.anim ? 'ok' : '';
+  const sel = $('mdl');
+  if (sel) sel.value = c.model || '';
+  $('mdlnote').textContent = c.model ? c.model.replace('models/uploads/', '') : 'default';
+}
+$('animon').onclick = () => {
+  const c = cfg[heroId()];
+  c.anim.on = c.anim.on ? 0 : 1;
+  flash(c.anim.on ? 'CLIPS ENABLED — SAVE, THEN RELOAD THIS TAB (the mixer is built at load)'
+    : 'CLIPS IGNORED — the file still drives nothing; SAVE, THEN RELOAD', '#ffb14a');
+  syncAnim();
+};
+function buildModelSelect() {
+  const sel = $('mdl');
+  if (!sel) return;
+  const glbs = libFiles.filter((f) => /\.(glb|gltf)$/i.test(f.name));
+  sel.innerHTML = '<option value="">&lt;id&gt;.glb (manifest)</option>' +
+    glbs.map((f) => '<option value="' + UPDIR + f.name + '">' + f.name + ' · ' + Math.round(f.size / 1024) + 'k</option>').join('');
+  sel.onchange = () => {
+    cfg[heroId()].model = sel.value || null;
+    flash(sel.value ? 'SKIN = ' + sel.value.replace(UPDIR, '') + ' — SAVE, THEN RELOAD THIS TAB'
+      : 'SKIN = the manifest default — SAVE, THEN RELOAD THIS TAB', '#ffb14a');
+    syncAnim();
+  };
+  sel.value = (cfg[heroId()] || {}).model || '';   // the list arrives after the first sync
 }
 
 function buildSliders() {
@@ -446,8 +542,10 @@ async function refreshLib() {
     const r = await fetch(UP + '/files');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     libFiles = (await r.json()).filter((f) => /\.(glb|mp4|webm|ogv)$/i.test(f.name));
+    buildModelSelect();            // the SKIN picker is the same list, filtered to models
   } catch (e) {
     box.innerHTML = '<div id="note">dropbox offline — start it with<br>python3 tools/upload_server.py</div>';
+    buildModelSelect();
     return;
   }
   const used = new Map();
@@ -858,15 +956,18 @@ function syncPanel() {
     row._out.textContent = (+v).toFixed(row._dec);
   }
   syncPlacement();
+  syncAnim();
   measureFit();
   syncFX();
 }
 
 /* ---------- boot ---------- */
 (async () => {
-  G.glbSkins = await ensureGLBSkins();
+  /* the tuning is read FIRST now, because its `model` field can point a hero at a
+     different file than the manifest's <id>.glb — the skins are what that chooses */
   cfg = await ensureTuning();
   G.glbTuning = cfg;
+  G.glbSkins = await ensureGLBSkins(cfg);
   for (const d of HERO_DEFS) {                       // normalise for the editor
     const c = cfg[d.id];
     c.fxP = clampFX(c.fxP, fxKind(c.fx || ''));
@@ -891,6 +992,7 @@ function syncPanel() {
   });
 
   buildSliders();
+  buildAnim();
   buildChips();
   setActive(0);
   setAction('idle');
@@ -918,19 +1020,23 @@ function syncPanel() {
     if (action === 'attack' && h.attackAnim <= 0) h.attackAnim = 1;   // loop the preview
     if (action === 'cast' && h.castAnim <= 0) h.castAnim = 1;
     if (action === 'hurt' && h.hurtAnim <= 0) h.hurtAnim = 1;
-    /* And the gait rate is measured, not asserted: the bench integrates Hero.move, so
-       walk frequency can finally be judged against a real spd (F5: the match's own
-       stepRate could never be checked from here while the studio hard-coded 1-for-walk / 0-for-everything). */
-    const spd = sim.on ? Math.min(1.4, Math.hypot(h.vel.x, h.vel.z) / (h.def.speed || 6))
-      : (action === 'walk' ? 1 : 0);
-    if (h.rig.glb) {
-      h.animateGLB(dt, G, spd);
-    } else {
-      animateRig(h.rig, dt, {
-        speed: clamp(spd, 0, 1.4), time: G.time, attack: h.attackAnim, recoil: h.recoil,
-        cast: h.castAnim, dead: h.downed, hurt: h.hurtAnim,
-        style: h.def.style, block: h.def.id === 'aegis',
-      });
+    /* …and it owns the POSE too, not just the decay. `animateGLB` advances `_stepT`
+       itself and the mixer has its own clock, so a second call per frame doubles the walk
+       cadence and runs the clip at 2× — the same class of bug, one more node down.
+       When the bench is off, this loop is the only thing that poses anything, so it
+       still does, and there is no velocity here to measure (spd is an intent, not a lie). */
+    if (!sim.on) {
+      const spd = action === 'walk' ? 1 : 0;
+      if (h.rig.glb) {
+        h.animateGLB(dt, G, spd);
+        if (h.anim) h.poseClips(dt, spd);
+      } else {
+        animateRig(h.rig, dt, {
+          speed: clamp(spd, 0, 1.4), time: G.time, attack: h.attackAnim, recoil: h.recoil,
+          cast: h.castAnim, dead: h.downed, hurt: h.hurtAnim,
+          style: h.def.style, block: h.def.id === 'aegis',
+        });
+      }
     }
     for (let i = effects.length - 1; i >= 0; i--) {
       const e = effects[i];

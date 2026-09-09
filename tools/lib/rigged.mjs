@@ -41,7 +41,7 @@ if (typeof globalThis.FileReader === 'undefined') {
   };
 }
 
-export const FIXTURE_CLIPS = ['Aegis Idle', 'Walk'];
+export const FIXTURE_CLIPS = ['Aegis Idle', 'Walk', 'Aegis Attack', 'Death01'];
 
 /** one coherent rig + its clips, built together — a clip's tracks must address THESE bones */
 export function buildRigged() {
@@ -86,6 +86,16 @@ export function buildRigged() {
       new THREE.QuaternionKeyframeTrack('hips.quaternion', [0, 0.2, 0.4, 0.6, 0.8],
         flat([q(0.2), q(0), q(-0.2), q(0), q(0.2)])),
       new THREE.VectorKeyframeTrack('head.position', [0, 0.4, 0.8], [0, 0.4, 0, 0, 0.47, 0, 0, 0.4, 0]),
+    ]),
+    /* Two more, so a test can tell "the right clip played at the right time" apart from "a
+       clip played". Named the awkward way real files name things, so the resolver's alias
+       hunt is what gets exercised rather than a perfect string match. */
+    new THREE.AnimationClip('Aegis Attack', 0.4, [
+      new THREE.QuaternionKeyframeTrack('spine.quaternion', [0, 0.1, 0.4], flat([q(0.05), q(-0.7), q(0.05)])),
+    ]),
+    new THREE.AnimationClip('Death01', 0.9, [
+      new THREE.VectorKeyframeTrack('hips.position', [0, 0.45, 0.9], [0, 1.0, 0, 0, 0.55, -0.2, 0, 0.3, -0.4]),
+      new THREE.QuaternionKeyframeTrack('spine.quaternion', [0, 0.9], flat([q(0.05), q(1.1)])),
     ]),
   ];
   return { root, bones, mesh, skeleton: mesh.skeleton, clips };
