@@ -870,6 +870,17 @@ addEventListener('mousemove', (e) => {
 addEventListener('blur', () => { mouseDown = false; mouseHeld = false; for (const k in keys) keys[k] = false; });
 
 function updateAim() {
+  if (TOUCH.on && G.active) {
+    if ((Math.abs(TOUCH.aimX) + Math.abs(TOUCH.aimZ)) > 0.05) {
+      const l = Math.hypot(TOUCH.aimX, TOUCH.aimZ) || 1;
+      G.aimPoint.set(G.active.pos.x + (TOUCH.aimX / l) * 12, 0, G.active.pos.z + (TOUCH.aimZ / l) * 12);
+    }
+    const sp = G.aimPoint.clone().project(camera);
+    G.screenAim.x = (sp.x * 0.5 + 0.5) * innerWidth;
+    G.screenAim.y = (-sp.y * 0.5 + 0.5) * innerHeight;
+    ui.setCross(G.screenAim.x, G.screenAim.y, G.running && !G.paused);
+    return;
+  }
   if (PAD.on && (Math.abs(PAD.aimX) + Math.abs(PAD.aimZ)) > 0.05) return;
   raycaster.setFromCamera(G.mouse, camera);
   const hit = AIM_HIT;                     // scratch (F5): aimPoint.copy reads it immediately
@@ -1276,6 +1287,83 @@ for (const b of document.querySelectorAll('.btn')) {
 }
 
 /* ============================================================
+   TOUCH CONTROLS — two virtual sticks plus action buttons. Touch input feeds
+   the same movement/aim/ability path as a gamepad, so mobile does not get a
+   second combat implementation. Buttons generate edge events; FIRE is held.
+   ============================================================ */
+const TOUCH = {
+  on: ('ontouchstart' in window) || navigator.maxTouchPoints > 0,
+  moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, fire: false,
+  edges: Object.create(null), pointers: new Map(), knobs: {},
+};
+if (TOUCH.on) document.body.classList.add('touch');
+function touchStick(id, axis) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const knob = el.querySelector('i');
+  TOUCH.knobs[axis] = knob;
+  const update = (e) => {
+    const r = el.getBoundingClientRect();
+    const radius = r.width * 0.38;
+    const dx = e.clientX - (r.left + r.width * 0.5);
+    const dy = e.clientY - (r.top + r.height * 0.5);
+    const d = Math.hypot(dx, dy) || 1;
+    const k = Math.min(1, radius / d);
+    const x = dx * k / radius, z = dy * k / radius;
+    TOUCH[axis + 'X'] = x; TOUCH[axis + 'Z'] = z;
+    knob.style.transform = `translate(${x * radius}px,${z * radius}px)`;
+  };
+  const reset = (e) => {
+    if (e && TOUCH.pointers.get(id) !== e.pointerId) return;
+    TOUCH.pointers.delete(id);
+    TOUCH[axis + 'X'] = 0; TOUCH[axis + 'Z'] = 0;
+    knob.style.transform = 'translate(0,0)';
+  };
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); TOUCH.pointers.set(id, e.pointerId); el.setPointerCapture(e.pointerId); update(e);
+  });
+  el.addEventListener('pointermove', (e) => { if (TOUCH.pointers.get(id) === e.pointerId) { e.preventDefault(); update(e); } });
+  el.addEventListener('pointerup', reset);
+  el.addEventListener('pointercancel', reset);
+  el.addEventListener('lostpointercapture', () => reset());
+}
+function touchButton(el) {
+  if (!el) return;
+  const name = el.dataset.touchButton;
+  const up = (e) => {
+    if (e && e.pointerId != null && TOUCH.pointers.get(name) !== e.pointerId) return;
+    TOUCH.pointers.delete(name);
+    if (name === 'fire') TOUCH.fire = false;
+    el.classList.remove('down');
+  };
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation(); TOUCH.pointers.set(name, e.pointerId); el.setPointerCapture(e.pointerId);
+    if (name === 'fire') TOUCH.fire = true; else TOUCH.edges[name] = true;
+    el.classList.add('down');
+  });
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('lostpointercapture', () => up());
+}
+touchStick('touchMove', 'move');
+touchStick('touchAim', 'aim');
+for (const b of document.querySelectorAll('[data-touch-button]')) touchButton(b);
+function touchPressed(name) {
+  const hit = !!TOUCH.edges[name];
+  delete TOUCH.edges[name];
+  return hit;
+}
+function pollTouch() {
+  if (!TOUCH.on) return null;
+  return {
+    mx: TOUCH.moveX, my: TOUCH.moveZ, ax: TOUCH.aimX, ay: TOUCH.aimZ, fire: TOUCH.fire,
+    dash: touchPressed('dash'), q: touchPressed('q'), e: touchPressed('e'), r: touchPressed('r'),
+    swapNext: touchPressed('swap'), pause: touchPressed('pause'),
+    h1: false, h2: false, h3: false,
+  };
+}
+
+/* ============================================================
    GAMEPAD — standard mapping. Right stick aims in world space,
    so the aim reticle is driven by the stick instead of the mouse.
    ============================================================ */
@@ -1351,29 +1439,33 @@ function frame(now) {
 
     if (G.running && G.drafting) {
       const pd = pollPad();
-      if (pd) {
-        if (pd.q) takeDraft(0);
-        else if (pd.dash) takeDraft(1);
-        else if (pd.e) takeDraft(2);
-        else if (pd.pause) skipDraft();
+      const td = pollTouch();
+      const input = td || pd;
+      if (input) {
+        if (input.q) takeDraft(0);
+        else if (input.dash) takeDraft(1);
+        else if (input.e) takeDraft(2);
+        else if (input.pause) skipDraft();
       }
     }
     if (G.running && !G.drafting) {
       const a = G.active;
       const pad = pollPad();
-      if (pad) {
-        if (pad.pause) togglePause();
-        if (pad.dash) a.dash();
-        if (pad.q) a.useSkill(0, G);
-        if (pad.e) a.useSkill(1, G);
-        if (pad.r) a.useSkill(2, G);
-        if (pad.h1) switchTo(0); if (pad.h2) switchTo(1); if (pad.h3) switchTo(2);
-        if (pad.swapNext) switchTo((G.heroes.indexOf(a) + 1) % 3);
+      const touch = pollTouch();
+      const input = touch || pad;
+      if (input) {
+        if (input.pause) togglePause();
+        if (input.dash) a.dash();
+        if (input.q) a.useSkill(0, G);
+        if (input.e) a.useSkill(1, G);
+        if (input.r) a.useSkill(2, G);
+        if (input.h1) switchTo(0); if (input.h2) switchTo(1); if (input.h3) switchTo(2);
+        if (input.swapNext) switchTo((G.heroes.indexOf(a) + 1) % 3);
         // right stick sets the aim point 12m out from the hero
-        if (Math.abs(pad.ax) + Math.abs(pad.ay) > 0.05) {
+        if (pad && Math.abs(pad.ax) + Math.abs(pad.ay) > 0.05) {
           PAD.aimX = pad.ax; PAD.aimZ = pad.ay;
         }
-        if (PAD.on && (Math.abs(PAD.aimX) + Math.abs(PAD.aimZ)) > 0.05) {
+        if (pad && PAD.on && (Math.abs(PAD.aimX) + Math.abs(PAD.aimZ)) > 0.05) {
           const l = Math.hypot(PAD.aimX, PAD.aimZ) || 1;
           G.aimPoint.set(a.pos.x + (PAD.aimX / l) * 12, 0, a.pos.z + (PAD.aimZ / l) * 12);
           const sp = G.aimPoint.clone().project(camera);
@@ -1383,13 +1475,13 @@ function frame(now) {
       }
       // ---- player control ----
       const dir = new THREE.Vector3(
-        (pad ? pad.mx : 0) + (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0),
+        (input ? input.mx : 0) + (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0),
         0,
-        (pad ? pad.my : 0) + (keys['s'] || keys['arrowdown'] ? 1 : 0) - (keys['w'] || keys['arrowup'] ? 1 : 0)
+        (input ? input.my : 0) + (keys['s'] || keys['arrowdown'] ? 1 : 0) - (keys['w'] || keys['arrowup'] ? 1 : 0)
       );
       if (dir.lengthSq() > 1) dir.normalize();
-      if (pad && pad.fire) mouseDown = true;
-      else if (pad && PAD.on && !pad.fire && !mouseHeld) mouseDown = false;
+      if (input && input.fire) mouseDown = true;
+      else if (input && !input.fire && !mouseHeld) mouseDown = false;
       if (dir.lengthSq() > 0) dir.normalize();
       if (!a.downed) {
         const want = angleTo(a.pos, G.aimPoint);
