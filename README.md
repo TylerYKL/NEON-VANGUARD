@@ -97,7 +97,7 @@ node tools/glbtest.mjs   # 25 assertions: the model-viewer GLB pipeline (export-
 node tools/skintest.mjs  # 173 assertions: uploaded skins, hero_tuning.json v1→v3, per-skill FX slots + pooling,
                        #   the clip resolver, the mixer (and its absence), the boot clip report
 node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
-node tools/simtest.mjs   # 41 assertions: the cast bench — 9 abilities + basics run, expire and leak nothing
+node tools/simtest.mjs   # 56 assertions: the cast bench — 9 abilities + basics run, expire and leak nothing
 node tools/animcheck.mjs # read-only review of the motion layer: feet vs deck, GLB slam float, clips per file
 node tools/fxsample.mjs  # writes + validates the AEGIS sample skill FX (see FX-AEGIS.md)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB in models/uploads/
@@ -116,6 +116,10 @@ node tools/phase1test.mjs # training gates, hit-stop, occlusion fade, drone lock
 node tools/drafttest.mjs # implant draft: offers, apply, stacking, skip
 node tools/devtest.mjs   # dev overlay: sliders reach gameplay, cheats, export/reset
 ```
+
+For the human pass, use **[`PLAYTEST-CHECKLIST.md`](PLAYTEST-CHECKLIST.md)**. It covers the game, Character Bay,
+Hero Studio, Model Viewer, and a 15-minute outside-playtest script. Browser automation additionally needs a local
+Chrome executable; Puppeteer alone is not enough.
 
 Source layout:
 
