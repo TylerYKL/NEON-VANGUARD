@@ -50,12 +50,16 @@ async function skinEntry(url) {
  *   `<id>.glb` manifest, which is what lets the studio point a hero at any uploaded rigged
  *   file without a code change. The tuning is therefore read BEFORE this (main.js:931).
  */
-export function ensureGLBSkins(tuning) {
+export function ensureGLBSkins(tuning, refresh = false) {
   return Promise.all(
     MANIFEST.map(async (m) => {
       const over = tuning && tuning[m.id] && tuning[m.id].model;
       const url = over || m.url;
       try {
+        // The studio can re-upload the same URL while it is open. Drop that URL's
+        // template so APPLY + REBUILD PREVIEW reads the new bytes instead of the
+        // session cache; normal game boots keep the fast cache path.
+        if (refresh) skinCache.delete(url);
         const e = await skinEntry(url);
         return [m.id, { template: e.template, clips: e.clips, yaw: m.yaw || 0, url }];
       } catch (err) {
@@ -211,51 +215,53 @@ let tuningPromise = null;
     a broken file means default tuning, not a broken game. `refresh` re-reads the
     file, bypassing the HTTP cache: the Hero Studio writes it while the game tab is
     open, so a run restart picks up what you just saved. */
+export function normalizeTuning(raw) {
+  const out = {};
+  for (const id of ['aegis', 'lyra', 'nyx']) {
+    const t = (raw && raw[id]) || {};
+    const motion = {};
+    for (const [k, dv] of Object.entries(DEFAULT_MOTION)) {
+      const v = Number(t.motion && t.motion[k]);
+      motion[k] = Number.isFinite(v) && v >= 0 && v < 100 ? v : dv;
+    }
+    const scale = Number(t.scale);
+    const pos = {};
+    for (const k of ['x', 'y', 'z']) {
+      const v = Number(t.pos && t.pos[k]);
+      pos[k] = Number.isFinite(v) ? Math.min(3, Math.max(-3, v)) : 0;
+    }
+    const yawDeg = Number(t.yawDeg);
+    const model = /\.(glb|gltf)$/i.test(String(t.model || '')) ? String(t.model) : null;
+    const anim = clampAnim(t.anim);
+    const fx = fxURL(t.fx);
+    const slots = [];
+    for (let i = 0; i < FX_SLOTS; i++) {
+      const s = (t.fxSlots || [])[i];
+      const src = fxURL(s && s.src);
+      slots.push(src ? { src, on: !(s.on === false), p: clampFX(s.p, fxKind(src)) } : null);
+    }
+    out[id] = {
+      scale: Number.isFinite(scale) ? Math.min(2, Math.max(0.5, scale)) : 1,
+      motion,
+      pos,
+      yawDeg: Number.isFinite(yawDeg) ? Math.min(180, Math.max(-180, yawDeg)) : 0,
+      model,
+      anim,
+      fx,
+      fxOn: t.fxOn !== false,
+      fxP: clampFX(t.fxP, fxKind(fx)),
+      fxSlots: slots,
+    };
+  }
+  return out;
+}
+
 export function ensureTuning(refresh) {
   if (!tuningPromise || refresh) {
     tuningPromise = fetch('models/uploads/hero_tuning.json', refresh ? { cache: 'no-store' } : undefined)
       .then((r) => (r.ok ? r.json() : {}))
       .catch(() => ({}))
-      .then((raw) => {
-        const out = {};
-        for (const id of ['aegis', 'lyra', 'nyx']) {
-          const t = (raw && raw[id]) || {};
-          const motion = {};
-          for (const [k, dv] of Object.entries(DEFAULT_MOTION)) {
-            const v = Number(t.motion && t.motion[k]);
-            motion[k] = Number.isFinite(v) && v >= 0 && v < 100 ? v : dv;
-          }
-          const scale = Number(t.scale);
-          const pos = {};
-          for (const k of ['x', 'y', 'z']) {
-            const v = Number(t.pos && t.pos[k]);
-            pos[k] = Number.isFinite(v) ? Math.min(3, Math.max(-3, v)) : 0;
-          }
-          const yawDeg = Number(t.yawDeg);
-          const model = /\.(glb|gltf)$/i.test(String(t.model || '')) ? String(t.model) : null;
-          const anim = clampAnim(t.anim);
-          const fx = fxURL(t.fx);
-          const slots = [];
-          for (let i = 0; i < FX_SLOTS; i++) {
-            const s = (t.fxSlots || [])[i];
-            const src = fxURL(s && s.src);
-            slots.push(src ? { src, on: !(s.on === false), p: clampFX(s.p, fxKind(src)) } : null);
-          }
-          out[id] = {
-            scale: Number.isFinite(scale) ? Math.min(2, Math.max(0.5, scale)) : 1,
-            motion,
-            pos,
-            yawDeg: Number.isFinite(yawDeg) ? Math.min(180, Math.max(-180, yawDeg)) : 0,
-            model,
-            anim,
-            fx,
-            fxOn: t.fxOn !== false,
-            fxP: clampFX(t.fxP, fxKind(fx)),
-            fxSlots: slots,
-          };
-        }
-        return out;
-      });
+      .then(normalizeTuning);
   }
   return tuningPromise;
 }

@@ -141,6 +141,11 @@
   #cameraMode .camLabel{font-size:8px;letter-spacing:.14em;color:#8aa;opacity:.7;padding:0 5px 0 3px}
   #cameraMode .cam{padding:6px 8px;font-size:7.5px;letter-spacing:.12em}
   #cameraMode .cam:not(.on){color:#9aa;background:transparent;border-color:transparent}
+  #saveState{font-size:7px;letter-spacing:.12em;opacity:.75;min-width:46px;text-align:center}
+  #saveState.ok{color:#3dffb0}
+  #saveState.warn{color:#ffb14a}
+  #importConfigFile{display:none}
+  #applyPreview.on{border-color:#3dffb0;color:#3dffb0;background:rgba(61,255,176,.12)}
   .act.load{background:linear-gradient(90deg,var(--c),#fff);color:#04070f;font-weight:800;border:none;
             clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)}
   .sep{width:1px;height:26px;background:rgba(255,255,255,.14);margin:0 4px}
@@ -262,6 +267,12 @@
   </div>
   <div class="sep"></div>
   <button class="act" id="spin">auto-spin</button>
+  <button class="act mini" id="applyPreview" title="Rebuild all hero bodies from the current skin and clip settings">apply + rebuild preview</button>
+  <button class="act mini" id="resetHero" title="Restore the selected hero to the values loaded when this tab opened">reset hero</button>
+  <button class="act mini" id="exportConfig" title="Download the current tuning as hero_tuning.json">export json</button>
+  <button class="act mini" id="importConfig" title="Load hero tuning from a JSON file">import json</button>
+  <input id="importConfigFile" type="file" accept="application/json,.json">
+  <span id="saveState" class="ok">SAVED</span>
   <button class="act load" id="save">save</button>
 </div>
 <div id="msg"></div>

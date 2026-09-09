@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { Hero, HERO_DEFS } from './heroes.js';
-import { ensureGLBSkins, ensureTuning, loadFXBank, ANIM_NAME_KEYS } from './glbskin.js';
+import { ensureGLBSkins, ensureTuning, normalizeTuning, loadFXBank, ANIM_NAME_KEYS } from './glbskin.js';
 import { parseGLB, normalizeToStage, gatherStats } from './gltfutil.js';
 import { animateRig } from './rig.js';
 import { clampFX, fxCount, fxDefsFor, fxEdit, fxKind, fxPreviewFor, FX_SHARED, FX_SLOTS, spawnFX } from './fxpack.js';
@@ -111,6 +111,25 @@ function flash(msg, color) {
   clearTimeout(flash.t); flash.t = setTimeout(() => { el.textContent = ''; }, 3600);
 }
 
+let configDirty = false;
+let baseConfig = null;
+function markDirty() {
+  configDirty = true;
+  const el = $('saveState');
+  if (el) { el.textContent = 'UNSAVED'; el.className = 'warn'; }
+}
+function markClean() {
+  configDirty = false;
+  const el = $('saveState');
+  if (el) { el.textContent = 'SAVED'; el.className = 'ok'; }
+}
+function syncApplyState() {
+  const b = $('applyPreview');
+  if (!b) return;
+  b.classList.toggle('on', skinStale);
+  b.textContent = skinStale ? 'apply + rebuild' : 'rebuild preview';
+}
+
 /* studio-side copy of the upload server origin (same sandbox, port 8081) */
 const UP = 'https://' + location.hostname.replace(/^\d+-/, '8081-');
 const UPDIR = 'models/uploads/';
@@ -180,6 +199,7 @@ function buildAnim() {
     inp.oninput = () => {
       const c = cfg[heroId()];
       c.anim[k] = inp.value.trim() || 'auto';
+      markDirty();
       /* Re-resolve on the hero, not just in the config: `syncAnim` below reads what the
          mixer actually bound, so the echo and the pose agree. When there is no mixer (clips
          off, or a file with nothing to play) this is a no-op and the row says why. */
@@ -193,6 +213,7 @@ function buildAnim() {
   for (const [k, label, min, max, step] of AN_DEFS) {
     const row = sliderRow(label, min, max, step, (v, out) => {
       cfg[heroId()].anim[k] = v;
+      markDirty();
       const h = heroes[active];
       if (h.anim) h.anim.a[k] = v;                 // takes effect on the next pose frame
       out.textContent = v.toFixed(k === 'fade' ? 3 : 2);
@@ -240,7 +261,7 @@ function syncAnim() {
   on.classList.toggle('on', !!c.anim.on);
   const names = fileClips();
   const parts = [];
-  if (skinStale) parts.push('SKIN CHANGED — the rows above still describe the PREVIOUS file. SAVE, then reload this tab.');
+  if (skinStale) parts.push('SKIN CHANGED — rows describe the PREVIOUS file. APPLY + REBUILD PREVIEW to install it.');
   parts.push(names.length ? names.length + ' clip(s) here: ' + names.join(' · ')
     : (h.rig.glb ? 'this file has NO clips — the transform layer is all it can do' : 'procedural rig — no GLB file in use'));
   if (h.anim && h.anim.miss.length) parts.push('named but missing: ' + h.anim.miss.join(', '));
@@ -257,9 +278,11 @@ function syncAnim() {
 $('animon').onclick = () => {
   const c = cfg[heroId()];
   c.anim.on = c.anim.on ? 0 : 1;
+  markDirty();
   /* the mixer's existence is decided in build(), so this one really does need a reload —
      unlike the name rows, which re-bind live through Hero.rebindClip */
   skinStale = true;
+  syncApplyState();
   flash(c.anim.on ? 'CLIPS ENABLED — SAVE, THEN RELOAD THIS TAB (the mixer is built at load)'
     : 'CLIPS IGNORED — the file still drives nothing; SAVE, THEN RELOAD', '#ffb14a');
   syncAnim();
@@ -272,9 +295,11 @@ function buildModelSelect() {
     glbs.map((f) => '<option value="' + UPDIR + f.name + '">' + f.name + ' · ' + Math.round(f.size / 1024) + 'k</option>').join('');
   sel.onchange = () => {
     cfg[heroId()].model = sel.value || null;
+    markDirty();
     skinStale = true;              // nothing below this row can be previewed until the body is rebuilt
-    flash(sel.value ? 'SKIN = ' + sel.value.replace(UPDIR, '') + ' — SAVE, THEN RELOAD THIS TAB'
-      : 'SKIN = the manifest default — SAVE, THEN RELOAD THIS TAB', '#ffb14a');
+    syncApplyState();
+    flash(sel.value ? 'SKIN = ' + sel.value.replace(UPDIR, '') + ' — APPLY + REBUILD PREVIEW'
+      : 'SKIN = the manifest default — APPLY + REBUILD PREVIEW', '#ffb14a');
     syncAnim();
   };
   sel.value = (cfg[heroId()] || {}).model || '';   // the list arrives after the first sync
@@ -286,6 +311,7 @@ function buildSliders() {
     const row = sliderRow(label, min, max, step, (v, out) => {
       cfg[HERO_DEFS[active].id].motion[k] = v;
       heroes[active].motion[k] = v;
+      markDirty();
       out.textContent = v.toFixed(step < 0.01 ? 3 : 2);
     });
     row._key = k; row._dec = step < 0.01 ? 3 : 2;
@@ -312,6 +338,7 @@ function buildPlacement() {
       const c = cfg[heroId()], h = heroes[active];
       if (k === 'yawDeg') { c.yawDeg = v; h.setYawDeg(v); }
       else { c.pos[k] = v; h.offset[k] = v; }
+      markDirty();
       if (from !== rng) rng.value = v;
       if (from !== num) num.value = v.toFixed(row._dec);
       measureFit();
@@ -362,6 +389,7 @@ function nudgePlacementTo(fn) {
   if (!h || !h.rig.glb) { flash('PLACEMENT APPLIES TO UPLOADED GLB SKINS', '#ffb14a'); return; }
   const c = cfg[heroId()];
   for (const k of ['x', 'y', 'z']) { c.pos[k] = clamp(fn(k), -3, 3); h.offset[k] = c.pos[k]; }
+  markDirty();
   syncPlacement();
   measureFit();
 }
@@ -402,6 +430,7 @@ function buildFXPanel() {
   for (const [k, label, min, max, step] of num) {
     const row = sliderRow(label, min, max, step, (v, out) => {
       asg().p[k] = v;
+      markDirty();
       out.textContent = (+v).toFixed(step < 0.1 ? 2 : 1);
     });
     row._key = k;
@@ -412,6 +441,7 @@ function buildFXPanel() {
   for (const [k, label, opts] of opt) {
     const row = sliderRow(label, 0, opts.length - 1, 1, (v, out) => {
       asg().p[k] = v;
+      markDirty();
       out.textContent = opts[v] || '';
     });
     row._key = k; row._opts = opts;
@@ -427,7 +457,7 @@ function buildFXPanel() {
   const cin = crow.querySelector('input'), cout = crow.querySelector('b');
   cin.value = asg().p.tint;
   cout.textContent = asg().p.tint;
-  cin.oninput = () => { asg().p.tint = cin.value; cout.textContent = cin.value; };
+  cin.oninput = () => { asg().p.tint = cin.value; markDirty(); cout.textContent = cin.value; };
   box.appendChild(crow);
 }
 
@@ -498,6 +528,7 @@ async function assign(url) {
   a.setSrc(url);
   a.setOn(true);
   a.setP(clampFX(a.p, fxKind(url)));          // kind-only rows get their defaults
+  markDirty();
   if (fxKind(url) === 'video') probeClip(url);
   syncFX();
   refreshLib();
@@ -541,6 +572,7 @@ function probeClip(url) {
     const a = asg();
     if (Number.isFinite(d) && d > 0 && a.src === url) {
       a.setP(clampFX(Object.assign({}, a.p, { dur: Math.min(4.95, +d.toFixed(2)) }), 'video'));
+      markDirty();
       syncFX();
     }
     el.removeAttribute('src');
@@ -790,6 +822,133 @@ function setAction(a) {
   document.querySelectorAll('#bottom [data-a]').forEach((b) => b.classList.toggle('on', b.dataset.a === a));
 }
 
+function clearStudioEffects() {
+  for (let i = effects.length - 1; i >= 0; i--) {
+    const e = effects[i];
+    if (e.dispose) e.dispose();
+  }
+  effects.length = 0;
+}
+
+function removeStudioHero(h) {
+  if (!h) return;
+  if (h.anim && h.anim.mixer) h.anim.mixer.stopAllAction();
+  if (h.drone) G.scene.remove(h.drone.group);
+  if (h.group) G.scene.remove(h.group);
+}
+
+/** Rebuild all three hero previews from the current tuning without losing the
+    artist's selected hero or unsaved config. This is deliberately
+    a full hero rebuild: model and clips are decided in Hero.build(), so a partial
+    patch would leave the mixer describing a different file than the body. */
+async function rebuildPreview() {
+  if (!cfg || !heroes.length) return;
+  const keep = active;
+  const old = heroes.slice();
+  let replacement = [];
+  flash('REBUILDING HERO PREVIEW…');
+  try {
+    if (simOn) simToggle(false);
+    stopPreview();
+    clearStudioEffects();
+    G.glbTuning = cfg;
+    G.glbSkins = await ensureGLBSkins(cfg, true);
+    fxBank = await loadFXBank(cfg);
+    G.fxBank = fxBank;
+    replacement = HERO_DEFS.map((d, i) => {
+      const next = new Hero(d, G, i);
+      const prev = old[i];
+      if (prev) {
+        next.pos.copy(prev.pos);
+        next.vel.copy(prev.vel);
+        next.facing = prev.facing;
+      }
+      return next;
+    });
+    heroes = replacement;
+    old.forEach(removeStudioHero);
+    active = keep;
+    heroes.forEach((h, i) => {
+      const on = i === active;
+      h.group.visible = on;
+      if (h.drone) h.drone.group.visible = on;
+    });
+    skinStale = false;
+    syncApplyState();
+    buildChips();
+    syncPanel();
+    setAction(action);
+    flash('PREVIEW APPLIED · ' + HERO_DEFS[active].name, '#3dffb0');
+  } catch (e) {
+    // The old bodies were kept until the new bank and heroes were ready.
+    replacement.forEach(removeStudioHero);
+    heroes = old;
+    old.forEach((h, i) => {
+      G.scene.add(h.group);
+      if (h.drone) G.scene.add(h.drone.group);
+      h.group.visible = i === keep;
+      if (h.drone) h.drone.group.visible = i === keep;
+    });
+    flash('PREVIEW REBUILD FAILED: ' + (e.message || e), '#ff3b5c');
+  }
+}
+
+function resetHeroConfig() {
+  if (!baseConfig || !baseConfig[heroId()]) return;
+  const c = cfg[heroId()] = JSON.parse(JSON.stringify(baseConfig[heroId()]));
+  const h = heroes[active];
+  h.setScale(c.scale);
+  h.motion = c.motion;
+  h.offset = c.pos;
+  h.setYawDeg(c.yawDeg);
+  markDirty();
+  skinStale = true;
+  syncApplyState();
+  syncPanel();
+  flash('RESET ' + HERO_DEFS[active].name + ' · APPLY + REBUILD PREVIEW', '#ffb14a');
+}
+
+function exportConfig() {
+  if (!cfg) return;
+  const blob = new Blob([JSON.stringify(cfg, null, 2) + '\\n'], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'hero_tuning.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  flash('EXPORTED hero_tuning.json', '#7cf9ff');
+}
+
+async function importConfig(file) {
+  if (!file || !cfg) return;
+  try {
+    const raw = JSON.parse(await file.text());
+    const source = raw && raw.tuning && typeof raw.tuning === 'object' ? raw.tuning : raw;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('expected hero tuning JSON');
+    const imported = normalizeTuning(source);
+    let count = 0;
+    HERO_DEFS.forEach((d, i) => {
+      if (!Object.prototype.hasOwnProperty.call(source, d.id)) return;
+      const c = cfg[d.id] = imported[d.id];
+      const h = heroes[i];
+      h.setScale(c.scale);
+      h.motion = c.motion;
+      h.offset = c.pos;
+      h.setYawDeg(c.yawDeg);
+      count++;
+    });
+    if (!count) throw new Error('no aegis, lyra, or nyx entries found');
+    markDirty();
+    skinStale = true;
+    syncApplyState();
+    syncPanel();
+    flash('IMPORTED ' + count + ' HERO' + (count === 1 ? '' : 'ES') + ' · APPLY + REBUILD PREVIEW', '#ffb14a');
+  } catch (e) {
+    flash('IMPORT FAILED: ' + (e.message || e), '#ff3b5c');
+  }
+}
+
 async function save() {
   flash('SAVING…');
   try {
@@ -800,6 +959,7 @@ async function save() {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const n = fxCount(cfg);
+    markClean();
     flash('SAVED — ' + n + ' FX SLOT' + (n === 1 ? '' : 'S') + ' · RESTART THE RUN TO APPLY', '#3dffb0');
     refreshLib();
   } catch (e) {
@@ -811,10 +971,19 @@ $('sz').oninput = () => {
   const v = +$('sz').value;
   heroes[active].setScale(v);
   cfg[heroId()].scale = heroes[active].tunScale;
+  markDirty();
   $('hgt').textContent = (2.4 * heroes[active].tunScale).toFixed(2) + ' m';
   measureFit();          // size moves the feet unless the base rides with it
 };
 $('save').onclick = save;
+$('applyPreview').onclick = rebuildPreview;
+$('resetHero').onclick = resetHeroConfig;
+$('exportConfig').onclick = exportConfig;
+$('importConfig').onclick = () => $('importConfigFile').click();
+$('importConfigFile').onchange = (e) => {
+  importConfig(e.target.files[0]);
+  e.target.value = '';
+};
 $('simon').onclick = () => simToggle();
 $('simbasic').onclick = doBasic;
 $('simq').onclick = () => doCast(0);
@@ -871,12 +1040,13 @@ $('fxplay').onclick = () => {
   if (!heroes[active].playFX(G, slot)) flash('FX FILE NOT IN THE BANK — RE-ASSIGN IT', '#ffb14a');
 };
 $('fxrec').onclick = recordFX;
-$('fxon').onclick = () => { const a = asg(); a.setOn(!a.on); syncFX(); };
+$('fxon').onclick = () => { const a = asg(); a.setOn(!a.on); markDirty(); syncFX(); };
 $('fxclear').onclick = () => {
   const a = asg();
   if (!a.src) { flash('NOTHING TO CLEAR IN ' + slotLabel(slot).toUpperCase(), '#ffb14a'); return; }
   a.setSrc(null);
   a.setP(clampFX(a.p, 'glb'));
+  markDirty();
   syncFX();
   flash('CLEARED ' + slotLabel(slot).toUpperCase() + ' — SAVE TO KEEP', '#ff8a2b');
 };
@@ -888,6 +1058,7 @@ $('fxcopy').onclick = () => {
   a.setP(clampFX(Object.assign({}, c.fxP), fxKind(c.fx)));
   a.setSrc(c.fx);
   a.setOn(true);
+  markDirty();
   syncFX();
   flash('COPIED ALL → ' + slotLabel(slot).toUpperCase() + ' · TUNE FREELY', '#3dffb0');
 };
@@ -1023,6 +1194,8 @@ function syncPanel() {
   /* the tuning is read FIRST now, because its `model` field can point a hero at a
      different file than the manifest's <id>.glb — the skins are what that chooses */
   cfg = await ensureTuning();
+  baseConfig = JSON.parse(JSON.stringify(cfg));
+  markClean();
   G.glbTuning = cfg;
   G.glbSkins = await ensureGLBSkins(cfg);
   for (const d of HERO_DEFS) {                       // normalise for the editor
@@ -1053,6 +1226,7 @@ function syncPanel() {
   buildChips();
   setActive(0);
   setAction('idle');
+  syncApplyState();
   refreshLib();
 
   const clock = new THREE.Clock();

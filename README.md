@@ -79,6 +79,11 @@ pose buttons drive the procedural rig (idle / move / attack / cast / downed).
 Follow keeps the active hero centred while CAST SIM moves it; Free View preserves a hand-built
 OrbitControls composition. Auto-spin is independent, but Free View turns it off when switching modes.
 
+**Hero Studio workflow:** edits show as **UNSAVED**; use **APPLY + REBUILD PREVIEW** after changing a skin or
+clip binding, **RESET HERO** to restore the values loaded for the selected hero, **EXPORT JSON** to download a
+portable tuning file, **IMPORT JSON** to load one back into the editor, then **SAVE** to send the config to the
+upload server.
+
 ## Develop
 
 ```bash
@@ -200,11 +205,14 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 `hero-studio.html` is the art-direction side of the upload pipeline. It boots the real `Hero` class with the
 GLBs from `models/uploads/`, so what you see is what the match will draw. Everything is written to
 `models/uploads/hero_tuning.json`, which the game re-reads on every `startGame()` — tune, SAVE, then
-restart the run; no page reload. Files already parsed are reused, so a restart only pays for what changed.
-That file is gitignored — it is this workspace's session, not the game; `git add -f` it when a setup is worth
-shipping. At boot the game prints what it made of it: `[clips] aegis (aegis-rig.glb): bound idle=Aegis Idle
-walk=Walk … NOT IN FILE: Run02`, a warning line only when something failed to bind, so a shipped tuning file
-that names a clip the file does not have says so where it is actually played.
+restart the run; no page reload. **IMPORT JSON** loads a portable tuning file into the editor (it accepts the
+file produced by **EXPORT JSON** or a `{ "tuning": { ... } }` wrapper); imported skin and clip choices wait
+for **APPLY + REBUILD PREVIEW**, while size, placement, motion, and FX fields preview immediately. Files already
+parsed are reused, so a restart only pays for what changed. That file is gitignored — it is this workspace's
+session, not the game; `git add -f` it when a setup is worth shipping. At boot the game prints what it made of it:
+`[clips] aegis (aegis-rig.glb): bound idle=Aegis Idle walk=Walk … NOT IN FILE: Run02`, a warning line only when
+something failed to bind, so a shipped tuning file that names a clip the file does not have says so where it is
+actually played.
 Two rows at the top of the panel decide what the hero *is*: **SKIN FILE** points a hero at any `.glb` in the
 dropbox instead of `models/uploads/<id>.glb`, and **CLIPS** binds that file's animation clips to the hero's
 five states (`auto` resolves by name; `clips on/off` ignores them entirely and gives you the v2 behaviour). A
