@@ -73,6 +73,41 @@ export function ensureGLBSkins(tuning) {
   });
 }
 
+/** One line per hero wearing a GLB skin, for the console at boot.
+    The studio shows all of this per hero in its own clip block, but a shipped
+    `hero_tuning.json` is played in the GAME, where a typo'd clip name and a clip two slots
+    both claim used to be silent — `hero.anim.miss` existed and nobody read it. The
+    "nothing happened" case (a static mesh, which is every real file today) prints nothing:
+    a boot log that is always noisy is a boot log nobody opens. */
+export function clipReport(G) {
+  const out = [];
+  for (const h of (G && G.heroes) || []) {
+    const skin = G.glbSkins && G.glbSkins[h.def.id];
+    if (!skin || !h.rig || !h.rig.glb) continue;         // procedural body: nothing to report
+    const an = h.anim;
+    const file = String(skin.url || (h.def.id + '.glb')).split('/').pop();
+    if (!an) {
+      if (skin.clips && skin.clips.length) {
+        out.push({ bad: false, msg: h.def.id + ': ' + skin.clips.length + ' clip(s) in ' + file +
+          ' but anim.on is 0 — no mixer, the transform layer alone' });
+      }
+      continue;
+    }
+    const bits = [];
+    const bound = ANIM_NAME_KEYS.filter((s) => an.act[s]).map((s) => s + '=' + an.used[s]);
+    if (bound.length) bits.push('bound ' + bound.join(' '));
+    else bits.push('NOTHING BOUND — no slot resolved to a clip in ' + file);
+    if (an.miss.length) bits.push('NOT IN FILE: ' + an.miss.join(', '));
+    if (an.clash.length) {
+      bits.push('one clip per layer — ' + an.clash.map((c) => c.clip + ' also named for ' + c.slot +
+        (c.takenBy ? ' (held by ' + c.takenBy + ')' : '')).join(', '));
+    }
+    out.push({ bad: an.miss.length > 0 || an.clash.length > 0 || !bound.length,
+      msg: h.def.id + ' (' + file + '): ' + bits.join(' · ') });
+  }
+  return out;
+}
+
 /* ---------------- clips: what a hero layer plays, and on which bones ---------------- */
 
 /* What an `anim` slot means when the tuner wrote "auto": the alias list a name is matched

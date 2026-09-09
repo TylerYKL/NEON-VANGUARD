@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildWorld, ARENA } from './world.js';
 import { FX } from './fx.js';
 import { Hero, HERO_DEFS } from './heroes.js';
-import { ensureGLBSkins, ensureTuning, loadFXBank } from './glbskin.js';
+import { ensureGLBSkins, ensureTuning, loadFXBank, clipReport } from './glbskin.js';
 import { Enemy, ENEMY_TYPES, ProjectileSystem, ELITES } from './entities.js';
 import { UI } from './ui.js';
 import { SFX } from './audio.js';
@@ -933,6 +933,9 @@ async function startGame(training) {
   G.glbSkins = await ensureGLBSkins(G.glbTuning);   // uploaded hero models (models/uploads/<id>.glb), if any
   G.fxBank = await loadFXBank(G.glbTuning);   // skill-effect files, keyed by URL (see fxpack.js)
   createSquad();
+  /* after the squad exists, because the clip slots are resolved inside Hero.build() —
+     this is the only place a shipped tuning file says "that clip is not in the file" */
+  for (const r of clipReport(G)) (r.bad ? console.warn : console.info)('[clips] ' + r.msg);
   G.running = true;
   G.waveActive = false;
   G.waveTimer = 2.2;

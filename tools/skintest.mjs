@@ -615,7 +615,7 @@ check('a restart only pays for what changed', Object.keys(bank3).length === Obje
 
 /* ---------- v3: the skin file is tunable, and clips ride along ---------- */
 {
-  const { clipFor, clipOff, clampAnim, DEFAULT_ANIM } = await import('../src/glbskin.js');
+  const { clipFor, clipOff, clampAnim, DEFAULT_ANIM, clipReport } = await import('../src/glbskin.js');
   const before = FILES['models/uploads/hero_tuning.json'];
   FILES['models/uploads/aegis-rig.glb'] = await riggedGLB();
   FILES['models/uploads/hero_tuning.json'] = new TextEncoder().encode(JSON.stringify({
@@ -687,6 +687,34 @@ check('a restart only pays for what changed', Object.keys(bank3).length === Obje
   const h4 = new Hero(HERO_DEFS[0], G4, 0);
   check('anim.on = 0 leaves a rigged file exactly as v2 left it — no mixer at all',
     h4.anim === null && !!h4.rig.glb, 'anim ' + h4.anim);
+
+  /* the boot report: the same facts, in the place a shipped file is actually played */
+  const Gdup = {
+    scene: new THREE.Scene(), time: 0, glbSkins: skins3,
+    glbTuning: { aegis: { scale: 1, pos: {}, yawDeg: 0, motion: {},
+      anim: Object.assign(clampAnim(null), { walk: 'Aegis Idle' }) } },
+    addEffect: () => {}, lights: { acquire: () => null, release: () => {}, set: () => {} },
+  };
+  const hdup = new Hero(HERO_DEFS[0], Gdup, 1);
+  const rep = clipReport({ heroes: [h3, h4, hdup], glbSkins: skins3 });
+  const line3 = rep.find((r) => /NOT IN FILE/.test(r.msg)) || null;
+  check('clipReport prints the bound slots and the name that is not in the file',
+    !!line3 && /bound idle=Aegis Idle/.test(line3.msg) && /nope-not-here/.test(line3.msg) &&
+    line3.bad === true, line3 ? line3.msg : 'no line');
+  const lineD = rep.find((r) => /one clip per layer/.test(r.msg)) || null;
+  check('…the one-action-per-clip refusal is reported too, because the pose silently loses a layer',
+    !!lineD && /Aegis Idle also named for walk \(held by idle\)/.test(lineD.msg) && lineD.bad === true,
+    lineD ? lineD.msg : 'no clash line');
+  const line4 = rep.find((r) => /anim.on is 0/.test(r.msg)) || null;
+  check('…a rigged file with clips switched off is stated, not warned about',
+    !!line4 && line4.bad === false && /4 clip\(s\)/.test(line4.msg), line4 ? line4.msg : 'no line');
+  check('…and a procedural squad prints NOTHING (a log that is always noisy is a log nobody opens)',
+    clipReport({ heroes: [new Hero(HERO_DEFS[1], { scene: new THREE.Scene(), time: 0,
+      glbSkins: {}, glbTuning: {}, addEffect: () => {},
+      lights: { acquire: () => null, release: () => {}, set: () => {} }, }, 1)],
+      glbSkins: {} }).length === 0);
+  check('…and clipReport survives a squad with no G.glbSkins at all (the boot order is not guaranteed)',
+    clipReport({ heroes: [] }).length === 0 && clipReport(null).length === 0);
   FILES['models/uploads/hero_tuning.json'] = before;
   delete FILES['models/uploads/aegis-rig.glb'];
   await ensureTuning(true);

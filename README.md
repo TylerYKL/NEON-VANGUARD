@@ -83,8 +83,9 @@ node build.mjs       # bundles src/ into neon-vanguard / character-bay / model-v
 # headless — plain Node, no browser, run these first
 node tools/lighttest.mjs # 35 assertions: the scene's point-light count never changes
 node tools/geocheck.mjs  # per-enemy draw calls / verts / bbox / lights / materials, pooling leak check
-node tools/glbtest.mjs   # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
-node tools/skintest.mjs  # 138 assertions: uploaded skins, hero_tuning.json, per-skill FX slots + pooling
+node tools/glbtest.mjs   # 25 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+node tools/skintest.mjs  # 173 assertions: uploaded skins, hero_tuning.json v1→v3, per-skill FX slots + pooling,
+                       #   the clip resolver, the mixer (and its absence), the boot clip report
 node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
 node tools/simtest.mjs   # 41 assertions: the cast bench — 9 abilities + basics run, expire and leak nothing
 node tools/animcheck.mjs # read-only review of the motion layer: feet vs deck, GLB slam float, clips per file
@@ -124,7 +125,8 @@ src/devtools.js  the dev overlay (backtick): sliders, cheats, perf, JSON round-t
 src/showcase.js  Character Bay entry point (studio lighting, turntable, pose driver)
 src/viewer.js    Model Viewer entry point (GLB drop + procedural rig side-by-side)
 src/gltfutil.js  DOM-free GLB parse / stats / normalise (shared by viewer + glbtest)
-src/glbskin.js   loads uploaded hero GLBs + models/uploads/hero_tuning.json (size / motion / skill FX)
+src/glbskin.js   loads uploaded hero GLBs + their clips, models/uploads/hero_tuning.json (v3), and prints
+               the boot clip report — what bound, what is not in the file, what one clip two slots claimed
 src/fxpack.js    skill-effect layer: per-skill slots, parameter clamping, pooled clones, video + light reuse
 src/studio.js    Hero Studio entry: size / placement / action-motion / per-skill FX editor → hero_tuning.json
 src/sim.js       CAST SIM — the studio bench: real useSkill() + real move()/update() + real FX against stand-in
@@ -194,6 +196,10 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 GLBs from `models/uploads/`, so what you see is what the match will draw. Everything is written to
 `models/uploads/hero_tuning.json`, which the game re-reads on every `startGame()` — tune, SAVE, then
 restart the run; no page reload. Files already parsed are reused, so a restart only pays for what changed.
+That file is gitignored — it is this workspace's session, not the game; `git add -f` it when a setup is worth
+shipping. At boot the game prints what it made of it: `[clips] aegis (aegis-rig.glb): bound idle=Aegis Idle
+walk=Walk … NOT IN FILE: Run02`, a warning line only when something failed to bind, so a shipped tuning file
+that names a clip the file does not have says so where it is actually played.
 Two rows at the top of the panel decide what the hero *is*: **SKIN FILE** points a hero at any `.glb` in the
 dropbox instead of `models/uploads/<id>.glb`, and **CLIPS** binds that file's animation clips to the hero's
 five states (`auto` resolves by name; `clips on/off` ignores them entirely and gives you the v2 behaviour). A

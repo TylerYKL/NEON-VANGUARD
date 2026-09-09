@@ -92,7 +92,7 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
 ├── screenshots/            12 gameplay + 7 character-bay captures
 ├── tools/                  headless puppeteer test suites (see §6)
 └── src/
-    ├── main.js      1481  bootstrap, post FX, input, gamepad, camera, wave director, draft,
+    ├── main.js      1484  bootstrap, post FX, input, gamepad, camera, wave director, draft,
     │                      hazards, settings, dev-tool wiring, the shared context object `G`
     ├── heroes.js    1489  hero data, all 12 abilities, buffs, damage/heal, squad AI, playFX per skill slot,
     │                        clips for a rigged skin (poseClips) — the single pose owner for both renderers
@@ -106,8 +106,9 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
     ├── studio.js    1053  Hero Studio: size / placement / motion / per-skill FX editor / CAST SIM /
     │                        skin-file + clip binds → hero_tuning.json
     ├── fxpack.js     468  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
-    ├── glbskin.js    257  uploaded hero skins (+ their clips) + hero_tuning.json reader (v3) + URL-keyed
-    │                        effect bank; the model override, clipFor/clampAnim/DEFAULT_ANIM live here
+    ├── glbskin.js    293  uploaded hero skins (+ their clips) + hero_tuning.json reader (v3) + URL-keyed
+    │                        effect bank; the model override, clipFor/clampAnim/DEFAULT_ANIM and the
+    │                        clipReport boot line all live here
     ├── fx.js         431  pooled particles/rings/beams/sparks/telegraphs, shake, flash
     ├── world.js      311  arena, floor shader, baked skyline, billboards, rain, cover pylons
     ├── rig.js        358  faceted humanoid rig (chamfer/seg + flat shading) + animator + weapons
@@ -274,9 +275,10 @@ context):
 ```bash
 node tools/lighttest.mjs  # 35 assertions: the point-light count never moves (v1.8 invariant)
 node tools/geocheck.mjs   # per-enemy draw calls / verts / bbox / lights / materials + pooling leak check
-node tools/glbtest.mjs    # 12 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
-node tools/skintest.mjs   # 168 assertions: uploaded skins, hero_tuning.json v1→v3, FX slots, pooling, clamps,
-                        #   the clip resolver, model override, mixer build (and its absence when anim.on = 0)
+node tools/glbtest.mjs    # 25 assertions: the model-viewer GLB pipeline (export->parse->normalise->stats)
+node tools/skintest.mjs   # 173 assertions: uploaded skins, hero_tuning.json v1→v3, FX slots, pooling, clamps,
+                        #   the clip resolver, model override, mixer build (and its absence when anim.on = 0),
+                        #   and the boot clip report a shipped tuning file is judged by
 node tools/herofit.mjs    # 18 assertions: the REAL models/uploads/*.glb stand fully on the deck (invariant 15)
 node tools/simtest.mjs    # 56 assertions: the studio cast bench — abilities + basics run, expire, leak nothing,
                         #   the body stays owned by Hero.update, MOVE/dash work, uninstall gives the page back
@@ -350,7 +352,11 @@ practical. `hero-studio.html` boots the real `Hero` class against `models/upload
 `tools/upload_server.py` (`:8081`) is its save/load dropbox. Everything lands in
 `models/uploads/hero_tuning.json`, which `startGame()` re-reads on every restart (`ensureTuning(true)`,
 cache-bypassed, already-parsed files reused) — so the loop is **tune → SAVE → restart the run**, no page
-reload. Nothing in the shipped build depends on the studio: a missing file means default tuning.
+reload. Nothing in the shipped build depends on the studio: a missing file means default tuning — and
+`hero_tuning.json` is **gitignored on purpose**. It is a workspace's session, not the game: tracking it would
+make every slider drag a repo diff and would decide what a fresh clone looks like. When a tuned setup *should*
+travel, say so explicitly with `git add -f models/uploads/hero_tuning.json` (that is also how you ship a skin +
+clip binding you are happy with).
 
 **Three editing surfaces, one config file:**
 
