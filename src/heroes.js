@@ -1476,12 +1476,19 @@ export class Hero {
     const asg = fxFor(G.glbTuning, this.def.id, slot);
     if (asg) {
       const entry = G.fxBank && G.fxBank[asg.src];
+      const p = asg.p || clampFX(null, entry ? entry.kind : 'glb');
       if (entry) {
-        const p = asg.p || clampFX(null, entry.kind);
         /* Scratch, not a fresh Vector3 per cast (the rule). `spawnFX` copies the anchor out
            of it immediately, so reusing it is safe — and `this` is passed so a follow-anchored
            effect can ride the body instead of being stranded at the cast point (F3). */
         handles.push(spawnFX(G, entry, p, this._fxAt.set(this.pos.x, p.y, this.pos.z), this.facing, this));
+      }
+      if (p.audio) {
+        SFX.playClip(p.audio, {
+          pan: G.panOf(this.pos),
+          volume: p.audioVol,
+          rate: p.audioRate,
+        });
       }
     }
     const vfx = vfxFor(G.glbTuning, this.def.id, slot);

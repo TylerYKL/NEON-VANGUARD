@@ -218,6 +218,9 @@ check('fxKind splits video from prop', fxKind('a.webm') === 'video' && fxKind('a
 const junk = clampFX({ scale: NaN, dur: 1e9, spin: 'x', tint: 'red', blend: 7, opacity: -4 }, 'glb');
 check('clampFX drops non-finite to defaults', junk.scale === DEFAULT_FX.glb.scale && junk.spin === DEFAULT_FX.glb.spin,
   JSON.stringify(junk));
+const legacyAudio = clampFX({ audio: 'models/uploads/aegis-q-fx.ogg', audioVol: 8, audioRate: 0.1 }, 'glb');
+check('legacy asset FX accepts a browser-compatible audio cue', legacyAudio.audio === 'models/uploads/aegis-q-fx.ogg');
+check('legacy asset FX clamps audio volume and rate', legacyAudio.audioVol === 1.5 && legacyAudio.audioRate === 0.5);
 check('clampFX clamps out-of-range', junk.dur === 5 && junk.opacity === 0.05);
 check('clampFX rejects a bad tint', junk.tint === '#ffffff');
 check('clampFX clamps option indices', junk.blend === 2);

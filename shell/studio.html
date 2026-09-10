@@ -141,11 +141,11 @@
   #vfxhelp b{color:#7cf9ff}
   #vfxslots{display:flex;gap:5px}
   #vfxslots .chip{flex:1}
-  #vfxaudio{margin-top:8px;padding-top:7px;border-top:1px solid rgba(24,224,255,.12)}
-  #vfxaudioname{font-size:8.5px;color:#8fb;letter-spacing:.1em;line-height:1.5;word-break:break-all}
-  #vfxaudiodrop{border:1.5px dashed rgba(61,255,176,.34);padding:9px 8px;margin-top:5px;text-align:center;font-size:7.5px;letter-spacing:.12em;color:#7fd8b8;cursor:pointer}
-  #vfxaudiodrop.hot,#vfxaudiodrop:hover{border-color:#3dffb0;color:#3dffb0;background:rgba(61,255,176,.07)}
-  #vfxaudiolist{max-height:120px;overflow-y:auto;margin-top:5px;scrollbar-width:thin}
+  #fxaudio,#vfxaudio{margin-top:8px;padding-top:7px;border-top:1px solid rgba(24,224,255,.12)}
+  #fxaudioname,#vfxaudioname{font-size:8.5px;color:#8fb;letter-spacing:.1em;line-height:1.5;word-break:break-all}
+  #fxaudiodrop,#vfxaudiodrop{border:1.5px dashed rgba(61,255,176,.34);padding:9px 8px;margin-top:5px;text-align:center;font-size:7.5px;letter-spacing:.12em;color:#7fd8b8;cursor:pointer}
+  #fxaudiodrop.hot,#fxaudiodrop:hover,#vfxaudiodrop.hot,#vfxaudiodrop:hover{border-color:#3dffb0;color:#3dffb0;background:rgba(61,255,176,.07)}
+  #fxaudiolist,#vfxaudiolist{max-height:120px;overflow-y:auto;margin-top:5px;scrollbar-width:thin}
   .audioLib{margin-bottom:3px}
   .lib{display:flex;justify-content:space-between;gap:6px;align-items:center;font-size:8px;
        letter-spacing:.08em;padding:5px 7px;margin-bottom:4px;cursor:pointer;
@@ -260,6 +260,12 @@
     <button class="act on" id="fxon">on</button>
     <button class="act" id="fxcopy" title="copy the ALL assignment into this slot, then tune it apart">⎘ from all</button>
     <button class="act" id="fxclear">clear</button>
+  </div>
+  <div id="fxaudio">
+    <div id="fxaudioname">no legacy FX audio cue assigned</div>
+    <button class="act mini" id="fxaudioclear" style="float:right;margin-top:-17px">clear audio</button>
+    <div id="fxaudiodrop">DROP AUDIO FOR THIS GLB / VIDEO SLOT · OR CLICK<input id="fxaudiofile" type="file" accept=".ogg,.wav,.mp3,.m4a,.aac,.opus,.flac" hidden></div>
+    <div id="fxaudiolist"></div>
   </div>
   <div class="lbl">FX LOOK <i id="fxkind" style="opacity:.6;letter-spacing:.1em"></i></div>
   <div id="fxp"></div>

@@ -640,7 +640,7 @@ function playAudioPreview(url) {
   if (!url) return;
   audioPreview = new Audio(url);
   audioPreview.volume = 0.75;
-  audioPreview.onended = () => { audioPreview = null; buildVFXAudio(); };
+  audioPreview.onended = () => { audioPreview = null; buildFXAudio(); buildVFXAudio(); };
   audioPreview.play().catch(() => flash('AUDIO PREVIEW BLOCKED — CLICK THE PLAY BUTTON AGAIN', '#ffb14a'));
   buildVFXAudio();
 }
@@ -671,6 +671,64 @@ async function uploadVFXAudio(file) {
     flash('AUDIO UPLOADED + ASSIGNED ' + name + ' — SAVE TO KEEP', '#3dffb0');
   } catch (e) {
     flash('AUDIO UPLOAD FAILED: ' + (e.message || e), '#ff3b5c');
+  }
+}
+
+function setFXAudio(url) {
+  const a = asg();
+  a.setP(Object.assign({}, a.p, { audio: url || null }));
+  markDirty();
+  syncFX();
+  flash(url ? 'LEGACY FX AUDIO ASSIGNED → ' + slotLabel(slot) + ' · SAVE TO KEEP' : 'LEGACY FX AUDIO CLEARED · SAVE TO KEEP', url ? '#3dffb0' : '#ff8a2b');
+}
+
+async function uploadFXAudio(file) {
+  if (!file) return;
+  const ext = (file.name.match(/\.(ogg|wav|mp3|m4a|aac|opus|flac)$/i) || [])[1];
+  if (!ext) { flash('USE .OGG, .WAV, .MP3, .M4A, .AAC, .OPUS, OR .FLAC', '#ff3b5c'); return; }
+  const id = heroId();
+  const slotPart = slot === FX_SHARED ? 'all' : 's' + slot;
+  const name = id + '-fx-' + slotPart + '.' + ext.toLowerCase();
+  flash('UPLOADING FX AUDIO ' + file.name + ' → ' + name + '…');
+  try {
+    const r = await fetch(UP + '/upload/' + name, { method: 'PUT', body: file });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    setFXAudio(UPDIR + name);
+    await refreshLib();
+    flash('FX AUDIO UPLOADED + ASSIGNED ' + name + ' — SAVE TO KEEP', '#3dffb0');
+  } catch (e) {
+    flash('FX AUDIO UPLOAD FAILED: ' + (e.message || e), '#ff3b5c');
+  }
+}
+
+function buildFXAudio() {
+  const box = $('fxaudiolist');
+  if (!box) return;
+  const current = asg().p.audio;
+  $('fxaudioname').textContent = current
+    ? current.split('/').pop() + ' · ' + slotLabel(slot)
+    : 'no legacy FX audio cue assigned';
+  $('fxaudioclear').style.opacity = current ? '1' : '0.35';
+  box.innerHTML = '';
+  if (!audioFiles.length) {
+    box.innerHTML = '<div id="note">no audio in models/uploads yet — drop a CC0 OGG/WAV above</div>';
+    return;
+  }
+  for (const f of audioFiles) {
+    const url = UPDIR + f.name;
+    const row = document.createElement('div');
+    row.className = 'lib audioLib' + (url === current ? ' on' : '');
+    row.innerHTML = `<span>${f.name}</span><i>${(f.bytes / 1024).toFixed(1)} kb · audio</i><u>${url === current ? 'assigned' : 'assign'}</u>`;
+    row.title = 'click to assign this cue to the legacy ' + slotLabel(slot) + ' slot';
+    row.onclick = () => setFXAudio(url);
+    const play = document.createElement('button');
+    play.className = 'act mini'; play.textContent = audioPreview && audioPreview.src.endsWith(url) ? '■' : '▶';
+    play.title = 'preview audio';
+    play.onclick = (e) => { e.stopPropagation();
+      if (audioPreview && audioPreview.src.endsWith(url)) stopAudioPreview(); else playAudioPreview(url);
+      buildFXAudio();
+    };
+    row.appendChild(play); box.appendChild(row);
   }
 }
 
@@ -880,6 +938,9 @@ function firePreview(url, quiet) {
   const { p } = fxPreviewFor(cfg, heroId(), slot, url);
   const h = heroes[active];
   const inst = spawnFX(G, ent, p, new THREE.Vector3(h.pos.x, p.y, h.pos.z), h.facing || 0);
+  SFX.init();
+  SFX.resume();
+  if (p.audio) SFX.playClip(p.audio, { volume: p.audioVol, rate: p.audioRate });
   pv.url = url; pv.inst = inst; pv.live = true; pv.at = G.time; pv.gap = 0.22;
   G.addEffect({
     t: 0, dur: p.dur,
@@ -944,6 +1005,7 @@ function syncFX() {
   $('fxon').textContent = a.on ? 'on' : 'muted';
   $('fxclear').style.opacity = a.src ? '1' : '0.35';
   syncFXPanel();
+  buildFXAudio();
 }
 
 /* ============================================================
@@ -1406,6 +1468,22 @@ $('vfxaudiodrop').addEventListener('dragleave', (e) => {
 $('vfxaudiodrop').addEventListener('drop', (e) => {
   e.preventDefault(); e.stopPropagation(); $('vfxaudiodrop').classList.remove('hot');
   uploadVFXAudio(e.dataTransfer.files[0]);
+});
+$('fxaudioclear').onclick = () => {
+  if (!asg().p.audio) { flash('NO LEGACY FX AUDIO IN ' + slotLabel(slot), '#ffb14a'); return; }
+  setFXAudio(null);
+};
+$('fxaudiodrop').onclick = () => $('fxaudiofile').click();
+$('fxaudiofile').onchange = (e) => uploadFXAudio(e.target.files[0]);
+$('fxaudiodrop').addEventListener('dragover', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('fxaudiodrop').classList.add('hot');
+});
+$('fxaudiodrop').addEventListener('dragleave', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('fxaudiodrop').classList.remove('hot');
+});
+$('fxaudiodrop').addEventListener('drop', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('fxaudiodrop').classList.remove('hot');
+  uploadFXAudio(e.dataTransfer.files[0]);
 });
 $('fxdrop').onclick = () => $('fxfile').click();
 $('fxfile').onchange = (e) => uploadFX(e.target.files[0]);

@@ -956,7 +956,13 @@ async function startGame(training) {
   // tolerates a missing or undecodable clip, and procedural cues remain intact.
   const audioCues = new Set();
   for (const t of Object.values(G.glbTuning || {})) {
-    for (const entry of [t && t.vfx, ...(t && t.vfxSlots || [])]) {
+    const entries = [
+      t && t.vfx,
+      ...(t && t.vfxSlots || []),
+      t && t.fx ? { p: t.fxP } : null,
+      ...(t && t.fxSlots || []),
+    ];
+    for (const entry of entries) {
       if (entry && entry.p && entry.p.audio) audioCues.add(entry.p.audio);
     }
   }

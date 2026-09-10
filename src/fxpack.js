@@ -114,6 +114,13 @@ export function clampFX(raw, kind) {
   }
   const t = String(src.tint || '');
   out.tint = /^#[0-9a-f]{6}$/i.test(t) ? t.toLowerCase() : base.tint;
+  const audio = typeof src.audio === 'string' ? src.audio.trim() : '';
+  out.audio = audio && !/^javascript:/i.test(audio)
+    && /\.(?:ogg|wav|mp3|m4a|aac|opus|flac)(?:[?#].*)?$/i.test(audio)
+    ? audio : null;
+  const vol = Number(src.audioVol), rate = Number(src.audioRate);
+  out.audioVol = Number.isFinite(vol) ? clamp(vol, 0, 1.5) : 0.8;
+  out.audioRate = Number.isFinite(rate) ? clamp(rate, 0.5, 2) : 1;
   return out;
 }
 
