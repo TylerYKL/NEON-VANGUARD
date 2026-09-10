@@ -23,6 +23,18 @@ import { SFX } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 
+/* Keep a WebGL/loader failure visible instead of leaving a silent black canvas.
+   This is especially useful on a preview host where the asset API and the page
+   run on sibling ports. */
+function reportStudioError(label, value) {
+  const msg = $('msg');
+  const text = label + ': ' + (value && (value.message || value.reason || value) || 'unknown error');
+  console.error('[Hero Studio] ' + text);
+  if (msg) { msg.textContent = text; msg.style.color = '#ff3b5c'; }
+}
+addEventListener('error', (e) => reportStudioError('STUDIO ERROR', e.error || e.message));
+addEventListener('unhandledrejection', (e) => reportStudioError('STUDIO LOAD ERROR', e.reason));
+
 /* The properties rail is long by design: it contains the body fit, clip binding,
    CAST SIM, and every FX slot. Keep every parameter available, but let artists
    narrow the rail to the sections they are actively editing. The section wrapper
@@ -192,8 +204,15 @@ function syncApplyState() {
   b.textContent = skinStale ? 'apply + rebuild' : 'rebuild preview';
 }
 
-/* studio-side copy of the upload server origin (same sandbox, port 8081) */
-const UP = 'https://' + location.hostname.replace(/^\d+-/, '8081-');
+/* studio-side copy of the upload server origin (same sandbox, port 8081).
+   Preview hosts use the platform's `8080-…` / `8081-…` hostnames; local runs use
+   the same protocol and an explicit port. Keeping this here instead of hardcoding
+   localhost makes the importer work in both environments. */
+const UP = (() => {
+  const host = location.hostname;
+  if (/^\d+-/.test(host)) return location.protocol + '//' + host.replace(/^\d+-/, '8081-');
+  return location.protocol + '//' + host + ':8081';
+})();
 const UPDIR = 'models/uploads/';
 
 /* ---------- boot state ---------- */
