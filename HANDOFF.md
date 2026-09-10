@@ -3,8 +3,8 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-09 (v1.11.4, MOTION-AUDIT §4 B/C/D: GLB clips on a mixer) ·
-`neon-vanguard.html` 813 KB · `hero-studio.html` 756 KB · 21 modules in `src/`. Headless suites all pass:
+Last verified: 2026-09-10 (reference Three.js VFX lab port wired into Hero Studio; legacy studio retained at
+`hero-studio-legacy.html`) · `neon-vanguard.html` 813 KB · `hero-studio.html` ~1.1 MB · headless suites all pass:
 `lighttest` 35/35, `geocheck` clean, `glbtest` 25/25, `skintest` 168/168, `herofit` 18/18, `simtest` 56/56,
 `animcheck` 41/41, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
@@ -30,7 +30,8 @@ five clip slots and the studio rows are all shipped and tested. What is missing 
 |---|---|
 | `neon-vanguard.html` | the game (717 KB, open it directly, no server needed) |
 | `character-bay.html` | character turntable viewer with live Hero Studio GLB library |
-| `hero-studio.html` | Hero Studio — tune uploaded skins and edit per-skill effects |
+| `hero-studio.html` | Reference Three.js VFX lab — five approved casts, live lil-gui profiles, GLB import, and PNG reference gallery |
+| `hero-studio-legacy.html` | Legacy GLB/video/GPU VFX/audio/CAST SIM studio workflow |
 
 ---
 

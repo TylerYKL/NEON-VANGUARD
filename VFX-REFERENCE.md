@@ -3,9 +3,10 @@
 **Primary reference:** [LinearAbiltyCastingThreeJS](https://github.com/achrefelouafi/LinearAbiltyCastingThreeJS)
 
 Reference revision reviewed for this project: `ba61847cb6887e5ccae9cd591e6390082cac5f05`.
-Its MIT licence permits study and reuse with the required copyright notice. This project is not copying
-its source or binary assets; it is adopting the underlying skill-casting and VFX direction for future
-NEON VANGUARD abilities.
+Its MIT licence permits study and reuse with the required copyright notice. The approved runtime port
+now lives in `src/reference-vfx/`, with its reference UI stylesheet in `vfx-lab.css` and the associated
+HDRI/FBX/ground textures in `vfx-assets/`. The port is bundled into `hero-studio.html`; the vendored
+source carries the upstream notice at `src/reference-vfx/LICENSE`.
 
 ## What we are taking from the reference
 
@@ -133,6 +134,9 @@ linear/far-cast elemental abilities. NEON VANGUARD remains a self-contained Thre
 its existing procedural heroes, squad AI, wave director, GLB/video pipeline, Hero Studio and generated
 single-file deliverables. We will not replace those systems wholesale.
 
-The reference is therefore the **authoring standard and visual benchmark**, not a request to copy its
-folder structure, replace the current renderer, or abandon the existing procedural fallback. Godot
-migration remains deferred until this Three.js implementation is feature-complete and stable.
+The reference remains the **authoring standard and visual benchmark** for the game, while the Hero
+Studio surface is now the approved Three.js reference lab. The game shell and its existing procedural,
+GLB/video, GPU VFX, and audio systems remain separate deliverables; Hero Studio keeps those prior
+workflow assets available through the upload/library path while using the reference runtime for live
+ability authoring. Godot migration remains deferred until this Three.js implementation is feature-complete
+and stable.

@@ -25,7 +25,8 @@ animation, sound effect and music cue is generated at runtime.
 |---|---|
 | `neon-vanguard.html` | the game — 3 switchable operatives, waves, boss, ultimate chain, audio |
 | `character-bay.html` | character turntable viewer — orbit, poses, weapon detail, ability preview, and live Hero Studio GLB library |
-| `hero-studio.html` | Hero Studio — tune uploaded skins (size / placement / motion) and edit each hero's skill effects |
+| `hero-studio.html` | Hero Studio — the reference Three.js VFX lab with Frost Lance, Storm Lance, Cinder Fall, Nova Beam, Voltaic Snare, live lil-gui tuning, GLB import, and skill PNG references |
+| `hero-studio-legacy.html` | Legacy Hero Studio workflow — uploaded GLB/video/GPU VFX slots, CAST SIM, audio assignment, save/import, and settings |
 | `concept/*.jpg` | rendered concept sheets (art-direction target for Phase 3) |
 | `models/ref/` | bind-pose sheets for the three heroes + **`RIG-SPEC.md`**, the contract a rigged `.glb` must satisfy to animate |
 
@@ -88,7 +89,7 @@ upload server.
 
 ```bash
 npm install          # three + esbuild (+ puppeteer for the smoke test)
-node build.mjs       # bundles src/ into neon-vanguard / character-bay / hero-studio .html
+node build.mjs       # bundles the game, Character Bay, reference Hero Studio, and legacy studio .html
 
 # headless — plain Node, no browser, run these first
 node tools/lighttest.mjs # 37 assertions: the scene's point-light count never changes
@@ -198,7 +199,11 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 `src/balance.js` is the single source of truth — don't reintroduce balance literals into gameplay files.
 `applyBalance()` pushes values into `HERO_DEFS` / `ENEMY_TYPES`.
 
-### Hero Studio — skins, skill effects and GPU VFX
+### Hero Studio — reference ability lab + legacy asset workflow
+
+`hero-studio.html` now boots the vendored Three.js reference runtime from `src/reference-vfx/`. It exposes the five approved real casts — **Frost Lance**, **Storm Lance**, **Cinder Fall**, **Nova Beam**, and **Voltaic Snare** — with explicit arm/travel/impact/hold/fade phases, line and far-cast targeting, shader-first silhouettes, pooled effects, phase-matched procedural cues, and the live lil-gui profile/preset editor. The lab also has direct `.glb` import, an uploaded GLB library picker, and a clickable gallery of the existing skill PNG artwork.
+
+The lab's **OPEN LEGACY GLB / VIDEO / GPU VFX / AUDIO WORKFLOW** link opens `hero-studio-legacy.html`, preserving the prior upload/tuning surface for GLB/video slots, GPU VFX profiles, audio assignment, CAST SIM, settings collapse/expand, and JSON save/import. The existing `models/uploads/` workflow remains unchanged.
 
 The **GPU VFX · THREE-VFX STYLE** section is a vanilla-three editor inspired by the upstream `three-vfx` particle model. The upstream package is React/R3F-oriented and still marked work-in-progress, so this build keeps a serialisable profile and a renderer-native adapter: one instanced mesh per effect, with lifetime, velocity, acceleration, scale, colour and opacity animated in the GPU shader. Select **ALL / Q / E / R**, tune the profile, press **▶ PREVIEW** to judge it without changing gameplay, then press **ENABLE IN GAME**, **SAVE**, and restart the run. The preview and match both call `src/vfx.js:spawnVFX()`, so there is no separate effect implementation to drift.
 
@@ -210,8 +215,9 @@ The **GPU VFX · THREE-VFX STYLE** section is a vanilla-three editor inspired by
 > **[`MOTION-AUDIT.md`](MOTION-AUDIT.md)**; `node tools/animcheck.mjs` re-measures its numbers (and refuses to
 > pass if a per-frame path starts allocating again).
 
-`hero-studio.html` is the art-direction side of the upload pipeline. It boots the real `Hero` class with the
-GLBs from `models/uploads/`, so what you see is what the match will draw. Everything is written to
+`hero-studio-legacy.html` is the art-direction side of the upload pipeline. It boots the real `Hero` class with the
+GLBs from `models/uploads/`, so what you see is what the match will draw. The reference lab's GLB bridge can
+also load those same files directly for ability authoring. Everything is written to
 `models/uploads/hero_tuning.json`, which the game re-reads on every `startGame()` — tune, SAVE, then
 restart the run; no page reload. **IMPORT JSON** loads a portable tuning file into the editor (it accepts the
 file produced by **EXPORT JSON** or a `{ "tuning": { ... } }` wrapper); imported skin and clip choices wait
