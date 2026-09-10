@@ -1,5 +1,6 @@
 import { parseGLB, normalizeToStage } from './gltfutil.js';
 import { clampFX, fxKind, fxSources, FX_SLOTS } from './fxpack.js';
+import { clampVFX, VFX_SLOTS } from './vfx.js';
 
 /* A skin file a rebuilder produced can be *rigged* — bones, a SkinnedMesh, animation
    clips. Nothing in `models/uploads/` is today (`animcheck`'s census: every shipped file
@@ -240,6 +241,16 @@ export function normalizeTuning(raw) {
       const src = fxURL(s && s.src);
       slots.push(src ? { src, on: !(s.on === false), p: clampFX(s.p, fxKind(src)) } : null);
     }
+    const vfxSlots = [];
+    for (let i = 0; i < VFX_SLOTS; i++) {
+      const s = (t.vfxSlots || [])[i];
+      vfxSlots.push(s && typeof s === 'object'
+        ? { on: s.on === true, p: clampVFX(s.p) }
+        : null);
+    }
+    const vfx = t.vfx && typeof t.vfx === 'object'
+      ? { on: t.vfx.on === true, p: clampVFX(t.vfx.p) }
+      : null;
     out[id] = {
       scale: Number.isFinite(scale) ? Math.min(2, Math.max(0.5, scale)) : 1,
       motion,
@@ -251,6 +262,8 @@ export function normalizeTuning(raw) {
       fxOn: t.fxOn !== false,
       fxP: clampFX(t.fxP, fxKind(fx)),
       fxSlots: slots,
+      vfx,
+      vfxSlots,
     };
   }
   return out;

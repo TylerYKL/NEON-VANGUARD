@@ -7,6 +7,7 @@ import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import { addMat, metalMat, TAU, rand, clamp, damp, lerp, flatDist, angleTo, shortAngle, disposeObj } from './util.js';
 import { DEFAULT_MOTION, DEFAULT_ANIM, ANIM_NAME_KEYS, clipFor, clipOff } from './glbskin.js';
 import { clampFX, fxFor, spawnFX } from './fxpack.js';
+import { vfxFor, spawnVFX } from './vfx.js';
 import { ARENA } from './world.js';
 import { SFX } from './audio.js';
 import { BALANCE as B } from './balance.js';
@@ -1466,30 +1467,40 @@ export class Hero {
     this._yaw = (this._baseYaw || 0) + (clamp(d, -180, 180) * Math.PI) / 180;
   }
 
-  /** Spawn the studio-assigned skill effect for one skill slot (Q / E / R).
-      A per-slot assignment wins; otherwise the hero-wide "shared" one plays,
-      which is what a v1 tuning file only had. Everything heavy — pooled GLB
-      clones, cached material sets, refcounted <video> elements, a borrowed
-      light from the fixed pool — lives in fxpack.js, so the studio preview
-      shows exactly the object the match will show. */
+  /** Spawn every studio-assigned effect for one skill slot (Q / E / R).
+      Legacy GLB/video FX and the new GPU particle profile can coexist. The
+      profile is optional and only plays after the artist enables it in Hero
+      Studio; the same spawnVFX path powers the editor preview and the match. */
   playFX(G, slot = -1) {
+    const handles = [];
     const asg = fxFor(G.glbTuning, this.def.id, slot);
-    if (!asg) return null;
-    const entry = G.fxBank && G.fxBank[asg.src];
-    if (!entry) return null;
-    const p = asg.p || clampFX(null, entry.kind);
-    /* Scratch, not a fresh Vector3 per cast (the rule). `spawnFX` copies the anchor out
-       of it immediately, so reusing it is safe — and `this` is passed so a follow-anchored
-       effect can ride the body instead of being stranded at the cast point (F3). */
-    const inst = spawnFX(G, entry, p, this._fxAt.set(this.pos.x, p.y, this.pos.z), this.facing, this);
+    if (asg) {
+      const entry = G.fxBank && G.fxBank[asg.src];
+      if (entry) {
+        const p = asg.p || clampFX(null, entry.kind);
+        /* Scratch, not a fresh Vector3 per cast (the rule). `spawnFX` copies the anchor out
+           of it immediately, so reusing it is safe — and `this` is passed so a follow-anchored
+           effect can ride the body instead of being stranded at the cast point (F3). */
+        handles.push(spawnFX(G, entry, p, this._fxAt.set(this.pos.x, p.y, this.pos.z), this.facing, this));
+      }
+    }
+    const vfx = vfxFor(G.glbTuning, this.def.id, slot);
+    if (vfx) {
+      handles.push(spawnVFX(G, vfx.p, this._fxAt.set(this.pos.x, 0.08, this.pos.z), this.facing, this));
+    }
+    if (!handles.length) return null;
     G.addEffect({
-      t: 0, dur: p.dur,
-      update(dt) { return inst.update(dt); },
-      // a run reset truncates G.effects, so borrowed resources must be
-      // released from dispose() too (fxpack.kill() is idempotent)
-      dispose() { inst.kill(); },
+      t: 0,
+      update(dt) {
+        let alive = false;
+        for (const inst of handles) if (inst.update(dt)) alive = true;
+        return alive;
+      },
+      // A run reset truncates G.effects, so every borrowed/allocated effect is
+      // released from dispose() too. Both kill() methods are idempotent.
+      dispose() { for (const inst of handles) inst.kill(); },
     });
-    return inst.obj;
+    return handles[0].obj;
   }
 
   /* ---------------- AI ---------------- */

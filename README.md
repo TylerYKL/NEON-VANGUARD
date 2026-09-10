@@ -198,7 +198,9 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 `src/balance.js` is the single source of truth — don't reintroduce balance literals into gameplay files.
 `applyBalance()` pushes values into `HERO_DEFS` / `ENEMY_TYPES`.
 
-### Hero Studio — skins and skill effects
+### Hero Studio — skins, skill effects and GPU VFX
+
+The **GPU VFX · THREE-VFX STYLE** section is a vanilla-three editor inspired by the upstream `three-vfx` particle model. The upstream package is React/R3F-oriented and still marked work-in-progress, so this build keeps a serialisable profile and a renderer-native adapter: one instanced mesh per effect, with lifetime, velocity, acceleration, scale, colour and opacity animated in the GPU shader. Select **ALL / Q / E / R**, tune the profile, press **▶ PREVIEW** to judge it without changing gameplay, then press **ENABLE IN GAME**, **SAVE**, and restart the run. The preview and match both call `src/vfx.js:spawnVFX()`, so there is no separate effect implementation to drift.
 
 > Want a worked example with real files? **[`FX-AEGIS.md`](FX-AEGIS.md)** — four sample skill effects for
 > AEGIS (in `models/uploads/`), the assign → tune → save loop, what `● REC` records, and every FX slider with

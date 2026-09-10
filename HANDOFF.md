@@ -104,6 +104,7 @@ NEON-VANGUARD/                  (repo root — also the GitHub Pages root)
     ├── studio.js    1053  Hero Studio: size / placement / motion / per-skill FX editor / CAST SIM /
     │                        skin-file + clip binds → hero_tuning.json
     ├── fxpack.js     468  skill-effect layer: slot resolution, clampFX, pooled clones, video + light reuse
+    ├── vfx.js        GPU particle profiles/editor contract + instanced shader runtime (three-vfx style)
     ├── glbskin.js    293  uploaded hero skins (+ their clips) + hero_tuning.json reader (v3) + URL-keyed
     │                        effect bank; the model override, clipFor/clampAnim/DEFAULT_ANIM and the
     │                        clipReport boot line all live here

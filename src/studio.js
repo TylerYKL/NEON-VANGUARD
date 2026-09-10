@@ -6,6 +6,7 @@ import { ensureGLBSkins, ensureTuning, normalizeTuning, loadFXBank, ANIM_NAME_KE
 import { parseGLB, normalizeToStage, gatherStats } from './gltfutil.js';
 import { animateRig } from './rig.js';
 import { clampFX, fxCount, fxDefsFor, fxEdit, fxKind, fxPreviewFor, FX_SHARED, FX_SLOTS, spawnFX } from './fxpack.js';
+import { clampVFX, VFX_COLOR_DEFS, VFX_NUM_DEFS, VFX_OPT_DEFS, VFX_SHARED, VFX_SLOTS, spawnVFX, vfxCount, vfxEdit } from './vfx.js';
 import { createSim, SIM_TARGETS, SIM_SPEEDS } from './sim.js';
 import { clamp } from './util.js';
 
@@ -473,8 +474,10 @@ function syncPlacement() {
 let slot = FX_SHARED;
 let fxKindShown = null;
 let libFiles = [];
+let vfxSlot = VFX_SHARED;
 
 const heroId = () => HERO_DEFS[active].id;
+const vfxAsg = () => vfxEdit(cfg, heroId(), vfxSlot);
 /* the editor and the match read the same record through fxpack.fxEdit, so a
    slot that previews correctly here cannot resolve differently in-game */
 const asg = () => fxEdit(cfg, heroId(), slot);
@@ -853,6 +856,132 @@ function syncFX() {
   syncFXPanel();
 }
 
+/* ============================================================
+   GPU PARTICLE VFX EDITOR
+   A profile is independent from the uploaded GLB/video slots. It is previewable
+   without being enabled, and the same serialised profile is consumed by the game.
+   ============================================================ */
+function vfxSlotLabel(i) {
+  if (i === VFX_SHARED) return 'ALL';
+  const sk = HERO_DEFS[active].skills[i];
+  return sk ? sk.key : 'S' + i;
+}
+
+function buildVFXChips() {
+  const box = $('vfxslots');
+  if (!box) return;
+  box.innerHTML = '';
+  const make = (i, title) => {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.innerHTML = `<b>${vfxSlotLabel(i)}</b>${i === VFX_SHARED ? 'shared' : slotName(i)}<i></i>`;
+    b.title = title;
+    b._vfxSlot = i;
+    b.onclick = () => { vfxSlot = i; syncVFX(); };
+    box.appendChild(b);
+  };
+  make(VFX_SHARED, 'GPU profile for every skill unless a skill profile overrides it');
+  for (let i = 0; i < VFX_SLOTS; i++) make(i, 'GPU profile for skill ' + vfxSlotLabel(i));
+}
+
+function buildVFXPanel() {
+  const box = $('vfxp');
+  if (!box) return;
+  box.innerHTML = '';
+  const a = vfxAsg();
+  for (const [key, label, min, max, step] of VFX_NUM_DEFS) {
+    const row = sliderRow(label, min, max, step, (value, out) => {
+      const next = Object.assign({}, vfxAsg().p, { [key]: value });
+      vfxAsg().setP(next);
+      markDirty();
+      out.textContent = step < 0.1 ? (+value).toFixed(2) : (+value).toFixed(step < 1 ? 1 : 0);
+    });
+    row._vfxKey = key;
+    row._input.value = a.p[key];
+    row._out.textContent = step < 0.1 ? (+a.p[key]).toFixed(2) : (+a.p[key]).toFixed(step < 1 ? 1 : 0);
+    box.appendChild(row);
+  }
+  for (const [key, label, opts] of VFX_OPT_DEFS) {
+    const row = sliderRow(label, 0, opts.length - 1, 1, (value, out) => {
+      vfxAsg().setP(Object.assign({}, vfxAsg().p, { [key]: value }));
+      markDirty();
+      out.textContent = opts[value] || '';
+    });
+    row._vfxKey = key; row._vfxOpts = opts;
+    row._input.value = a.p[key]; row._out.textContent = opts[a.p[key]] || '';
+    box.appendChild(row);
+  }
+  for (const [key, label, fallback] of VFX_COLOR_DEFS) {
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    row.innerHTML = `<span>${label}</span><input type="color"><b></b>`;
+    row._vfxKey = key;
+    const input = row.querySelector('input');
+    const output = row.querySelector('b');
+    input.value = a.p[key] || fallback;
+    output.textContent = input.value;
+    input.oninput = () => {
+      vfxAsg().setP(Object.assign({}, vfxAsg().p, { [key]: input.value }));
+      markDirty(); output.textContent = input.value;
+    };
+    box.appendChild(row);
+  }
+}
+
+function syncVFXPanel() {
+  const box = $('vfxp');
+  if (!box) return;
+  if (!box.children.length) buildVFXPanel();
+  const p = vfxAsg().p;
+  for (const row of box.children) {
+    const key = row._vfxKey;
+    const input = row.querySelector('input');
+    const out = row.querySelector('b');
+    if (!key || !input || !out) continue;
+    input.value = p[key];
+    out.textContent = row._vfxOpts ? (row._vfxOpts[p[key]] || '')
+      : input.type === 'color' ? p[key] : (+p[key]).toFixed(+input.step < 0.1 ? 2 : +input.step < 1 ? 1 : 0);
+  }
+}
+
+function syncVFX() {
+  if (!$('vfxslots')) return;
+  const a = vfxAsg();
+  for (const b of $('vfxslots').children) {
+    b.classList.toggle('on', b._vfxSlot === vfxSlot);
+    b.classList.toggle('has', !!(b._vfxSlot === VFX_SHARED
+      ? cfg[heroId()].vfx
+      : (cfg[heroId()].vfxSlots || [])[b._vfxSlot]));
+  }
+  $('vfxon').classList.toggle('on', a.on);
+  $('vfxon').textContent = a.on ? 'enabled in game' : 'enable in game';
+  $('vfxclear').style.opacity = a.configured ? '1' : '0.35';
+  $('vfxname').innerHTML = (a.configured ? 'GPU PARTICLE PROFILE' : 'preview-only profile') +
+    ' · ' + a.p.burst + ' burst · ' + a.p.life.toFixed(2) + ' s life · ' +
+    (a.on ? '<em>enabled in game</em>' : '<em>not enabled in game</em>');
+  syncVFXPanel();
+}
+
+let vfxPreview = null;
+function previewVFX() {
+  const h = heroes[active];
+  if (!h) return;
+  if (vfxPreview) { vfxPreview.kill(); vfxPreview = null; }
+  const p = clampVFX(vfxAsg().p);
+  const inst = spawnVFX(G, p, new THREE.Vector3(h.pos.x, 0.08, h.pos.z), h.facing || 0, h);
+  vfxPreview = inst;
+  G.addEffect({
+    update(dt) {
+      const alive = inst.update(dt);
+      if (!alive) vfxPreview = null;
+      return alive;
+    },
+    dispose() { inst.kill(); if (vfxPreview === inst) vfxPreview = null; },
+  });
+  flash('GPU VFX PREVIEW · ' + vfxSlotLabel(vfxSlot) + ' · ' +
+    (p.duration + p.life).toFixed(2) + ' s', '#7cf9ff');
+}
+
 function setActive(i) {
   active = i;
   heroes.forEach((h, k) => {
@@ -862,7 +991,9 @@ function setActive(i) {
   });
   document.querySelectorAll('#head .tab').forEach((t, k) => t.classList.toggle('on', k === i));
   buildChips();
+  buildVFXChips();
   syncPanel();
+  syncVFX();
 }
 
 function setAction(a) {
@@ -936,7 +1067,9 @@ async function rebuildPreview() {
     skinStale = false;
     syncApplyState();
     buildChips();
+    buildVFXChips();
     syncPanel();
+    syncVFX();
     setAction(action);
     flash('PREVIEW APPLIED · ' + HERO_DEFS[active].name, '#3dffb0');
   } catch (e) {
@@ -1019,8 +1152,9 @@ async function save() {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const n = fxCount(cfg);
+    const vn = vfxCount(cfg);
     markClean();
-    flash('SAVED — ' + n + ' FX SLOT' + (n === 1 ? '' : 'S') + ' · RESTART THE RUN TO APPLY', '#3dffb0');
+    flash('SAVED — ' + n + ' ASSET FX · ' + vn + ' GPU VFX PROFILE' + (vn === 1 ? '' : 'S') + ' · RESTART THE RUN TO APPLY', '#3dffb0');
     refreshLib();
   } catch (e) {
     flash('SAVE FAILED: ' + (e.message || e) + ' (is tools/upload_server.py running?)', '#ff3b5c');
@@ -1135,6 +1269,23 @@ $('fxloop').onclick = () => {
   syncLibTools();
 };
 $('fxstop').onclick = () => stopPreview();
+$('vfxplay').onclick = previewVFX;
+$('vfxon').onclick = () => {
+  const a = vfxAsg();
+  const next = !a.on;
+  a.setOn(next);
+  markDirty();
+  syncVFX();
+  flash(next ? 'GPU VFX ENABLED IN GAME · SAVE TO APPLY' : 'GPU VFX MUTED IN GAME', next ? '#3dffb0' : '#ffb14a');
+};
+$('vfxclear').onclick = () => {
+  const a = vfxAsg();
+  if (!a.configured) { flash('NO GPU VFX PROFILE IN ' + vfxSlotLabel(vfxSlot), '#ffb14a'); return; }
+  a.clear();
+  markDirty();
+  syncVFX();
+  flash('CLEARED GPU VFX · SAVE TO KEEP', '#ff8a2b');
+};
 $('fxdrop').onclick = () => $('fxfile').click();
 $('fxfile').onchange = (e) => uploadFX(e.target.files[0]);
 addEventListener('dragover', (e) => { e.preventDefault(); $('fxdrop').classList.add('hot'); });
@@ -1247,6 +1398,7 @@ function syncPanel() {
   syncAnim();
   measureFit();
   syncFX();
+  syncVFX();
 }
 
 /* ---------- boot ---------- */
