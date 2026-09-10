@@ -253,6 +253,10 @@ python3 tools/upload_server.py                                # the :8081 dropbo
 | LIBRARY · models/uploads | `▶` previews any file at the hero **without assigning it** (params via `fxPreviewFor`, always a clamped copy), `⟳ loop` re-fires it, `all · glb · video` filters |
 | GPU VFX · THREE-VFX STYLE | `ALL / Q / E / R` profile slots, preview/enable/save, plus an additive audio cue with volume/rate controls and `.ogg / .wav / .mp3` upload, preview, assign, and clear |
 
+### Skill VFX reference
+
+Future skill effects use [LinearAbiltyCastingThreeJS](https://github.com/achrefelouafi/LinearAbiltyCastingThreeJS) as the primary authoring reference: readable arm/travel/impact/hold/fade phases, line and far-cast targeting indicators, shader-first silhouettes, live profiles, pooled density, and audio paired to cast phases. The project-specific adoption rules and mapping to the current runtime are in [`VFX-REFERENCE.md`](VFX-REFERENCE.md). This is an authoring benchmark, not a wholesale renderer or folder-structure replacement.
+
 ### Skill FX audio
 
 The best match found for this neon sci-fi combat game is **[Kenney Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds)**:

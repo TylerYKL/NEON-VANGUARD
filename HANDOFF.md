@@ -378,7 +378,9 @@ clip binding you are happy with).
   `.glb` prop or a video billboard with eleven tuning parameters (`scale y dur grow spin rise fade opacity
   light tint blend`, plus `rate vblend face loop` for video). Assign by drop, by `● REC` (the studio records
   its own canvas while the slot plays and saves `<id>-s<n>-fx.webm`), or from the LIBRARY list of
-  `models/uploads/` — the last one needs no re-upload because the bank is keyed by URL. Each library row ends
+  `models/uploads/` — the last one needs no re-upload because the bank is keyed by URL. Both the legacy
+  GLB/video slot and the GPU VFX slot can carry an optional browser-decodable audio cue, with volume/rate
+  controls, preview, upload, assignment and clear in the same ALL / Q / E / R workflow. Each library row ends
   in **▶ preview**: it fires the file through the same `spawnFX`, reading params through `fxPreviewFor`
   (edited slot → shared → this hero's other slot → kind defaults) and handing back a *clamped copy*, so a
   preview can never dirty a save; `⟳ loop` re-fires it every 0.22 s and `all · glb · video` filters the list.
@@ -507,6 +509,7 @@ tests are meaningless; draw calls and triangle counts are accurate.
 | `README.md` | developer quick reference: controls, build, module map, subsystem notes |
 | `FX-AEGIS.md` | worked example for an art non-programmer: the AEGIS sample skill FX, the assign / tune / ● REC loop, and the tuning cheat sheet |
 | `MOTION-AUDIT.md` | the layer under the FX: how a hero is posed/moved/attacked, its 8 findings with measured numbers (all fixed; one was caught by the bench the audit asked for) and the GLB-clip plan — phases A–D are in, the rest is art |
+| `VFX-REFERENCE.md` | primary future skill-VFX reference: readable cast phases, line/far targeting, shader-first silhouettes, live profiles, pooling and phase-matched audio |
 | `models/ref/RIG-SPEC.md` | the contract a rigged hero GLB has to satisfy — bind pose, +Z facing, the `normalizeToStage` fit gotcha, bone naming, the five clip-slot aliases, why clips may not key the root — plus the three bind-pose sheets in `models/ref/` and the commands that check a file before it is handed over |
 
 **Open questions still owed by the stakeholder** (§9 of the proposal): monetisation/platform, whether co-op
