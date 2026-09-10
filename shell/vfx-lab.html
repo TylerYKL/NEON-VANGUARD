@@ -14,8 +14,17 @@
     .bridge__copy { color:#8796ad; font: 11px/1.5 monospace; margin:9px 0 12px; }
     .bridge__button, #studio-bridge select { box-sizing:border-box; display:block; width:100%; margin:7px 0; padding:9px 10px; border:1px solid #28405c; color:#d9e8ff; background:#0b1523; font:700 10px monospace; letter-spacing:.08em; cursor:pointer; }
     .bridge__button:hover, #studio-bridge select:hover { border-color:#55dcff; color:#55dcff; }
-    .bridge__link { text-decoration:none; text-align:center; }
+    .bridge__link { text-align:center; }
     .bridge__button input { display:none; }
+    .bridge__mapping { margin:12px 0 10px; padding:10px 0 4px; border-top:1px solid #20324b; border-bottom:1px solid #20324b; color:#70829d; font:10px monospace; }
+    .bridge__mapping > b { display:block; margin-bottom:7px; color:#a9c1dc; }
+    .bridge__heroes { display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; }
+    .bridge__hero { padding:6px 2px; border:1px solid #233b56; color:#8da5c3; background:#07101b; font:700 9px monospace; cursor:pointer; }
+    .bridge__hero.is-active { border-color:#55dcff; color:#55dcff; background:#102334; }
+    .bridge__route { display:grid; grid-template-columns:74px 1fr; gap:5px; margin-top:6px; }
+    .bridge__route select { margin:0 !important; padding:7px 5px !important; font-size:9px !important; }
+    .bridge__check { display:block; margin:7px 0; color:#8298b4; font:9px monospace; cursor:pointer; }
+    .bridge__check input { accent-color:#55dcff; vertical-align:middle; }
     .bridge__small { font-size:9px; }
     .bridge__status { margin-top:10px; color:#71e7ff; font:10px/1.4 monospace; }
     .bridge__status.is-bad { color:#ff7eac; }
@@ -31,6 +40,11 @@
     .bridge__artOverlay img { max-width:min(90vw,1100px); max-height:86vh; object-fit:contain; box-shadow:0 0 50px #55dcff44; }
     .bridge__artOverlay button { position:absolute; right:24px; top:18px; color:#dff6ff; background:transparent; border:0; font:30px monospace; cursor:pointer; }
     .bridge__artOverlay small { position:absolute; bottom:24px; color:#8da5c3; font:11px monospace; }
+    .bridge__legacyPanel { display:none; position:fixed; z-index:90; inset:3vh 3vw; background:#04050b; border:1px solid #28405c; box-shadow:0 0 60px #000; }
+    .bridge__legacyPanel.is-visible { display:block; }
+    .bridge__legacyHead { height:32px; display:flex; align-items:center; justify-content:space-between; padding:0 10px; color:#a9c1dc; background:#0b1523; font:10px monospace; }
+    .bridge__legacyHead button { border:0; color:#d9e8ff; background:transparent; font:700 20px monospace; cursor:pointer; }
+    .bridge__legacyPanel iframe { display:block; width:100%; height:calc(100% - 32px); border:0; background:#04050b; }
     .is-hidden { display:none; }
     @media (max-width: 760px) { #studio-bridge { top:8px; left:8px; width:260px; } }
   </style>

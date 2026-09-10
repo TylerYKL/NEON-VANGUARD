@@ -1,6 +1,7 @@
 import { parseGLB, normalizeToStage } from './gltfutil.js';
 import { clampFX, fxKind, fxSources, FX_SLOTS } from './fxpack.js';
 import { clampVFX, VFX_SLOTS } from './vfx.js';
+import { normalizeReferenceSkills } from './reference-vfx/heroSkills.js';
 
 /* A skin file a rebuilder produced can be *rigged* — bones, a SkinnedMesh, animation
    clips. Nothing in `models/uploads/` is today (`animcheck`'s census: every shipped file
@@ -266,6 +267,7 @@ export function normalizeTuning(raw) {
       vfxSlots,
     };
   }
+  out.referenceSkills = normalizeReferenceSkills(raw && raw.referenceSkills);
   return out;
 }
 

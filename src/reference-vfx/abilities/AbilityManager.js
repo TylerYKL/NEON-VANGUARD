@@ -3,7 +3,6 @@ import { ThunderAbility } from './ThunderAbility.js';
 import { MeteorAbility } from './MeteorAbility.js';
 import { BeamAbility } from './BeamAbility.js';
 import { SnareAbility } from './SnareAbility.js';
-import { GlacierAbility } from './GlacierAbility.js';
 import { ELEMENTS } from '../config/settings.js';
 import { ObjectPool } from '../utils/ObjectPool.js';
 
@@ -13,8 +12,7 @@ const ABILITY_TYPES = {
   thunder: ThunderAbility,
   meteor: MeteorAbility,
   beam: BeamAbility,
-  snare: SnareAbility,
-  glacier: GlacierAbility
+  snare: SnareAbility
 };
 
 const MAX_CONCURRENT = 4;

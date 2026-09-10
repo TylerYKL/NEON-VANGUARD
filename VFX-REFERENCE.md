@@ -134,9 +134,9 @@ linear/far-cast elemental abilities. NEON VANGUARD remains a self-contained Thre
 its existing procedural heroes, squad AI, wave director, GLB/video pipeline, Hero Studio and generated
 single-file deliverables. We will not replace those systems wholesale.
 
-The reference remains the **authoring standard and visual benchmark** for the game, while the Hero
-Studio surface is now the approved Three.js reference lab. The game shell and its existing procedural,
-GLB/video, GPU VFX, and audio systems remain separate deliverables; Hero Studio keeps those prior
-workflow assets available through the upload/library path while using the reference runtime for live
-ability authoring. Godot migration remains deferred until this Three.js implementation is feature-complete
-and stable.
+The reference remains the **authoring standard and visual benchmark** for the game. Hero Studio and the
+Linear VFX Lab now share one combined surface: the five reference casts can be assigned to Aegis, Nyx,
+and Lyra Q/E/R slots and the playable match uses the same pooled cast phase runtime. Hero-specific combat
+mechanics remain in `src/heroes.js` and fire on the reference impact phase. The existing procedural,
+GLB/video, GPU VFX, and audio workflows remain available in the expandable legacy panel. Godot migration
+remains deferred until this Three.js implementation is feature-complete and stable.

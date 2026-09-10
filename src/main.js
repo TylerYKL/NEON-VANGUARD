@@ -17,6 +17,7 @@ import { LightPool } from './lights.js';
 import { UPGRADES, MOD_DEFAULTS, RARITY_COLOR, rollOffers } from './upgrades.js';
 import { BALANCE as B, applyBalance } from './balance.js';
 import { initDevTools, DEV_CSS } from './devtools.js';
+import { GameReferenceVFX } from './reference-vfx/gameRuntime.js';
 
 /* ============================================================
    SETTINGS — persisted, applied live.
@@ -163,6 +164,7 @@ const G = {
   mouse: new THREE.Vector2(-1, -1),
   screenAim: { x: -100, y: -100 },
 };
+G.referenceVFX = new GameReferenceVFX({ scene, camera, renderer, gameFX: fx });
 G.projectiles = new ProjectileSystem(scene, G);
 
 /* ---------- helpers exposed to systems ---------- */
@@ -952,6 +954,8 @@ async function startGame(training) {
   G.score = 0; G.kills = 0; G.combo = 1; G.wave = 0;
   G.over = false; G.paused = false;
   G.glbTuning = await ensureTuning(true);  // re-read studio config (saved while this tab was open)
+  G.referenceVFX.setTuning(G.glbTuning);
+  G.referenceVFX.clear();
   // Warm assigned VFX samples during the menu/start transition. Playback still
   // tolerates a missing or undecodable clip, and procedural cues remain intact.
   const audioCues = new Set();
@@ -1575,6 +1579,7 @@ function frame(now) {
     // Submit the baked enemy shells once per type after all transforms are current.
     for (const batch of Object.values(G.enemyBatches)) batch.update();
     G.projectiles.update(dt);
+    G.referenceVFX.update(dt, G.time);
     for (let i = G.effects.length - 1; i >= 0; i--) {
       if (!G.effects[i].update(dt)) G.effects.splice(i, 1);
     }

@@ -25,8 +25,8 @@ animation, sound effect and music cue is generated at runtime.
 |---|---|
 | `neon-vanguard.html` | the game — 3 switchable operatives, waves, boss, ultimate chain, audio |
 | `character-bay.html` | character turntable viewer — orbit, poses, weapon detail, ability preview, and live Hero Studio GLB library |
-| `hero-studio.html` | Hero Studio — the reference Three.js VFX lab with Frost Lance, Storm Lance, Cinder Fall, Nova Beam, Voltaic Snare, live lil-gui tuning, GLB import, and skill PNG references |
-| `hero-studio-legacy.html` | Legacy Hero Studio workflow — uploaded GLB/video/GPU VFX slots, CAST SIM, audio assignment, save/import, and settings |
+| `hero-studio.html` | Combined Hero Studio + Linear VFX Lab — five reference casts, Aegis/Nyx/Lyra Q/E/R routing, live lil-gui tuning, GLB import, PNG references, and expandable legacy workflows |
+| `hero-studio-legacy.html` | Standalone legacy Hero Studio workflow — uploaded GLB/video/GPU VFX slots, CAST SIM, audio assignment, save/import, and settings |
 | `concept/*.jpg` | rendered concept sheets (art-direction target for Phase 3) |
 | `models/ref/` | bind-pose sheets for the three heroes + **`RIG-SPEC.md`**, the contract a rigged `.glb` must satisfy to animate |
 
@@ -102,6 +102,7 @@ node tools/skintest.mjs  # 173 assertions: uploaded skins, hero_tuning.json v1�
                        #   the clip resolver, the mixer (and its absence), the boot clip report
 node tools/herofit.mjs   # 18 assertions: every uploaded GLB stands fully on the deck (feet at y = 0)
 node tools/simtest.mjs   # 56 assertions: the cast bench — 9 abilities + basics run, expire and leak nothing
+node tools/reftest.mjs   # combined Hero Studio routing + playable reference-cast impact bridge
 node tools/animcheck.mjs # read-only review of the motion layer: feet vs deck, GLB slam float, clips per file
 node tools/fxsample.mjs  # writes + validates the AEGIS sample skill FX (see FX-AEGIS.md)
 node tools/uploadstats.mjs # tri / mesh / texture cost of every GLB in models/uploads/
@@ -201,9 +202,11 @@ session persists across reloads in `localStorage`; *Reset* clears it.
 
 ### Hero Studio — reference ability lab + legacy asset workflow
 
-`hero-studio.html` now boots the vendored Three.js reference runtime from `src/reference-vfx/`. It exposes the five approved real casts — **Frost Lance**, **Storm Lance**, **Cinder Fall**, **Nova Beam**, and **Voltaic Snare** — with explicit arm/travel/impact/hold/fade phases, line and far-cast targeting, shader-first silhouettes, pooled effects, phase-matched procedural cues, and the live lil-gui profile/preset editor. The lab also has direct `.glb` import, an uploaded GLB library picker, and a clickable gallery of the existing skill PNG artwork.
+`hero-studio.html` now combines Hero Studio with the vendored Three.js reference runtime from `src/reference-vfx/`. It exposes the five approved real casts — **Frost Lance**, **Storm Lance**, **Cinder Fall**, **Nova Beam**, and **Voltaic Snare** — with explicit arm/travel/impact/hold/fade phases, line and far-cast targeting, shader-first silhouettes, pooled effects, phase-matched procedural cues, and the live lil-gui profile/preset editor.
 
-The lab's **OPEN LEGACY GLB / VIDEO / GPU VFX / AUDIO WORKFLOW** link opens `hero-studio-legacy.html`, preserving the prior upload/tuning surface for GLB/video slots, GPU VFX profiles, audio assignment, CAST SIM, settings collapse/expand, and JSON save/import. The existing `models/uploads/` workflow remains unchanged.
+The **PLAYABLE HERO SKILL ROUTING** panel assigns any of the five casts to AEGIS, NYX, and LYRA Q/E/R slots. Defaults are Aegis: Frost / Storm / Cinder, Nyx: Nova / Storm / Snare, and Lyra: Frost / Nova / Snare. Saving the routing updates `hero_tuning.json`; the match uses the same reference ability pool for the cast phase and applies each hero's existing damage/heal mechanic at the reference impact phase. This keeps the roster identity while making the visual, targeting, travel, impact, and fade behavior come from the Three.js reference scripts.
+
+The combined page also has direct `.glb` import, an uploaded hero GLB library picker with idle animation playback, a clickable gallery of the existing skill PNG artwork, and an expandable embedded legacy workflow for GLB/video slots, GPU VFX profiles, audio assignment, CAST SIM, settings collapse/expand, and JSON save/import. The standalone `hero-studio-legacy.html` remains available for a larger legacy-only view.
 
 The **GPU VFX · THREE-VFX STYLE** section is a vanilla-three editor inspired by the upstream `three-vfx` particle model. The upstream package is React/R3F-oriented and still marked work-in-progress, so this build keeps a serialisable profile and a renderer-native adapter: one instanced mesh per effect, with lifetime, velocity, acceleration, scale, colour and opacity animated in the GPU shader. Select **ALL / Q / E / R**, tune the profile, press **▶ PREVIEW** to judge it without changing gameplay, then press **ENABLE IN GAME**, **SAVE**, and restart the run. The preview and match both call `src/vfx.js:spawnVFX()`, so there is no separate effect implementation to drift.
 

@@ -39,7 +39,6 @@ export class Editor {
     this._buildMeteor();
     this._buildBeam();
     this._buildSnare();
-    this._buildGlacier();
     this._buildEnvironment();
     this._buildPost();
     this._buildCamera();

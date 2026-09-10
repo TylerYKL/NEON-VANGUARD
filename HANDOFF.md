@@ -3,12 +3,12 @@
 **For:** the next agent or a fresh chat picking this up cold.
 **Read this first.** It is the authoritative index; the other docs are deeper dives.
 
-Last verified: 2026-09-10 (reference Three.js VFX lab port wired into Hero Studio; legacy studio retained at
-`hero-studio-legacy.html`) · `neon-vanguard.html` 813 KB · `hero-studio.html` ~1.1 MB · headless suites all pass:
-`lighttest` 35/35, `geocheck` clean, `glbtest` 25/25, `skintest` 168/168, `herofit` 18/18, `simtest` 56/56,
+Last verified: 2026-09-11 (combined Hero Studio + Linear VFX Lab; playable Aegis/Nyx/Lyra routing; legacy workflow embedded)
+· `neon-vanguard.html` ~1.1 MB · `hero-studio.html` ~1.1 MB · headless suites all pass:
+`lighttest` 35/35, `geocheck` clean, `glbtest` 25/25, `skintest` 175/175, `herofit` 18/18, `simtest` 56/56,
 `animcheck` 41/41, `fxsample` clean. **The puppeteer suites were NOT run** — this sandbox still cannot reach the Chrome
 download hosts (only the npm registry works), so there is no browser to point them at. Re-run all eight
-before trusting anything visual, and say so plainly in the commit. See §6.
+before trusting anything visual, and say so plainly in the commit. `node tools/reftest.mjs` covers the combined routing bridge. See §6.
 
 ---
 
@@ -30,8 +30,8 @@ five clip slots and the studio rows are all shipped and tested. What is missing 
 |---|---|
 | `neon-vanguard.html` | the game (717 KB, open it directly, no server needed) |
 | `character-bay.html` | character turntable viewer with live Hero Studio GLB library |
-| `hero-studio.html` | Reference Three.js VFX lab — five approved casts, live lil-gui profiles, GLB import, and PNG reference gallery |
-| `hero-studio-legacy.html` | Legacy GLB/video/GPU VFX/audio/CAST SIM studio workflow |
+| `hero-studio.html` | Combined Hero Studio + Linear VFX Lab — five approved casts, playable Aegis/Nyx/Lyra Q/E/R routing, profiles, GLB import, PNG gallery, and expandable legacy workflow |
+| `hero-studio-legacy.html` | Standalone legacy GLB/video/GPU VFX/audio/CAST SIM studio workflow |
 
 ---
 

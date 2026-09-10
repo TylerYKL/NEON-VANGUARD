@@ -1846,13 +1846,6 @@ export const ELEMENT_META = {
     key: 'V',
     hint: 'Voltaic Snare',
     cast: CastShape.ZONE
-  },
-  glacier: {
-    label: 'Glacial Crown',
-    accent: '#8ee8ff',
-    key: 'X',
-    hint: 'Glacial Crown',
-    cast: CastShape.ZONE
   }
 };
 

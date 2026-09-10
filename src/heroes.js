@@ -557,9 +557,18 @@ export class Hero {
     if (sk.ult) { this.energy = 0; this.ultMul = 1; G.onUltCast(this, sk); }
     else this.cds[i] = sk.cd * (1 - (G.mods ? G.mods.cdr : 0));
     this.castAnim = 1;
-    this.playFX(G, i);   // per-skill effect from the Hero Studio
+    const referenceCast = G.referenceVFX?.cast(this, i, {
+      onImpact: () => this._runSkillMechanic(i, G),
+    });
+    // Reference casts own the readable visual phase when enabled. The legacy
+    // GLB/video/GPU slot remains available as an explicit compatibility option,
+    // rather than stacking two unrelated effects on every skill by default.
+    if (!referenceCast || G.glbTuning?.referenceSkills?.legacyFx) this.playFX(G, i);
+    if (!referenceCast) this._runSkillMechanic(i, G);
     G.announceSkill(this, sk);
+  }
 
+  _runSkillMechanic(i, G) {
     const key = this.def.id + i;
     switch (key) {
       case 'aegis0': this.seismicSlam(G); break;
