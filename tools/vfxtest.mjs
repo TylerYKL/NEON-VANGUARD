@@ -16,8 +16,12 @@ check('profile clamps particle count', p.burst === 160);
 check('profile clamps particle life', p.life === 0.12);
 check('profile keeps valid colours', p.color0 === '#12abef');
 check('profile clamps enum values', p.easing === 4);
+const audioP = clampVFX({ audio: 'models/uploads/aegis-vfx-all.ogg', audioVol: 8, audioRate: 0.1 });
+check('profile keeps a browser-compatible audio cue URL', audioP.audio === 'models/uploads/aegis-vfx-all.ogg');
+check('profile clamps audio volume and rate', audioP.audioVol === 1.5 && audioP.audioRate === 0.5);
+check('profile rejects executable audio URLs', clampVFX({ audio: 'javascript:alert(1).ogg' }).audio === null);
 
-before.setP(Object.assign({}, DEFAULT_VFX, { burst: 4, duration: 0.2, life: 0.12 }));
+before.setP(Object.assign({}, DEFAULT_VFX, { burst: 4, duration: 0.2, life: 0.12, audio: audioP.audio }));
 before.setOn(true);
 check('editor setter materialises the shared profile', tuning.aegis.vfx && tuning.aegis.vfx.on);
 check('game resolves the enabled shared profile', !!vfxFor(tuning, 'aegis', 1));

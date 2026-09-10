@@ -1,7 +1,8 @@
 /* ============================================================
-   AUDIO — 100% procedural WebAudio. No samples, no downloads.
+   AUDIO — procedural WebAudio with optional editor-assigned clips.
    · a small synth toolkit (tone / noise / sweep / chord)
    · ~30 gameplay SFX built from those primitives
+   · optional OGG/WAV/MP3 cues decoded through the same WebAudio bus
    · an adaptive synthwave sequencer that layers up with the wave
    ============================================================ */
 
@@ -16,6 +17,9 @@ class AudioEngine {
     this.musicVol = 0.5;
     this.sfxVol = 0.9;
     this.lastPlay = Object.create(null);
+    this.clipCache = new Map();
+    this.clipLoading = new Map();
+    this.lastClipPlay = Object.create(null);
     this.intensity = 0;
     this.playing = false;
   }
@@ -75,6 +79,57 @@ class AudioEngine {
 
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
   suspend() { if (this.ctx && this.ctx.state === 'running') this.ctx.suspend(); }
+
+  /* External editor samples are additive: a missing, blocked, or still-loading
+     clip is simply silent and the procedural cue continues to work. OGG/WAV/MP3
+     are decoded by the same WebAudio context as the synth, so the editor and
+     match share one playback path. */
+  async preloadClip(url) {
+    if (!this.ready || !url || this.clipCache.has(url)) return this.clipCache.get(url) || null;
+    if (this.clipLoading.has(url)) return this.clipLoading.get(url);
+    const pending = fetch(url).then((r) => {
+      if (!r.ok) throw new Error(`audio ${r.status}`);
+      return r.arrayBuffer();
+    }).then((data) => this.ctx.decodeAudioData(data)).then((buffer) => {
+      this.clipCache.set(url, buffer);
+      this.clipLoading.delete(url);
+      return buffer;
+    }).catch((err) => {
+      this.clipLoading.delete(url);
+      console.warn('[audio] could not decode external cue', url, err);
+      return null;
+    });
+    this.clipLoading.set(url, pending);
+    return pending;
+  }
+
+  playClip(url, opt = {}) {
+    if (!this.ready || this.muted || !url) return;
+    const gap = opt.gap ?? 0.025;
+    const now = this.ctx.currentTime;
+    if (this.lastClipPlay[url] && now - this.lastClipPlay[url] < gap) return;
+    this.lastClipPlay[url] = now;
+    const start = (buffer) => {
+      if (!buffer || !this.ready || this.muted) return;
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+      const rate = Number(opt.rate);
+      const volume = Number(opt.volume);
+      source.playbackRate.value = Math.max(0.25, Math.min(4, Number.isFinite(rate) ? rate : 1));
+      const gain = this.ctx.createGain();
+      gain.gain.value = Math.max(0, Math.min(2, Number.isFinite(volume) ? volume : 1));
+      source.connect(gain);
+      this._route(gain, {
+        pan: Number(opt.pan) || 0,
+        verb: Number(opt.verb) || 0,
+        echo: Number(opt.echo) || 0,
+      });
+      source.start(this.ctx.currentTime + 0.01, Math.max(0, Number(opt.offset) || 0));
+    };
+    const buffer = this.clipCache.get(url);
+    if (buffer) start(buffer);
+    else this.preloadClip(url).then(start);
+  }
 
   _noise(sec) {
     const ctx = this.ctx, n = (ctx.sampleRate * sec) | 0;

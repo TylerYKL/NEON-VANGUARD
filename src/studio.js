@@ -6,9 +6,10 @@ import { ensureGLBSkins, ensureTuning, normalizeTuning, loadFXBank, ANIM_NAME_KE
 import { parseGLB, normalizeToStage, gatherStats } from './gltfutil.js';
 import { animateRig } from './rig.js';
 import { clampFX, fxCount, fxDefsFor, fxEdit, fxKind, fxPreviewFor, FX_SHARED, FX_SLOTS, spawnFX } from './fxpack.js';
-import { clampVFX, VFX_COLOR_DEFS, VFX_NUM_DEFS, VFX_OPT_DEFS, VFX_SHARED, VFX_SLOTS, spawnVFX, vfxCount, vfxEdit } from './vfx.js';
+import { clampVFX, VFX_AUDIO_NUM_DEFS, VFX_COLOR_DEFS, VFX_NUM_DEFS, VFX_OPT_DEFS, VFX_SHARED, VFX_SLOTS, spawnVFX, vfxCount, vfxEdit } from './vfx.js';
 import { createSim, SIM_TARGETS, SIM_SPEEDS } from './sim.js';
 import { clamp } from './util.js';
+import { SFX } from './audio.js';
 
 /* ============================================================
    HERO STUDIO — tune the uploaded GLB heroes: size, action
@@ -474,6 +475,8 @@ function syncPlacement() {
 let slot = FX_SHARED;
 let fxKindShown = null;
 let libFiles = [];
+let audioFiles = [];
+let audioPreview = null;
 let vfxSlot = VFX_SHARED;
 
 const heroId = () => HERO_DEFS[active].id;
@@ -624,6 +627,88 @@ async function uploadFX(file) {
   }
 }
 
+function stopAudioPreview() {
+  if (audioPreview) {
+    audioPreview.pause();
+    audioPreview.currentTime = 0;
+    audioPreview = null;
+  }
+}
+
+function playAudioPreview(url) {
+  stopAudioPreview();
+  if (!url) return;
+  audioPreview = new Audio(url);
+  audioPreview.volume = 0.75;
+  audioPreview.onended = () => { audioPreview = null; buildVFXAudio(); };
+  audioPreview.play().catch(() => flash('AUDIO PREVIEW BLOCKED — CLICK THE PLAY BUTTON AGAIN', '#ffb14a'));
+  buildVFXAudio();
+}
+
+function setVFXAudio(url) {
+  const a = vfxAsg();
+  a.setP(Object.assign({}, a.p, { audio: url || null }));
+  markDirty();
+  syncVFX();
+  buildVFXAudio();
+  flash(url ? 'AUDIO ASSIGNED → ' + vfxSlotLabel(vfxSlot) + ' · SAVE TO KEEP' : 'AUDIO CLEARED · SAVE TO KEEP', url ? '#3dffb0' : '#ff8a2b');
+}
+
+async function uploadVFXAudio(file) {
+  if (!file) return;
+  const ext = (file.name.match(/\.(ogg|wav|mp3|m4a|aac|opus|flac)$/i) || [])[1];
+  if (!ext) { flash('USE .OGG, .WAV, .MP3, .M4A, .AAC, .OPUS, OR .FLAC', '#ff3b5c'); return; }
+  const id = heroId();
+  const slotPart = vfxSlot === VFX_SHARED ? 'all' : 's' + vfxSlot;
+  const name = id + '-vfx-' + slotPart + '.' + ext.toLowerCase();
+  flash('UPLOADING AUDIO ' + file.name + ' → ' + name + '…');
+  try {
+    const r = await fetch(UP + '/upload/' + name, { method: 'PUT', body: file });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const url = UPDIR + name;
+    setVFXAudio(url);
+    await refreshLib();
+    flash('AUDIO UPLOADED + ASSIGNED ' + name + ' — SAVE TO KEEP', '#3dffb0');
+  } catch (e) {
+    flash('AUDIO UPLOAD FAILED: ' + (e.message || e), '#ff3b5c');
+  }
+}
+
+function buildVFXAudio() {
+  const box = $('vfxaudiolist');
+  if (!box) return;
+  const p = vfxAsg().p;
+  const current = p.audio;
+  $('vfxaudioname').textContent = current
+    ? current.split('/').pop() + ' · ' + vfxSlotLabel(vfxSlot).toUpperCase()
+    : 'no audio cue assigned';
+  $('vfxaudioclear').style.opacity = current ? '1' : '0.35';
+  box.innerHTML = '';
+  if (!audioFiles.length) {
+    box.innerHTML = '<div id="note">no audio in models/uploads yet — drop a CC0 OGG/WAV above</div>';
+    return;
+  }
+  for (const f of audioFiles) {
+    const url = UPDIR + f.name;
+    const row = document.createElement('div');
+    row.className = 'lib audioLib' + (url === current ? ' on' : '');
+    row._url = url;
+    row.innerHTML = `<span>${f.name}</span><i>${(f.bytes / 1024).toFixed(1)} kb · audio</i><u>${url === current ? 'assigned' : 'assign'}</u>`;
+    row.title = 'click to assign this cue to ' + vfxSlotLabel(vfxSlot).toUpperCase();
+    row.onclick = () => setVFXAudio(url);
+    const play = document.createElement('button');
+    play.className = 'act mini';
+    play.textContent = audioPreview && audioPreview.src.endsWith(url) ? '■' : '▶';
+    play.title = 'preview audio';
+    play.onclick = (e) => { e.stopPropagation();
+      if (audioPreview && audioPreview.src.endsWith(url)) stopAudioPreview(); else playAudioPreview(url);
+      buildVFXAudio();
+    };
+    row.appendChild(play);
+    box.appendChild(row);
+  }
+}
+
 /* a video billboard should live as long as the clip — read its metadata and
    snap `duration` to it, so the plane never holds a frozen last frame */
 function probeClip(url) {
@@ -688,11 +773,16 @@ async function refreshLib() {
   try {
     const r = await fetch(UP + '/files');
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    libFiles = (await r.json()).filter((f) => /\.(glb|mp4|webm|ogv)$/i.test(f.name));
+    const files = await r.json();
+    libFiles = files.filter((f) => /\.(glb|mp4|webm|ogv)$/i.test(f.name));
+    audioFiles = files.filter((f) => /\.(ogg|wav|mp3|m4a|aac|opus|flac)$/i.test(f.name));
     buildModelSelect();            // the SKIN picker is the same list, filtered to models
+    buildVFXAudio();
   } catch (e) {
+    audioFiles = [];
     box.innerHTML = '<div id="note">dropbox offline — start it with<br>python3 tools/upload_server.py</div>';
     buildModelSelect();
+    buildVFXAudio();
     return;
   }
   const used = new Map();
@@ -926,6 +1016,17 @@ function buildVFXPanel() {
     };
     box.appendChild(row);
   }
+  for (const [key, label, min, max, step] of VFX_AUDIO_NUM_DEFS) {
+    const row = sliderRow(label, min, max, step, (value, out) => {
+      vfxAsg().setP(Object.assign({}, vfxAsg().p, { [key]: value }));
+      markDirty();
+      out.textContent = (+value).toFixed(2);
+    });
+    row._vfxKey = key;
+    row._input.value = a.p[key];
+    row._out.textContent = (+a.p[key]).toFixed(2);
+    box.appendChild(row);
+  }
 }
 
 function syncVFXPanel() {
@@ -960,6 +1061,7 @@ function syncVFX() {
     ' · ' + a.p.burst + ' burst · ' + a.p.life.toFixed(2) + ' s life · ' +
     (a.on ? '<em>enabled in game</em>' : '<em>not enabled in game</em>');
   syncVFXPanel();
+  buildVFXAudio();
 }
 
 let vfxPreview = null;
@@ -969,6 +1071,9 @@ function previewVFX() {
   if (vfxPreview) { vfxPreview.kill(); vfxPreview = null; }
   const p = clampVFX(vfxAsg().p);
   const inst = spawnVFX(G, p, new THREE.Vector3(h.pos.x, 0.08, h.pos.z), h.facing || 0, h);
+  SFX.init();
+  SFX.resume();
+  if (p.audio) SFX.playClip(p.audio, { volume: p.audioVol, rate: p.audioRate });
   vfxPreview = inst;
   G.addEffect({
     update(dt) {
@@ -1286,6 +1391,22 @@ $('vfxclear').onclick = () => {
   syncVFX();
   flash('CLEARED GPU VFX · SAVE TO KEEP', '#ff8a2b');
 };
+$('vfxaudioclear').onclick = () => {
+  if (!vfxAsg().p.audio) { flash('NO AUDIO CUE IN ' + vfxSlotLabel(vfxSlot), '#ffb14a'); return; }
+  setVFXAudio(null);
+};
+$('vfxaudiodrop').onclick = () => $('vfxaudiofile').click();
+$('vfxaudiofile').onchange = (e) => uploadVFXAudio(e.target.files[0]);
+$('vfxaudiodrop').addEventListener('dragover', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('vfxaudiodrop').classList.add('hot');
+});
+$('vfxaudiodrop').addEventListener('dragleave', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('vfxaudiodrop').classList.remove('hot');
+});
+$('vfxaudiodrop').addEventListener('drop', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('vfxaudiodrop').classList.remove('hot');
+  uploadVFXAudio(e.dataTransfer.files[0]);
+});
 $('fxdrop').onclick = () => $('fxfile').click();
 $('fxfile').onchange = (e) => uploadFX(e.target.files[0]);
 addEventListener('dragover', (e) => { e.preventDefault(); $('fxdrop').classList.add('hot'); });

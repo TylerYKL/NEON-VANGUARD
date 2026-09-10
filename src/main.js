@@ -952,6 +952,15 @@ async function startGame(training) {
   G.score = 0; G.kills = 0; G.combo = 1; G.wave = 0;
   G.over = false; G.paused = false;
   G.glbTuning = await ensureTuning(true);  // re-read studio config (saved while this tab was open)
+  // Warm assigned VFX samples during the menu/start transition. Playback still
+  // tolerates a missing or undecodable clip, and procedural cues remain intact.
+  const audioCues = new Set();
+  for (const t of Object.values(G.glbTuning || {})) {
+    for (const entry of [t && t.vfx, ...(t && t.vfxSlots || [])]) {
+      if (entry && entry.p && entry.p.audio) audioCues.add(entry.p.audio);
+    }
+  }
+  for (const url of audioCues) SFX.preloadClip(url);
   // skins SECOND, because the tuning's `model` field can override which file a hero wears
   G.glbSkins = await ensureGLBSkins(G.glbTuning);   // uploaded hero models (models/uploads/<id>.glb), if any
   G.fxBank = await loadFXBank(G.glbTuning);   // skill-effect files, keyed by URL (see fxpack.js)

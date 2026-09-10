@@ -47,11 +47,17 @@ export const VFX_COLOR_DEFS = [
   ['color1', 'colour end', '#ffffff'],
 ];
 
+export const VFX_AUDIO_NUM_DEFS = [
+  ['audioVol', 'audio volume', 0, 1.5, 0.01],
+  ['audioRate', 'audio rate', 0.5, 2, 0.01],
+];
+
 export const DEFAULT_VFX = {
   burst: 36, rate: 0, duration: 0.72, life: 0.9, speed: 5.5, spread: 0.55,
   accelY: -2.5, size0: 0.22, size1: 0.035, spin: 2.5,
   opacity0: 0.95, opacity1: 0, shape: 0, blend: 0, billboard: 1,
   easing: 2, follow: 0, color0: '#18e0ff', color1: '#ffffff',
+  audio: null, audioVol: 0.8, audioRate: 1,
 };
 
 const NUM_RANGE = Object.fromEntries(VFX_NUM_DEFS.map(([k, , lo, hi]) => [k, [lo, hi]]));
@@ -72,6 +78,14 @@ export function clampVFX(raw) {
   }
   for (const [key, , fallback] of VFX_COLOR_DEFS) {
     out[key] = isHex(src[key]) ? String(src[key]).toLowerCase() : fallback;
+  }
+  const audio = typeof src.audio === 'string' ? src.audio.trim() : '';
+  out.audio = audio && !/^javascript:/i.test(audio)
+    && /\.(?:ogg|wav|mp3|m4a|aac|opus|flac)(?:[?#].*)?$/i.test(audio)
+    ? audio : null;
+  for (const [key, , lo, hi] of VFX_AUDIO_NUM_DEFS) {
+    const v = Number(src[key]);
+    out[key] = Number.isFinite(v) ? clamp(v, lo, hi) : DEFAULT_VFX[key];
   }
   return out;
 }

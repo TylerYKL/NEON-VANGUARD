@@ -1487,6 +1487,13 @@ export class Hero {
     const vfx = vfxFor(G.glbTuning, this.def.id, slot);
     if (vfx) {
       handles.push(spawnVFX(G, vfx.p, this._fxAt.set(this.pos.x, 0.08, this.pos.z), this.facing, this));
+      if (vfx.p.audio) {
+        SFX.playClip(vfx.p.audio, {
+          pan: G.panOf(this.pos),
+          volume: vfx.p.audioVol,
+          rate: vfx.p.audioRate,
+        });
+      }
     }
     if (!handles.length) return null;
     G.addEffect({

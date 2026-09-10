@@ -251,6 +251,16 @@ python3 tools/upload_server.py                                # the :8081 dropbo
 | ACTION MOTION | `motion` — step rate, bob, lean, lunge, twist, cast lean, hurt recoil, recoil kick, idle sway, fall speed |
 | SKILL EFFECT | `fx` / `fxOn` / `fxP` (the shared slot) and `fxSlots[0..2]` — one effect per skill, Q / E / R |
 | LIBRARY · models/uploads | `▶` previews any file at the hero **without assigning it** (params via `fxPreviewFor`, always a clamped copy), `⟳ loop` re-fires it, `all · glb · video` filters |
+| GPU VFX · THREE-VFX STYLE | `ALL / Q / E / R` profile slots, preview/enable/save, plus an additive audio cue with volume/rate controls and `.ogg / .wav / .mp3` upload, preview, assign, and clear |
+
+### Skill FX audio
+
+The best match found for this neon sci-fi combat game is **[Kenney Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds)**:
+70 normalized OGG effects for engines, explosions, lasers and space sounds, released under **CC0**. OGG is a good browser target because it can be decoded by the existing Web Audio path. The official download is
+[`kenney_sci-fi-sounds.zip`](https://kenney.nl/media/pages/assets/sci-fi-sounds/6b296f9ecf-1677589334/kenney_sci-fi-sounds.zip).
+A second compatible option is OpenGameArt's [50 CC0 Sci-Fi SFX pack](https://opengameart.org/content/50-cc0-sci-fi-sfx), which adds retro lasers, rockets, teleports and terminal/synth cues.
+
+The editor does not require either pack to be committed to the repository: download the pack, open **Hero Studio**, select **GPU VFX → ALL / Q / E / R**, then drop an OGG/WAV/MP3 into the **audio cue** box. It uploads to `models/uploads/`, lists and previews it, and saves the selected relative URL in the same VFX profile as the particle look. `▶ preview` uses the same Web Audio decoder as the match; **SAVE + ENABLE** makes the cue play with that skill. Missing or undecodable samples are silent, so the existing procedural SFX remains the fallback.
 
 An effect is a **`.glb` prop** or a **video billboard** (`.mp4` / `.webm` / `.ogv`). Drop it on the panel,
 record it from the studio canvas (`● REC` captures the slot's own playback and saves `<id>-s<n>-fx.webm`),

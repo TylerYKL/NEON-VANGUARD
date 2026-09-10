@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Tiny GLB upload dropbox for the sandbox preview.
+"""Tiny asset upload dropbox for the sandbox preview.
 
 GET  /            -> drag & drop page
 PUT  /upload/<n>  -> save raw body to models/uploads/<n>
 GET  /list        -> JSON list of uploaded files
 GET  /files       -> same, with byte sizes (Hero Studio library picker)
 GET  /config      -> models/uploads/hero_tuning.json
+
+Models, videos, and browser-decodable audio (OGG/WAV/MP3/M4A/AAC/OPUS/FLAC)
+are accepted so Hero Studio can keep visual VFX and optional sample cues together.
 
 Run: python3 tools/upload_server.py   (binds 0.0.0.0:8081)
 """
@@ -18,11 +21,11 @@ from urllib.parse import unquote
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPDIR = os.path.join(REPO, "models", "uploads")
 PORT = 8081
-SAFE = re.compile(r"^[\w][\w.\-]{0,120}\.(glb|gltf|mp4|webm|ogv)$", re.I)
+SAFE = re.compile(r"^[\w][\w.\-]{0,120}\.(glb|gltf|mp4|webm|ogv|ogg|wav|mp3|m4a|aac|opus|flac)$", re.I)
 MAX = 200 * 1024 * 1024
 
 PAGE = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>GLB Upload — NEON VANGUARD</title>
+<title>Asset Upload — NEON VANGUARD</title>
 <style>
  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070a12;color:#cfe6ff;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace}
  #drop{width:min(600px,92vw);padding:44px 28px;border:2px dashed #1e4b66;border-radius:14px;text-align:center;background:#0a1020}
@@ -38,9 +41,9 @@ PAGE = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport con
  label.btn{display:inline-block;margin-top:14px;padding:8px 18px;border:1px solid #1e4b66;border-radius:8px;color:#7cf9ff;cursor:pointer}
 </style></head><body>
 <div id=drop>
- <h1>NEON VANGUARD &mdash; GLB DROPBOX</h1>
- <p>Drag a .glb here (or click to browse). It is saved into the workspace at <b>models/uploads/</b>.</p>
- <label class=btn for=f>CHOOSE FILE</label><input id=f type=file accept=".glb,.gltf">
+ <h1>NEON VANGUARD &mdash; ASSET DROPBOX</h1>
+ <p>Drag a model, video, or audio file here (or click to browse). It is saved into the workspace at <b>models/uploads/</b>.</p>
+ <label class=btn for=f>CHOOSE FILE</label><input id=f type=file accept=".glb,.gltf,.mp4,.webm,.ogv,.ogg,.wav,.mp3,.m4a,.aac,.opus,.flac">
  <div id=bar><i></i></div>
  <div id=msg></div>
  <div id=list></div>
@@ -51,7 +54,7 @@ function viewerLink(name){return 'https://'+location.hostname.replace(/^\\d+-/,'
 function refresh(){fetch('/list').then(r=>r.json()).then(fs=>{listEl.innerHTML=fs.length?'<p>In the workspace:</p>':'';fs.forEach(n=>{const a=document.createElement('a');a.href=viewerLink(n);a.textContent='\\u25b8 '+n+'  (open in viewer)';a.target='_blank';listEl.appendChild(a);});});}
 function upload(file){
  if(!file)return;
- if(!/\\.(glb|gltf)$/i.test(file.name)){msg.style.color='#ff3b5c';msg.textContent='Only .glb / .gltf allowed.';return;}
+ if(!/\\.(glb|gltf|mp4|webm|ogv|ogg|wav|mp3|m4a|aac|opus|flac)$/i.test(file.name)){msg.style.color='#ff3b5c';msg.textContent='Unsupported file type.';return;}
  msg.style.color='#3dffb0';msg.textContent='Uploading '+file.name+' \\u2026';
  bar.style.display='block';fill.style.width='0';
  const xhr=new XMLHttpRequest();
@@ -135,7 +138,7 @@ class H(BaseHTTPRequestHandler):
         m = re.match(r"^/upload/(.+)$", self.path)
         name = os.path.basename(unquote(m.group(1))) if m else ""
         if not SAFE.match(name):
-            self._send(400, json.dumps({"error": "bad name; use *.glb or *.gltf"}).encode())
+            self._send(400, json.dumps({"error": "bad name; use a supported model, video, or audio extension"}).encode())
             return
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0 or length > MAX:
