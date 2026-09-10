@@ -257,6 +257,8 @@ python3 tools/upload_server.py                                # the :8081 dropbo
 
 Future skill effects use [LinearAbiltyCastingThreeJS](https://github.com/achrefelouafi/LinearAbiltyCastingThreeJS) as the primary authoring reference: readable arm/travel/impact/hold/fade phases, line and far-cast targeting indicators, shader-first silhouettes, live profiles, pooled density, and audio paired to cast phases. The project-specific adoption rules and mapping to the current runtime are in [`VFX-REFERENCE.md`](VFX-REFERENCE.md). This is an authoring benchmark, not a wholesale renderer or folder-structure replacement.
 
+Hero Studio now presents that direction as a **VFX LAB** surface: skill-art PNG references can be opened as an overlay, imported hero GLBs can be assigned to the active hero, and the existing real-cast preview/CAST SIM remains the runtime truth underneath. The import path accepts `.glb`, uploads through the existing dropbox, and asks for APPLY + REBUILD before replacing the preview body.
+
 ### Skill FX audio
 
 The best match found for this neon sci-fi combat game is **[Kenney Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds)**:

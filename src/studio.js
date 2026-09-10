@@ -367,6 +367,32 @@ function buildModelSelect() {
   sel.value = (cfg[heroId()] || {}).model || '';   // the list arrives after the first sync
 }
 
+async function uploadHeroGLB(file) {
+  if (!file) return;
+  if (!/\.glb$/i.test(file.name)) {
+    flash('HERO IMPORT ONLY ACCEPTS .GLB FILES', '#ff3b5c');
+    return;
+  }
+  const safe = file.name.replace(/[^\w.\-]+/g, '-').replace(/\.glb$/i, '').slice(0, 70) || 'hero';
+  const name = heroId() + '-skin-' + safe + '.glb';
+  flash('IMPORTING HERO GLB ' + file.name + ' → ' + name + '…');
+  try {
+    const r = await fetch(UP + '/upload/' + name, { method: 'PUT', body: file });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const url = UPDIR + name;
+    cfg[heroId()].model = url;
+    skinStale = true;
+    markDirty();
+    await refreshLib();
+    buildModelSelect();
+    syncAnim();
+    syncApplyState();
+    flash('GLB IMPORTED + ASSIGNED — APPLY + REBUILD PREVIEW', '#3dffb0');
+  } catch (e) {
+    flash('HERO GLB IMPORT FAILED: ' + (e.message || e), '#ff3b5c');
+  }
+}
+
 function buildSliders() {
   $('mot').innerHTML = '';
   for (const [k, label, min, max, step] of MOT_DEFS) {
@@ -478,6 +504,47 @@ let libFiles = [];
 let audioFiles = [];
 let audioPreview = null;
 let vfxSlot = VFX_SHARED;
+
+const SKILL_REFERENCE_ART = [
+  { hero: 'AEGIS-7', key: 'impact', src: 'concept/upsampler/aegis-7-effect.png' },
+  { hero: 'AEGIS-7', key: 'special', src: 'concept/upsampler/aegis-7-special.png' },
+  { hero: 'LYRA-V', key: 'impact', src: 'concept/upsampler/lyra-v-effect.png' },
+  { hero: 'LYRA-V', key: 'special', src: 'concept/upsampler/lyra-v-special.png' },
+  { hero: 'NYX-0', key: 'impact', src: 'concept/upsampler/nyx-0-effect.png' },
+  { hero: 'NYX-0', key: 'special', src: 'concept/upsampler/nyx-0-special.png' },
+];
+
+function showSkillReference(ref) {
+  const overlay = $('refOverlay');
+  const img = $('refOverlayImg');
+  if (!overlay || !img) return;
+  img.src = ref.src;
+  img.alt = ref.hero + ' ' + ref.key + ' skill reference';
+  $('refOverlayName').textContent = ref.hero + ' · ' + ref.key + ' · visual target';
+  overlay.classList.add('on');
+  document.querySelectorAll('.skillRef').forEach((el) => el.classList.toggle('on', el._ref === ref));
+}
+
+function setRefPhase(text) {
+  const el = $('refPhase');
+  if (el) el.textContent = text;
+}
+
+function buildReferenceGallery() {
+  const box = $('skillRefs');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const ref of SKILL_REFERENCE_ART) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'skillRef';
+    card._ref = ref;
+    card.title = 'Open ' + ref.hero + ' ' + ref.key + ' skill reference';
+    card.innerHTML = `<img src="${ref.src}" alt=""><b>${ref.hero} · ${ref.key}</b>`;
+    card.onclick = () => showSkillReference(ref);
+    box.appendChild(card);
+  }
+}
 
 const heroId = () => HERO_DEFS[active].id;
 const vfxAsg = () => vfxEdit(cfg, heroId(), vfxSlot);
@@ -947,6 +1014,7 @@ function firePreview(url, quiet) {
     update(dt) { const alive = inst.update(dt); pv.live = alive; return alive; },
     dispose() { inst.kill(); pv.live = false; },
   });
+  setRefPhase('PREVIEW · ' + url.split('/').pop().toUpperCase() + ' · impact → hold → fade');
   if (!quiet) flash('PREVIEW · ' + url.split('/').pop().toUpperCase() + (p.dur > 0 ? ' · ' + p.dur.toFixed(2) + ' s' : ''), '#7cf9ff');
   refreshLibRows();
   syncLibTools();
@@ -1145,6 +1213,7 @@ function previewVFX() {
     },
     dispose() { inst.kill(); if (vfxPreview === inst) vfxPreview = null; },
   });
+  setRefPhase('PREVIEW · ' + vfxSlotLabel(vfxSlot) + ' · impact profile · ' + (p.duration + p.life).toFixed(2) + ' s');
   flash('GPU VFX PREVIEW · ' + vfxSlotLabel(vfxSlot) + ' · ' +
     (p.duration + p.life).toFixed(2) + ' s', '#7cf9ff');
 }
@@ -1165,6 +1234,7 @@ function setActive(i) {
 
 function setAction(a) {
   action = a;
+  setRefPhase('POSE · ' + a.toUpperCase() + ' · use PREVIEW or CAST SIM to inspect the full phase stack');
   const h = heroes[active];
   /* POSE is a preview input; the bench is a real cast. They write the same envelopes, so
      say which one the eye is looking at (MOTION-AUDIT F4). down is left alone: a
@@ -1475,6 +1545,19 @@ $('fxaudioclear').onclick = () => {
 };
 $('fxaudiodrop').onclick = () => $('fxaudiofile').click();
 $('fxaudiofile').onchange = (e) => uploadFXAudio(e.target.files[0]);
+$('skinDrop').onclick = () => $('skinFile').click();
+$('skinFile').onchange = (e) => uploadHeroGLB(e.target.files[0]);
+$('skinDrop').addEventListener('dragover', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('skinDrop').classList.add('hot');
+});
+$('skinDrop').addEventListener('dragleave', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('skinDrop').classList.remove('hot');
+});
+$('skinDrop').addEventListener('drop', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('skinDrop').classList.remove('hot');
+  uploadHeroGLB(e.dataTransfer.files[0]);
+});
+$('refOverlayClose').onclick = () => $('refOverlay').classList.remove('on');
 $('fxaudiodrop').addEventListener('dragover', (e) => {
   e.preventDefault(); e.stopPropagation(); $('fxaudiodrop').classList.add('hot');
 });
@@ -1632,6 +1715,7 @@ function syncPanel() {
     tabs.appendChild(b);
   });
 
+  buildReferenceGallery();
   buildSliders();
   buildAnim();
   buildChips();
