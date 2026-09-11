@@ -248,12 +248,19 @@ export function installStudioBridge(app) {
     compatibilityNotes.skillImport = `Loaded ${manifest.label || manifest.id || 'skill'} · code registration still required`;
     skillImportNotice?.updateDisplay();
     manifestFolder.open();
+    app.hud.addManifestSkill?.(manifest);
     setStatus(`Skill manifest loaded · ${manifest.label || manifest.id || 'unnamed'} · design-only`, true);
   }
 
   window.addEventListener('neon:skill-manifest-import', (event) => {
     if (event.detail && typeof event.detail === 'object') showImportedSkill(event.detail);
   });
+  try {
+    const rememberedManifest = JSON.parse(sessionStorage.getItem('neon.lastSkillManifest') || 'null');
+    if (rememberedManifest && typeof rememberedManifest === 'object') showImportedSkill(rememberedManifest);
+  } catch {
+    // A private/restricted storage context should not prevent Hero Studio boot.
+  }
 
   function heroConfig(heroId = state.hero) {
     if (!savedConfig[heroId] || typeof savedConfig[heroId] !== 'object') savedConfig[heroId] = {};

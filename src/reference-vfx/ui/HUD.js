@@ -89,6 +89,37 @@ export class HUD {
     this.abilityBar = root.querySelector('.hud__abilities');
   }
 
+  /**
+   * Show a newly imported skill manifest in the bottom skill list without
+   * pretending it is playable. Manifest cards are deliberately non-interactive
+   * until an ability class and runtime registry entry exist.
+   */
+  addManifestSkill(manifest) {
+    const id = String(manifest?.id || '').trim();
+    if (!id || this.cards.has(id)) return;
+    const key = manifest?.input?.key || 'JSON';
+    const label = manifest?.label || id;
+    const card = document.createElement('div');
+    card.className = 'ability-card is-manifest';
+    card.dataset.element = id;
+    card.style.setProperty('--accent', '#f6b95f');
+    card.title = `${label} is imported as a manifest only; gameplay registration is still required`;
+    card.innerHTML = `
+      <div class="ability-card__key"></div>
+      <div class="ability-card__glyph">◇</div>
+      <div class="ability-card__label"></div>
+      <div class="ability-card__manifest-tag">JSON · NOT PLAYABLE</div>
+    `;
+    card.querySelector('.ability-card__key').textContent = key;
+    card.querySelector('.ability-card__label').textContent = label;
+    card.addEventListener('pointerdown', (event) => {
+      event.stopPropagation();
+      this.showToast(`${label} is manifest-only · register the ability before casting`, 2600);
+    });
+    this.cards.set(id, card);
+    this.abilityBar.appendChild(card);
+  }
+
   /** @param {{silent?: boolean}} [options] */
   setElement(element, options = {}) {
     for (const [key, card] of this.cards) {

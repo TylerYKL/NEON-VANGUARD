@@ -123,6 +123,12 @@ export class PresetManager {
           // snapshot. Surface them to the combined Hero Studio instead of
           // silently treating every manifest field as a named preset.
           if (data && data.kind === 'neon-vanguard-skill') {
+            globalThis.__neonLastSkillManifest = data;
+            try {
+              sessionStorage.setItem('neon.lastSkillManifest', JSON.stringify(data));
+            } catch {
+              // A private/restricted storage context should not block the import.
+            }
             globalThis.dispatchEvent?.(new CustomEvent('neon:skill-manifest-import', {
               detail: data,
             }));
