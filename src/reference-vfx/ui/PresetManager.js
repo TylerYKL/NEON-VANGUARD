@@ -107,7 +107,7 @@ export class PresetManager {
   /**
    * Import from a JSON file chosen by the user.
    * Accepts either a single settings snapshot or a map of presets.
-   * @returns {Promise<{ imported: string[], applied: boolean }>}
+   * @returns {Promise<{ imported: string[], applied: boolean, skillManifest?: string }>}
    */
   importFromFile() {
     return new Promise((resolve) => {
@@ -119,6 +119,16 @@ export class PresetManager {
         if (!file) return resolve({ imported: [], applied: false });
         try {
           const data = JSON.parse(await file.text());
+          // Skill manifests describe a future gameplay ability, not a settings
+          // snapshot. Surface them to the combined Hero Studio instead of
+          // silently treating every manifest field as a named preset.
+          if (data && data.kind === 'neon-vanguard-skill') {
+            globalThis.dispatchEvent?.(new CustomEvent('neon:skill-manifest-import', {
+              detail: data,
+            }));
+            resolve({ imported: [], applied: false, skillManifest: data.label || data.id || 'unnamed skill' });
+            return;
+          }
           // A settings snapshot always has a `global` block; anything else is
           // treated as a preset collection.
           if (data && data.global && data.ice) {

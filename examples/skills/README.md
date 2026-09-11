@@ -17,6 +17,6 @@ There are two existing JSON import paths:
    - It updates model scale, placement, yaw, animation, legacy skill FX slots, GPU VFX slots, and reference routing.
    - It does not register a new skill ID or new ability class.
 
-Therefore importing `solar-flare.skill.json` through either current importer will not add Solar Flare. The VFX Editor shows this limitation in **Compatibility / not migrated → skillImport**.
+When `solar-flare.skill.json` is imported through the right-side VFX Editor, it is now recognized as a skill manifest and displayed in **Hero Studio (Beta) → Imported skill manifest**. It does not add Solar Flare to gameplay or change an existing cast. The VFX Editor shows this limitation in **Compatibility / not migrated → skillImport**.
 
 To make this sample a real playable skill, implement the steps in its `importStatus.nextSteps`: add the ability class, registry entry, gameplay hook, editor profile, routing support, and tests. After that, a dedicated manifest importer can be added safely without accepting arbitrary executable behavior from JSON.

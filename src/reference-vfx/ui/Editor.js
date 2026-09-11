@@ -187,11 +187,13 @@ export class Editor {
             refreshOptions();
             this.refresh();
             this.hooks.onToast?.(
-              result.applied
-                ? 'Settings imported'
-                : result.imported.length
-                  ? `Imported ${result.imported.length} preset(s)`
-                  : 'Nothing imported'
+              result.skillManifest
+                ? `Skill manifest loaded: ${result.skillManifest} · review Hero Studio compatibility`
+                : result.applied
+                  ? 'Settings imported'
+                  : result.imported.length
+                    ? `Imported ${result.imported.length} preset(s)`
+                    : 'Nothing imported'
             );
           }
         },

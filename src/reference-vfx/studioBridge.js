@@ -183,6 +183,25 @@ export function installStudioBridge(app) {
   const openGallery = galleryFolder.add({ open: () => showGallery() }, 'open').name('Open reference gallery');
   galleryFolder.add({ note: 'Six concept references available' }, 'note').name('availability').disable();
 
+  const manifestState = {
+    status: 'No skill manifest imported',
+    id: '—',
+    label: '—',
+    slot: '—',
+    phases: 0,
+    assignments: '—',
+    vfx: '—',
+  };
+  const manifestFolder = studio.addFolder('Imported skill manifest');
+  const manifestStatus = manifestFolder.add(manifestState, 'status').name('status').disable();
+  const manifestId = manifestFolder.add(manifestState, 'id').name('id').disable();
+  const manifestLabel = manifestFolder.add(manifestState, 'label').name('label').disable();
+  const manifestSlot = manifestFolder.add(manifestState, 'slot').name('input slot').disable();
+  const manifestPhases = manifestFolder.add(manifestState, 'phases').name('phase count').disable();
+  const manifestAssignments = manifestFolder.add(manifestState, 'assignments').name('assignments').disable();
+  const manifestVFX = manifestFolder.add(manifestState, 'vfx').name('VFX profile').disable();
+  manifestFolder.close();
+
   const compatibility = studio.addFolder('Compatibility / not migrated');
   const compatibilityNotes = {
     native: 'Native: casts, routing, GLB preview, model fit, persistence',
@@ -193,8 +212,10 @@ export function installStudioBridge(app) {
     skillImport: 'Not supported: new gameplay skills are code-registered, not JSON-registered',
     legacyPanel: 'Open compatibility view for the complete legacy workflow',
   };
+  let skillImportNotice;
   for (const [key, text] of Object.entries(compatibilityNotes)) {
-    compatibility.add(compatibilityNotes, key).name(key).disable();
+    const controller = compatibility.add(compatibilityNotes, key).name(key).disable();
+    if (key === 'skillImport') skillImportNotice = controller;
   }
   const openLegacy = compatibility.add({ open: () => legacyPanel.open() }, 'open').name('Open legacy compatibility view');
 
@@ -209,6 +230,30 @@ export function installStudioBridge(app) {
     statusController.updateDisplay();
     if (toast) app.hud.showToast(message);
   }
+
+  function showImportedSkill(manifest) {
+    const assignments = Object.entries(manifest.assignments || {})
+      .map(([hero, slot]) => `${hero}:${slot || '—'}`)
+      .join(' · ') || 'none';
+    manifestState.status = 'Loaded for review · runtime registration required';
+    manifestState.id = manifest.id || '—';
+    manifestState.label = manifest.label || '—';
+    manifestState.slot = manifest.input?.key || '—';
+    manifestState.phases = Array.isArray(manifest.phases) ? manifest.phases.length : 0;
+    manifestState.assignments = assignments;
+    manifestState.vfx = manifest.vfxProfile ? 'profile present · not applied to gameplay' : 'not included';
+    for (const controller of [manifestStatus, manifestId, manifestLabel, manifestSlot, manifestPhases, manifestAssignments, manifestVFX]) {
+      controller.updateDisplay();
+    }
+    compatibilityNotes.skillImport = `Loaded ${manifest.label || manifest.id || 'skill'} · code registration still required`;
+    skillImportNotice?.updateDisplay();
+    manifestFolder.open();
+    setStatus(`Skill manifest loaded · ${manifest.label || manifest.id || 'unnamed'} · design-only`, true);
+  }
+
+  window.addEventListener('neon:skill-manifest-import', (event) => {
+    if (event.detail && typeof event.detail === 'object') showImportedSkill(event.detail);
+  });
 
   function heroConfig(heroId = state.hero) {
     if (!savedConfig[heroId] || typeof savedConfig[heroId] !== 'object') savedConfig[heroId] = {};
