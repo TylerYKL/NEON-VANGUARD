@@ -1,0 +1,103 @@
+{
+  "$schema": "neon-vanguard-skill-v1",
+  "kind": "neon-vanguard-skill",
+  "version": 1,
+  "id": "solar-flare",
+  "label": "Solar Flare",
+  "description": "A short line projectile that detonates in a small radiant impact zone.",
+  "input": {
+    "key": "Q",
+    "targeting": "line",
+    "range": 7.5,
+    "minRange": 1.0
+  },
+  "timing": {
+    "cooldown": 5.0,
+    "castTime": 0.18,
+    "travelTime": 0.58,
+    "impactTime": 0.58,
+    "holdTime": 0.12,
+    "fadeTime": 0.5
+  },
+  "gameplay": {
+    "damage": 75,
+    "impactRadius": 1.25,
+    "knockback": 1.5,
+    "status": {
+      "type": "burn",
+      "duration": 2.0,
+      "tickInterval": 0.5,
+      "damagePerTick": 8
+    }
+  },
+  "phases": [
+    {
+      "id": "arm",
+      "duration": 0.18,
+      "telegraph": "line"
+    },
+    {
+      "id": "travel",
+      "duration": 0.58,
+      "effect": "solar-flare.projectile"
+    },
+    {
+      "id": "impact",
+      "duration": 0.12,
+      "effect": "solar-flare.burst",
+      "gameplay": "apply-impact-and-burn"
+    },
+    {
+      "id": "fade",
+      "duration": 0.5,
+      "effect": "solar-flare.fade"
+    }
+  ],
+  "vfxProfile": {
+    "burst": 48,
+    "rate": 34,
+    "duration": 0.72,
+    "life": 0.9,
+    "speed": 6.5,
+    "spread": 0.45,
+    "accelY": -2.5,
+    "size0": 0.24,
+    "size1": 0.035,
+    "spin": 2.5,
+    "opacity0": 0.95,
+    "opacity1": 0,
+    "shape": 0,
+    "blend": 0,
+    "billboard": 1,
+    "easing": 2,
+    "follow": 0,
+    "color0": "#fff1a6",
+    "color1": "#ff6b24",
+    "audio": "models/uploads/solar-flare.ogg",
+    "audioVol": 0.8,
+    "audioRate": 1.0
+  },
+  "assignments": {
+    "aegis": "Q",
+    "nyx": "E",
+    "lyra": null
+  },
+  "implementation": {
+    "abilityClass": "src/reference-vfx/abilities/SolarFlareAbility.js",
+    "registry": "src/reference-vfx/heroSkills.js",
+    "playableRouting": "referenceSkills.map",
+    "gameplayHook": "src/heroes.js",
+    "editorProfile": "src/reference-vfx/config/settings.js"
+  },
+  "importStatus": {
+    "currentlySupported": false,
+    "reason": "The current JSON importers load VFX settings presets or hero_tuning.json; they do not register new gameplay abilities from a skill manifest.",
+    "nextSteps": [
+      "Implement SolarFlareAbility.js using the phase contract.",
+      "Register solar-flare in heroSkills.js and the cast selector.",
+      "Connect gameplay damage, timing, and targeting in heroes.js.",
+      "Add the profile fields to the lil-gui VFX Editor.",
+      "Add a runtime and simulation test before enabling the assignment entries."
+    ]
+  }
+}

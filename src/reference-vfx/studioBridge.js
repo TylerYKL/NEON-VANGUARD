@@ -190,6 +190,7 @@ export function installStudioBridge(app) {
     gpu: 'Legacy-only: GPU VFX profile editor and particle tuning',
     audio: 'Mixed: slot assignment persists here; legacy playback controls remain legacy',
     castSim: 'Legacy-only: CAST SIM remains in the compatibility view',
+    skillImport: 'Not supported: new gameplay skills are code-registered, not JSON-registered',
     legacyPanel: 'Open compatibility view for the complete legacy workflow',
   };
   for (const [key, text] of Object.entries(compatibilityNotes)) {
