@@ -185,9 +185,17 @@ export const ENEMY_TYPES = {
     name: 'RIOT BRUTE', hp: 210, speed: 6.2, radius: 0.95, dmg: 22, range: 2.6, cd: 1.5, tell: 0.5, tellR: 2.7,
     score: 25, color: HOSTILE2, fly: 0, ranged: false, xp: 14,
   },
+  charger: {
+    name: 'CHARGER FRAME', hp: 150, speed: 10.8, radius: 0.82, dmg: 28, range: 3.0, cd: 2.2, tell: 0.62, tellR: 3.2,
+    score: 32, color: 0xff8a2b, fly: 0, ranged: false, charge: true, xp: 18,
+  },
   sentinel: {
     name: 'ARC SENTINEL', hp: 130, speed: 3.4, radius: 0.8, dmg: 15, range: 22, cd: 2.6, tell: 0.55, tellR: 1.4, lane: true,
     score: 30, color: 0xff1cc4, fly: 2.2, ranged: true, burst: 3, xp: 16,
+  },
+  warden: {
+    name: 'WARDEN BEACON', hp: 185, speed: 2.6, radius: 0.9, dmg: 24, range: 26, cd: 3.4, tell: 0.75, tellR: 1.8, lane: true,
+    score: 42, color: 0x7a5cff, fly: 2.8, ranged: true, burst: 1, xp: 24,
   },
   juggernaut: {
     name: 'ONI-CLASS JUGGERNAUT', hp: 2600, speed: 4.6, radius: 2.2, dmg: 38, range: 4.5, cd: 2.0, tell: 0.85, tellR: 5.5,
@@ -203,6 +211,86 @@ export const ELITES = {
   overclocked: { name: 'OVERCLOCKED', color: 0xff5ad0, hp: 1.4, note: 'fires twice as often' },
 };
 const ELITE_KEYS = Object.keys(ELITES);
+
+/**
+ * One InstancedMesh per baked static body part and enemy type. Animated accents,
+ * health bars, telegraphs and elite crowns stay on each Enemy group; the heavy
+ * shell is submitted once per type instead of once per live enemy.
+ *
+ * The headless geometry harness does not provide enemyBatches, so it retains the
+ * pre-instancing path for exact per-enemy measurements.
+ */
+export class EnemyStaticBatch {
+  constructor(type, scene, capacity = 64) {
+    this.type = type;
+    this.scene = scene;
+    this.capacity = Math.max(96, capacity);
+    this.parts = [];
+    this.enemies = [];
+    this.zero = new THREE.Matrix4();
+    this.zero.elements.fill(0);
+  }
+
+  adopt(enemy, meshes) {
+    if (!meshes.length) return;
+    const slots = [];
+    for (const source of meshes) {
+      let part = this.parts.find((p) => p.material === source.material);
+      if (!part) {
+        const mesh = new THREE.InstancedMesh(source.geometry, source.material, this.capacity);
+        mesh.name = 'enemy-' + this.type + '-static-' + this.parts.length;
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        mesh.count = 0;
+        this.scene.add(mesh);
+        part = { mesh, material: source.material, slots: [], free: [] };
+        this.parts.push(part);
+      } else {
+        // `bakeStatics()` created a fresh geometry for this enemy. The first
+        // one is the batch template; later copies would be duplicate GPU data.
+        source.geometry.dispose();
+      }
+      const index = part.free.length ? part.free.pop() : part.slots.length;
+      if (index >= this.capacity) throw new Error('EnemyStaticBatch capacity exceeded for ' + this.type);
+      part.slots[index] = enemy;
+      part.mesh.count = Math.max(part.mesh.count, index + 1);
+      slots.push({ part, index });
+    }
+    enemy.batch = this;
+    enemy.batchSlots = slots;
+    this.enemies.push(enemy);
+  }
+
+  release(enemy) {
+    const i = this.enemies.indexOf(enemy);
+    if (i >= 0) this.enemies.splice(i, 1);
+    for (const s of enemy.batchSlots || []) {
+      s.part.slots[s.index] = null;
+      s.part.free.push(s.index);
+      s.part.mesh.setMatrixAt(s.index, this.zero);
+      s.part.mesh.instanceMatrix.needsUpdate = true;
+    }
+    enemy.batch = null;
+    enemy.batchSlots = [];
+  }
+
+  retint(color) {
+    for (const p of this.parts) {
+      if (p.material.emissive) p.material.emissive.set(color);
+    }
+  }
+
+  update() {
+    for (const enemy of this.enemies) {
+      if (!enemy.group || enemy.dead || !enemy.group.visible) {
+        for (const s of enemy.batchSlots || []) s.part.mesh.setMatrixAt(s.index, this.zero);
+        continue;
+      }
+      enemy.group.updateMatrixWorld(true);
+      for (const s of enemy.batchSlots || []) s.part.mesh.setMatrixAt(s.index, enemy.group.matrixWorld);
+    }
+    for (const p of this.parts) p.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
 
 export class Enemy {
   constructor(type, G) {
@@ -253,6 +341,7 @@ export class Enemy {
     this.windup = 0; this.windupMax = 0;
     this.vel.set(0, 0, 0); this.pull.set(0, 0, 0);
     this.speedMul = 1; this.cdMul = 1; this.dmgMul = 1;
+    this.light = null;            // re-assigned from G.lights if we earn one
     this.setElite(null);
     this.group.scale.setScalar(1);
     this.group.visible = true;
@@ -302,6 +391,7 @@ export class Enemy {
 
   /** release GPU buffers — called when the pool is full or the run resets */
   disposeMeshes() {
+    if (this.batch) this.batch.release(this);
     this.group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
       if (o.material) {
@@ -315,6 +405,7 @@ export class Enemy {
   /** repaint every emissive surface (colour-blind palette switch) */
   retint(c) {
     this.T.color = c;
+    if (this.batch) this.batch.retint(c);
     for (const m of this.glowMats) m.color.set(c);
     if (this.light) this.light.color.set(c);
     if (this.disc) this.disc.material.color.set(c);
@@ -369,7 +460,7 @@ export class Enemy {
       g.add(body);
       parts.forEach((x) => x.dispose());
       flat.forEach((x) => { if (!parts.includes(x)) x.dispose(); });
-    } else if (this.type === 'brute') {
+    } else if (this.type === 'brute' || this.type === 'charger') {
       const torso = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.2, 0.9), shell);
       torso.position.y = 1.5; g.add(torso);
       const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), dark);
@@ -391,7 +482,7 @@ export class Enemy {
       }
       const vent = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.1), glow(T.color, 0.8));
       vent.position.set(0, 1.75, -0.46); g.add(vent);
-    } else if (this.type === 'sentinel') {
+    } else if (this.type === 'sentinel' || this.type === 'warden') {
       const base = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.9, 6), dark);
       base.rotation.x = Math.PI; base.position.y = 1.4; g.add(base);
       const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.6, 0), shell);
@@ -431,13 +522,34 @@ export class Enemy {
       }
     }
 
-    const light = new THREE.PointLight(T.color, 1.4, T.boss ? 14 : 5, 2);
-    light.position.y = T.boss ? 3.5 : 1.2;
-    g.add(light);
-    this.light = light;
+    // No PointLight here. One per enemy meant 45 lights at the cap, and
+    // three.js keys its shader programs on the light COUNT — so every spawn and
+    // death recompiled every material. The nearest handful of enemies borrow a
+    // light from G.lights each frame instead (see src/lights.js).
+    this.light = null;
+
+    // First merge each material's static body parts inside this enemy. An
+    // InstancedMesh requires every instance to use the same geometry; batching
+    // the pre-merge torso, head, arms, and legs would silently draw the torso
+    // shape at every slot. Animated fists/legs and all glow accents are not
+    // included because bakeStatics honours userData.animated.
+    if (!window.__nobake) bakeStatics(g, [shell, dark]);
+
+    // In the game context, move the baked shell/dark meshes into a fixed
+    // InstancedMesh batch. The animated glow, bar, crown and telegraph remain
+    // per-enemy so hit feedback and elite readability are unchanged.
+    if (this.G.enemyBatches && this.G.scene) {
+      const statics = this.group.children.filter((o) =>
+        o.isMesh && (o.material === shell || o.material === dark)
+      );
+      if (statics.length) {
+        statics.forEach((o) => this.group.remove(o));
+        const batch = this.G.enemyBatches[this.type] || (this.G.enemyBatches[this.type] = new EnemyStaticBatch(this.type, this.G.scene));
+        batch.adopt(this, statics);
+      }
+    }
 
     // ground marker
-    if (!window.__nobake) bakeStatics(g, [shell, dark]);
 
     const disc = new THREE.Mesh(new THREE.RingGeometry(T.radius * 0.9, T.radius * 1.2, 22), addMat(T.color, 0.7));
     disc.rotation.x = -Math.PI / 2; disc.position.y = 0.05;
@@ -451,7 +563,7 @@ export class Enemy {
     this.barTex = tex;
     const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
     spr.scale.set(T.boss ? 6 : 1.7, T.boss ? 0.62 : 0.18, 1);
-    spr.position.y = T.boss ? 6.4 : (this.type === 'brute' ? 2.9 : 1.3) + T.fly;
+    spr.position.y = T.boss ? 6.4 : ((this.type === 'brute' || this.type === 'charger') ? 2.9 : 1.3) + T.fly;
     spr.renderOrder = 20;
     g.add(spr);
     this.bar = spr;
@@ -470,7 +582,7 @@ export class Enemy {
     this.barTex.needsUpdate = true;
   }
 
-  center() { return new THREE.Vector3(this.pos.x, this.pos.y + this.T.fly + (this.T.boss ? 3.2 : this.type === 'brute' ? 1.5 : 0.6), this.pos.z); }
+  center() { return new THREE.Vector3(this.pos.x, this.pos.y + this.T.fly + (this.T.boss ? 3.2 : (this.type === 'brute' || this.type === 'charger') ? 1.5 : 0.6), this.pos.z); }
 
   spawnAt(x, z) {
     this.pos.set(x, 0, z);
@@ -581,7 +693,7 @@ export class Enemy {
       this.ring.rotation.z += dt * 6;
       this.group.rotation.z = -clamp(spd * 0.03, -0.4, 0.4) * Math.sin(G.time * 3);
       this.group.position.y += T.fly;
-    } else if (this.type === 'sentinel') {
+    } else if (this.type === 'sentinel' || this.type === 'warden') {
       this.group.position.y += T.fly * 0.4;
       if (this.rings) this.rings.forEach((r, i) => { r.rotation.z += dt * (0.8 + i * 0.5); r.rotation.y += dt * 0.4; });
     } else if (this.legL) {
@@ -606,7 +718,16 @@ export class Enemy {
     // hit flash on emissive
     const fl = this.hitFlash;
     for (const m of this.glowMats) m.opacity = clamp(0.75 + fl * 2, 0, 1);
-    this.light.intensity = 1.2 + fl * 6 + (this.mark > 0 ? 1.5 : 0);
+    // Pooled light: only the nearest few enemies get one, so this is nullable.
+    // The slot lives in the scene root, so position it in world space.
+    if (this.light) {
+      const gp = this.group.position;
+      this.light.position.set(gp.x, gp.y + (T.boss ? 3.5 : 1.2) * this.group.scale.y, gp.z);
+      this.light.color.set(T.color);
+      this.light.distance = T.boss ? 14 : 5;
+      this.light.decay = 2;
+      this.light.intensity = 1.2 + fl * 6 + (this.mark > 0 ? 1.5 : 0);
+    }
     this.disc.material.opacity = 0.35 + 0.25 * Math.sin(G.time * 4 + this.id) + fl;
     this.bar.material.opacity = this.hp < this.maxHp ? 1 : 0.35;
   }

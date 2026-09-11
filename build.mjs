@@ -10,8 +10,10 @@ const tmp = path.join(root, '.tmpbuild');
 fs.mkdirSync(tmp, { recursive: true });
 
 const targets = [
-  { entry: 'src/main.js',     shell: 'shell/game.html', out: 'neon-vanguard.html' },
-  { entry: 'src/showcase.js', shell: 'shell/bay.html',  out: 'character-bay.html' },
+  { entry: 'src/main.js',     shell: 'shell/game.html',    out: 'neon-vanguard.html' },
+  { entry: 'src/showcase.js', shell: 'shell/bay.html',     out: 'character-bay.html' },
+  { entry: 'src/reference-vfx/main.js', shell: 'shell/vfx-lab.html', out: 'hero-studio.html' },
+  { entry: 'src/studio.js', shell: 'shell/studio.html', out: 'hero-studio-legacy.html' },
 ];
 
 for (const t of targets) {
@@ -27,6 +29,11 @@ for (const t of targets) {
   // NOTE: replacement must be a FUNCTION — minified output contains `$&`.
   const inline = '<script>\n' + code.replace(/<\/script>/g, '<\\/script>') + '\n</script>';
   html = html.replace(tag, () => inline);
-  fs.writeFileSync(path.join(root, t.out), html);
-  console.log('wrote', t.out, (html.length / 1024).toFixed(0) + ' KB');
+  // Keep generated single-file bundles friendly to diff/check tooling. Trailing
+  // whitespace in embedded shader template literals is not semantically meaningful.
+  const output = t.out.includes('hero-studio')
+    ? html.split('\n').map((line) => line.replace(/[ \t]+$/, '')).join('\n')
+    : html;
+  fs.writeFileSync(path.join(root, t.out), output);
+  console.log('wrote', t.out, (output.length / 1024).toFixed(0) + ' KB');
 }

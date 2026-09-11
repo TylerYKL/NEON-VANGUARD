@@ -8,13 +8,16 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildWorld, ARENA } from './world.js';
 import { FX } from './fx.js';
 import { Hero, HERO_DEFS } from './heroes.js';
+import { ensureGLBSkins, ensureTuning, loadFXBank, clipReport } from './glbskin.js';
 import { Enemy, ENEMY_TYPES, ProjectileSystem, ELITES } from './entities.js';
 import { UI } from './ui.js';
 import { SFX } from './audio.js';
 import { Pickup } from './pickups.js';
+import { LightPool } from './lights.js';
 import { UPGRADES, MOD_DEFAULTS, RARITY_COLOR, rollOffers } from './upgrades.js';
 import { BALANCE as B, applyBalance } from './balance.js';
 import { initDevTools, DEV_CSS } from './devtools.js';
+import { GameReferenceVFX } from './reference-vfx/gameRuntime.js';
 
 /* ============================================================
    SETTINGS — persisted, applied live.
@@ -22,9 +25,9 @@ import { initDevTools, DEV_CSS } from './devtools.js';
 const DEFAULTS = { master: 0.85, music: 0.5, sfx: 0.9, fx: 1, shake: 1, palette: 'neon', dmgNumbers: true };
 const SETTINGS = Object.assign({}, DEFAULTS);
 const PALETTES = {
-  neon:  { skitter: 0xff2b4a, brute: 0xff5a2b, sentinel: 0xff1cc4, juggernaut: 0xff2b4a },
+  neon:  { skitter: 0xff2b4a, brute: 0xff5a2b, charger: 0xff8a2b, sentinel: 0xff1cc4, warden: 0x7a5cff, juggernaut: 0xff2b4a },
   // deuteranopia-safe: hostiles move to amber/blue, away from the mint/green allies
-  cb:    { skitter: 0xffa53d, brute: 0xff7a18, sentinel: 0x4aa3ff, juggernaut: 0xffc21f },
+  cb:    { skitter: 0xffa53d, brute: 0xff7a18, charger: 0xffc21f, sentinel: 0x4aa3ff, warden: 0x6f8cff, juggernaut: 0xffc21f },
 };
 function loadSettings() {
   try {
@@ -128,17 +131,26 @@ const grade = new ShaderPass(GradeShader);
 composer.addPass(grade);
 composer.addPass(new OutputPass());
 
+/* Slot-priority biases for the light pool (subtracted from squared distance).
+   Hoisted out of the frame loop so a frame allocates nothing. */
+const ENEMY_LIGHT_BIAS = (o) => (o.T.boss ? 1e9 : 0);
+const PICKUP_LIGHT_BIAS = (o) => (o.core ? 1e9 : 0);
+
 /* ---------- game state ---------- */
 const ui = new UI();
 const fx = new FX(scene, camera);
 const world = buildWorld(scene, renderer);
+// Fixed-size point-light pool. Created once; never resized during play, so the
+// scene's light count (and therefore three.js's compiled shader programs)
+// cannot change when enemies spawn or die. See src/lights.js.
+const lights = new LightPool(scene, B.perf);
 
 const G = {
-  scene, camera, renderer, fx, world, ui,
+  scene, camera, renderer, fx, world, ui, lights,
   heroes: [], enemies: [], effects: [], barriers: [], pickups: [],
   corePoints: 0, coreNeed: 16,
   hitStop: 0, drafting: false, god: false, mods: Object.assign({}, MOD_DEFAULTS), taken: {}, hpScale: 1, dmgScale: 1, maxAlive: 45, elitesSeen: 0, bestChain: 0,
-  enemyPool: {}, settings: SETTINGS,
+  enemyPool: {}, enemyBatches: {}, settings: SETTINGS,
   ultChain: 0, ultChainT: 0, ultMul: 1, overdriveT: 0,
   timeScale: 1, timeScaleTarget: 1,
   projectiles: null,
@@ -152,6 +164,7 @@ const G = {
   mouse: new THREE.Vector2(-1, -1),
   screenAim: { x: -100, y: -100 },
 };
+G.referenceVFX = new GameReferenceVFX({ scene, camera, renderer, gameFX: fx });
 G.projectiles = new ProjectileSystem(scene, G);
 
 /* ---------- helpers exposed to systems ---------- */
@@ -462,12 +475,12 @@ function updateGovernor(dt) {
   if (ms > 24) { P.slow += dt; P.fast = 0; } else if (ms < 14) { P.fast += dt; P.slow = 0; } else { P.slow *= 0.9; P.fast *= 0.9; }
   if (P.slow > 1.5 && P.aliveCap > 18) {
     P.aliveCap = Math.max(18, P.aliveCap - 5);
-    fx.pMul = Math.max(0.35, SETTINGS.fx * 0.6);
+    fx.setQuality(Math.max(0.35, SETTINGS.fx * 0.6));
     P.slow = 0;
     if (!P.note) { P.note = 1; ui.feed('PERFORMANCE MODE \u00B7 REDUCING LOAD', '#ffb14a'); }
   } else if (P.fast > 4 && P.aliveCap < B.scaling.maxAlive) {
     P.aliveCap = Math.min(B.scaling.maxAlive, P.aliveCap + 3);
-    if (P.aliveCap >= B.scaling.maxAlive) fx.pMul = SETTINGS.fx;
+    if (P.aliveCap >= B.scaling.maxAlive) fx.setQuality(SETTINGS.fx);
     P.fast = 0;
   }
   G.maxAlive = Math.min(B.scaling.maxAlive, P.aliveCap);
@@ -723,18 +736,23 @@ function switchTo(i, silent) {
 /* ---------- waves ---------- */
 const WAVES = [
   { skitter: 6 },
-  { skitter: 8, brute: 2 },
-  { skitter: 8, brute: 3, sentinel: 2 },
-  { skitter: 12, brute: 4, sentinel: 3 },
-  { juggernaut: 1, skitter: 8, brute: 3 },
-  { skitter: 14, brute: 6, sentinel: 4 },
-  { skitter: 16, brute: 7, sentinel: 5 },
-  { juggernaut: 2, skitter: 12, brute: 6, sentinel: 4 },
+  { skitter: 7, brute: 2, charger: 1 },
+  { skitter: 8, brute: 2, sentinel: 2, charger: 2 },
+  { skitter: 10, brute: 3, sentinel: 2, warden: 1, charger: 3 },
+  { juggernaut: 1, skitter: 8, brute: 3, charger: 2 },
+  { skitter: 12, brute: 4, sentinel: 3, warden: 2, charger: 3 },
+  { skitter: 14, brute: 5, sentinel: 4, warden: 3, charger: 4 },
+  { juggernaut: 2, skitter: 10, brute: 5, sentinel: 3, warden: 2, charger: 4 },
+  { skitter: 12, brute: 6, sentinel: 4, warden: 3, charger: 6 },
+  { juggernaut: 1, skitter: 16, brute: 7, sentinel: 5, warden: 4, charger: 7 },
 ];
 
 function startWave(n) {
   G.wave = n;
   const def = WAVES[Math.min(n - 1, WAVES.length - 1)];
+  const layouts = Object.keys(world.layouts || { neon: true });
+  const layoutKey = layouts[(n - 1) % layouts.length];
+  const layoutName = world.setLayout(layoutKey);
   // count grows slowly; the real ramp is per-enemy strength + elite density
   const scale = n > WAVES.length ? 1 + (n - WAVES.length) * B.scaling.countStep : 1;
   G.hpScale = 1 + Math.max(0, n - 3) * B.scaling.hpStep;
@@ -758,6 +776,7 @@ function startWave(n) {
   SFX.setIntensity(boss ? 4 : Math.min(3, 1 + Math.floor((n - 1) / 2)));
   ui.banner(boss ? 'Warning' : 'Wave', boss ? 'BOSS' : String(n).padStart(2, '0'));
   ui.feed(boss ? 'ONI-CLASS SIGNATURE DETECTED' : `WAVE ${n} INBOUND`, boss ? '#ff2b4a' : '#18e0ff');
+  ui.feed('SECTOR CONFIG · ' + layoutName, '#' + (world.floorUni.uAccent.value.getHexString()));
   if (boss) { fx.addShake(0.6); world.arenaPulse(); }
   if (n === 6) ui.feed('DECK INTEGRITY FAILING \u00B7 GRID DISCHARGES INBOUND', '#39c6ff');
   // heal a bit between waves
@@ -805,6 +824,12 @@ const keys = {};
 let mouseDown = false;
 let mouseHeld = false;
 const raycaster = new THREE.Raycaster();
+/* Scratch for the per-frame aim path (MOTION-AUDIT F5). Safe to reuse: everything
+   downstream copies out of them (aimPoint.copy, damp on .x/.z) and keeps no reference —
+   which is the same contract G.damageEnemy already relies on for borrowed vectors. */
+const AIM_HIT = new THREE.Vector3();
+const AIM_LEAD = new THREE.Vector3();
+const IDLE_DIR = new THREE.Vector3();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 addEventListener('keydown', (e) => {
@@ -847,9 +872,20 @@ addEventListener('mousemove', (e) => {
 addEventListener('blur', () => { mouseDown = false; mouseHeld = false; for (const k in keys) keys[k] = false; });
 
 function updateAim() {
+  if (TOUCH.on && G.active) {
+    if ((Math.abs(TOUCH.aimX) + Math.abs(TOUCH.aimZ)) > 0.05) {
+      const l = Math.hypot(TOUCH.aimX, TOUCH.aimZ) || 1;
+      G.aimPoint.set(G.active.pos.x + (TOUCH.aimX / l) * 12, 0, G.active.pos.z + (TOUCH.aimZ / l) * 12);
+    }
+    const sp = G.aimPoint.clone().project(camera);
+    G.screenAim.x = (sp.x * 0.5 + 0.5) * innerWidth;
+    G.screenAim.y = (-sp.y * 0.5 + 0.5) * innerHeight;
+    ui.setCross(G.screenAim.x, G.screenAim.y, G.running && !G.paused);
+    return;
+  }
   if (PAD.on && (Math.abs(PAD.aimX) + Math.abs(PAD.aimZ)) > 0.05) return;
   raycaster.setFromCamera(G.mouse, camera);
-  const hit = new THREE.Vector3();
+  const hit = AIM_HIT;                     // scratch (F5): aimPoint.copy reads it immediately
   if (raycaster.ray.intersectPlane(groundPlane, hit)) {
     G.aimPoint.copy(hit);
   }
@@ -863,7 +899,7 @@ function updateCamera(dt) {
   const a = G.active;
   if (!a) return;
   // look slightly toward aim
-  const lead = new THREE.Vector3().subVectors(G.aimPoint, a.pos).clampLength(0, 12).multiplyScalar(0.22);
+  const lead = AIM_LEAD.subVectors(G.aimPoint, a.pos).clampLength(0, 12).multiplyScalar(0.22);
   camTarget.x = damp(camTarget.x, a.pos.x + lead.x, 5, dt);
   camTarget.z = damp(camTarget.z, a.pos.z + lead.z, 5, dt);
   const h = 23.5, back = 15.5;
@@ -880,15 +916,22 @@ function updateCamera(dt) {
 }
 
 /* ---------- flow ---------- */
-function startGame(training) {
+async function startGame(training) {
   SFX.init(); SFX.resume(); SFX.play('uiClick'); SFX.startMusic(1); syncAudioBtn();
   document.getElementById('menu').classList.add('hidden');
   document.getElementById('gameover').classList.add('hidden');
   ui.show();
-  for (const e of G.enemies) scene.remove(e.group);
+  for (const e of G.enemies) {
+    e.dead = true;                       // also hides its InstancedMesh batch slot
+    G.fx.tellRelease(e.tell); e.tell = null;
+    scene.remove(e.group);
+    const pool = G.enemyPool[e.type] || (G.enemyPool[e.type] = []);
+    if (pool.length < 24) pool.push(e); else e.disposeMeshes();
+  }
   G.enemies.length = 0;
   for (const p of G.pickups) p.remove(G);
   G.pickups.length = 0;
+  G.lights.clear();
   for (const b of G.barriers) b.active = false;
   G.barriers.length = 0;
   G.corePoints = 0; G.ultChain = 0; G.ultChainT = 0; G.ultMul = 1; G.overdriveT = 0;
@@ -904,10 +947,37 @@ function startGame(training) {
   G.drafting = false;
   document.getElementById('draft').classList.add('hidden');
   renderBuild();
+  // effects are coroutines, and some borrow pooled resources (fx lights, video
+  // elements). Dropping the array would strand them, so dispose first.
+  for (const e of G.effects) { if (e.dispose) { try { e.dispose(); } catch (err) {} } }
   G.effects.length = 0;
   G.score = 0; G.kills = 0; G.combo = 1; G.wave = 0;
   G.over = false; G.paused = false;
+  G.glbTuning = await ensureTuning(true);  // re-read studio config (saved while this tab was open)
+  G.referenceVFX.setTuning(G.glbTuning);
+  G.referenceVFX.clear();
+  // Warm assigned VFX samples during the menu/start transition. Playback still
+  // tolerates a missing or undecodable clip, and procedural cues remain intact.
+  const audioCues = new Set();
+  for (const t of Object.values(G.glbTuning || {})) {
+    const entries = [
+      t && t.vfx,
+      ...(t && t.vfxSlots || []),
+      t && t.fx ? { p: t.fxP } : null,
+      ...(t && t.fxSlots || []),
+    ];
+    for (const entry of entries) {
+      if (entry && entry.p && entry.p.audio) audioCues.add(entry.p.audio);
+    }
+  }
+  for (const url of audioCues) SFX.preloadClip(url);
+  // skins SECOND, because the tuning's `model` field can override which file a hero wears
+  G.glbSkins = await ensureGLBSkins(G.glbTuning);   // uploaded hero models (models/uploads/<id>.glb), if any
+  G.fxBank = await loadFXBank(G.glbTuning);   // skill-effect files, keyed by URL (see fxpack.js)
   createSquad();
+  /* after the squad exists, because the clip slots are resolved inside Hero.build() —
+     this is the only place a shipped tuning file says "that clip is not in the file" */
+  for (const r of clipReport(G)) (r.bad ? console.warn : console.info)('[clips] ' + r.msg);
   G.running = true;
   G.waveActive = false;
   G.waveTimer = 2.2;
@@ -1104,6 +1174,7 @@ applySettings();
       G.mods.critChance = B.combat.critChance + (G.taken.crit ? G.taken.crit * 0.10 : 0);
       G.mods.critMul = B.combat.critMul + (G.taken.crit ? G.taken.crit * 0.3 : 0);
       G.maxAlive = B.scaling.maxAlive;
+      G.lights.setBudget(B.perf);   // deliberate: this recompiles programs once
       for (const h of G.heroes) {
         const frac = h.maxHp > 0 ? h.hp / h.maxHp : 1;
         h.maxHp = h.def.hp;
@@ -1122,6 +1193,9 @@ applySettings();
       return {
         ms: (G.frameMs || 0).toFixed(1), fps: (G.fps || 0).toFixed(0),
         enemies: G.enemies.length + '/' + G.maxAlive, calls: G.renderCalls || 0, tris: (G.renderTris || 0).toLocaleString(),
+        // lit / total pooled lights. The total must never change during play —
+        // if it does, three.js is recompiling programs. See src/lights.js.
+        lights: G.lights ? G.lights.active + '/' + G.lights.size : '-',
       };
     },
   });
@@ -1160,7 +1234,7 @@ function applySettings() {
     SFX.sfxBus.gain.setTargetAtTime(SETTINGS.sfx, SFX.ctx.currentTime, 0.05);
     if (SFX.playing) SFX.musicBus.gain.setTargetAtTime(SETTINGS.music, SFX.ctx.currentTime, 0.05);
   }
-  fx.pMul = SETTINGS.fx;
+  fx.setQuality(SETTINGS.fx);
   fx.shakeMul = SETTINGS.shake;
   bloom.strength = SETTINGS.fx <= 0.5 ? 0.38 : SETTINGS.fx >= 1.5 ? 0.62 : 0.52;
   bloom.radius = SETTINGS.fx <= 0.5 ? 0.3 : 0.45;
@@ -1168,6 +1242,9 @@ function applySettings() {
   for (const [k, c] of Object.entries(pal)) if (ENEMY_TYPES[k]) ENEMY_TYPES[k].color = c;
   for (const e of G.enemies) if (e.retint) e.retint(pal[e.type] || e.T.color);
   for (const list of Object.values(G.enemyPool)) for (const e of list) if (e.retint) e.retint(pal[e.type] || e.T.color);
+  // A type can have a persistent batch even after its last pooled enemy was
+  // disposed; retint the shared material directly so the next spawn matches.
+  for (const [k, c] of Object.entries(pal)) if (G.enemyBatches[k]) G.enemyBatches[k].retint(c);
   document.body.classList.toggle('nodmg', !SETTINGS.dmgNumbers);
   saveSettings();
 }
@@ -1226,6 +1303,83 @@ if (audioBtn) {
 }
 for (const b of document.querySelectorAll('.btn')) {
   b.addEventListener('mouseenter', () => { if (SFX.ready) SFX.play('uiHover'); });
+}
+
+/* ============================================================
+   TOUCH CONTROLS — two virtual sticks plus action buttons. Touch input feeds
+   the same movement/aim/ability path as a gamepad, so mobile does not get a
+   second combat implementation. Buttons generate edge events; FIRE is held.
+   ============================================================ */
+const TOUCH = {
+  on: ('ontouchstart' in window) || navigator.maxTouchPoints > 0,
+  moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, fire: false,
+  edges: Object.create(null), pointers: new Map(), knobs: {},
+};
+if (TOUCH.on) document.body.classList.add('touch');
+function touchStick(id, axis) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const knob = el.querySelector('i');
+  TOUCH.knobs[axis] = knob;
+  const update = (e) => {
+    const r = el.getBoundingClientRect();
+    const radius = r.width * 0.38;
+    const dx = e.clientX - (r.left + r.width * 0.5);
+    const dy = e.clientY - (r.top + r.height * 0.5);
+    const d = Math.hypot(dx, dy) || 1;
+    const k = Math.min(1, radius / d);
+    const x = dx * k / radius, z = dy * k / radius;
+    TOUCH[axis + 'X'] = x; TOUCH[axis + 'Z'] = z;
+    knob.style.transform = `translate(${x * radius}px,${z * radius}px)`;
+  };
+  const reset = (e) => {
+    if (e && TOUCH.pointers.get(id) !== e.pointerId) return;
+    TOUCH.pointers.delete(id);
+    TOUCH[axis + 'X'] = 0; TOUCH[axis + 'Z'] = 0;
+    knob.style.transform = 'translate(0,0)';
+  };
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); TOUCH.pointers.set(id, e.pointerId); el.setPointerCapture(e.pointerId); update(e);
+  });
+  el.addEventListener('pointermove', (e) => { if (TOUCH.pointers.get(id) === e.pointerId) { e.preventDefault(); update(e); } });
+  el.addEventListener('pointerup', reset);
+  el.addEventListener('pointercancel', reset);
+  el.addEventListener('lostpointercapture', () => reset());
+}
+function touchButton(el) {
+  if (!el) return;
+  const name = el.dataset.touchButton;
+  const up = (e) => {
+    if (e && e.pointerId != null && TOUCH.pointers.get(name) !== e.pointerId) return;
+    TOUCH.pointers.delete(name);
+    if (name === 'fire') TOUCH.fire = false;
+    el.classList.remove('down');
+  };
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation(); TOUCH.pointers.set(name, e.pointerId); el.setPointerCapture(e.pointerId);
+    if (name === 'fire') TOUCH.fire = true; else TOUCH.edges[name] = true;
+    el.classList.add('down');
+  });
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('lostpointercapture', () => up());
+}
+touchStick('touchMove', 'move');
+touchStick('touchAim', 'aim');
+for (const b of document.querySelectorAll('[data-touch-button]')) touchButton(b);
+function touchPressed(name) {
+  const hit = !!TOUCH.edges[name];
+  delete TOUCH.edges[name];
+  return hit;
+}
+function pollTouch() {
+  if (!TOUCH.on) return null;
+  return {
+    mx: TOUCH.moveX, my: TOUCH.moveZ, ax: TOUCH.aimX, ay: TOUCH.aimZ, fire: TOUCH.fire,
+    dash: touchPressed('dash'), q: touchPressed('q'), e: touchPressed('e'), r: touchPressed('r'),
+    swapNext: touchPressed('swap'), pause: touchPressed('pause'),
+    h1: false, h2: false, h3: false,
+  };
 }
 
 /* ============================================================
@@ -1304,29 +1458,33 @@ function frame(now) {
 
     if (G.running && G.drafting) {
       const pd = pollPad();
-      if (pd) {
-        if (pd.q) takeDraft(0);
-        else if (pd.dash) takeDraft(1);
-        else if (pd.e) takeDraft(2);
-        else if (pd.pause) skipDraft();
+      const td = pollTouch();
+      const input = td || pd;
+      if (input) {
+        if (input.q) takeDraft(0);
+        else if (input.dash) takeDraft(1);
+        else if (input.e) takeDraft(2);
+        else if (input.pause) skipDraft();
       }
     }
     if (G.running && !G.drafting) {
       const a = G.active;
       const pad = pollPad();
-      if (pad) {
-        if (pad.pause) togglePause();
-        if (pad.dash) a.dash();
-        if (pad.q) a.useSkill(0, G);
-        if (pad.e) a.useSkill(1, G);
-        if (pad.r) a.useSkill(2, G);
-        if (pad.h1) switchTo(0); if (pad.h2) switchTo(1); if (pad.h3) switchTo(2);
-        if (pad.swapNext) switchTo((G.heroes.indexOf(a) + 1) % 3);
+      const touch = pollTouch();
+      const input = touch || pad;
+      if (input) {
+        if (input.pause) togglePause();
+        if (input.dash) a.dash();
+        if (input.q) a.useSkill(0, G);
+        if (input.e) a.useSkill(1, G);
+        if (input.r) a.useSkill(2, G);
+        if (input.h1) switchTo(0); if (input.h2) switchTo(1); if (input.h3) switchTo(2);
+        if (input.swapNext) switchTo((G.heroes.indexOf(a) + 1) % 3);
         // right stick sets the aim point 12m out from the hero
-        if (Math.abs(pad.ax) + Math.abs(pad.ay) > 0.05) {
+        if (pad && Math.abs(pad.ax) + Math.abs(pad.ay) > 0.05) {
           PAD.aimX = pad.ax; PAD.aimZ = pad.ay;
         }
-        if (PAD.on && (Math.abs(PAD.aimX) + Math.abs(PAD.aimZ)) > 0.05) {
+        if (pad && PAD.on && (Math.abs(PAD.aimX) + Math.abs(PAD.aimZ)) > 0.05) {
           const l = Math.hypot(PAD.aimX, PAD.aimZ) || 1;
           G.aimPoint.set(a.pos.x + (PAD.aimX / l) * 12, 0, a.pos.z + (PAD.aimZ / l) * 12);
           const sp = G.aimPoint.clone().project(camera);
@@ -1336,13 +1494,13 @@ function frame(now) {
       }
       // ---- player control ----
       const dir = new THREE.Vector3(
-        (pad ? pad.mx : 0) + (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0),
+        (input ? input.mx : 0) + (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0),
         0,
-        (pad ? pad.my : 0) + (keys['s'] || keys['arrowdown'] ? 1 : 0) - (keys['w'] || keys['arrowup'] ? 1 : 0)
+        (input ? input.my : 0) + (keys['s'] || keys['arrowdown'] ? 1 : 0) - (keys['w'] || keys['arrowup'] ? 1 : 0)
       );
       if (dir.lengthSq() > 1) dir.normalize();
-      if (pad && pad.fire) mouseDown = true;
-      else if (pad && PAD.on && !pad.fire && !mouseHeld) mouseDown = false;
+      if (input && input.fire) mouseDown = true;
+      else if (input && !input.fire && !mouseHeld) mouseDown = false;
       if (dir.lengthSq() > 0) dir.normalize();
       if (!a.downed) {
         const want = angleTo(a.pos, G.aimPoint);
@@ -1350,7 +1508,7 @@ function frame(now) {
         a.aim.set(G.aimPoint.x - a.pos.x, 0, G.aimPoint.z - a.pos.z).normalize();
         a.move(dt, dir);
         if (mouseDown) a.tryAttack(G);
-      } else a.move(dt, new THREE.Vector3());
+      } else a.move(dt, IDLE_DIR);          // move() reads dir, never writes it (F5)
 
       for (const h of G.heroes) {
         if (h !== a) h.updateAI(dt, G, a);
@@ -1399,6 +1557,13 @@ function frame(now) {
       }
     }
 
+    // ---- pooled lights ----
+    // Hand the nearest few enemies and pickups a light. Bosses and Charge Cores
+    // always win a slot; the pool size is the hard ceiling.
+    const lightFocus = G.active ? G.active.pos : null;
+    lights.assignNearest('enemy', G.enemies, lightFocus, ENEMY_LIGHT_BIAS);
+    lights.assignNearest('pickup', G.pickups, lightFocus, PICKUP_LIGHT_BIAS);
+
     // ---- entities ----
     for (let i = G.enemies.length - 1; i >= 0; i--) {
       const e = G.enemies[i];
@@ -1411,7 +1576,10 @@ function frame(now) {
       }
       e.update(dt, G);
     }
+    // Submit the baked enemy shells once per type after all transforms are current.
+    for (const batch of Object.values(G.enemyBatches)) batch.update();
     G.projectiles.update(dt);
+    G.referenceVFX.update(dt, G.time);
     for (let i = G.effects.length - 1; i >= 0; i--) {
       if (!G.effects[i].update(dt)) G.effects.splice(i, 1);
     }
@@ -1425,7 +1593,8 @@ function frame(now) {
     grade.uniforms.uFlash.value = fx.flash;
     grade.uniforms.uFlashCol.value.copy(fx.flashColor);
     grade.uniforms.uDmg.value = G.damageVignette * 0.7;
-    bloom.strength = 0.62 + fx.flash * 0.5;
+    const bloomBase = SETTINGS.fx <= 0.5 ? 0.38 : SETTINGS.fx >= 1.5 ? 0.62 : 0.52;
+    bloom.strength = bloomBase + fx.flash * (SETTINGS.fx >= 1.5 ? 0.5 : 0.28);
 
     if (G.running) ui.update(G);
     ui.updatePops(dt);

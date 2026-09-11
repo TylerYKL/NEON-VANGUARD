@@ -6,6 +6,9 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { HERO_DEFS } from './heroes.js';
+import { ensureTuning, ensureGLBSkins } from './glbskin.js';
+import { parseGLB, normalizeToStage } from './gltfutil.js';
+import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import {
   buildHumanoid, animateRig, buildIonGauntlets, buildRiotShield,
   buildMedGloves, buildRailPistol, buildDrone,
@@ -15,8 +18,9 @@ import { addMat, metalMat, rand, clamp, damp, lerp, TAU } from './util.js';
 import { SFX } from './audio.js';
 
 /* ============================================================
-   CHARACTER BAY — a turntable viewer for the three operatives.
-   Same rigs, same weapons, same shaders as the game; studio lit.
+   CHARACTER BAY — a turntable viewer for the three operatives and
+   any body GLBs uploaded through Hero Studio. Procedural rigs and
+   uploaded skins share the same stage and studio lighting.
    ============================================================ */
 
 const app = document.getElementById('app');
@@ -157,8 +161,19 @@ const holoCyl = new THREE.Mesh(new THREE.CylinderGeometry(2.05, 2.05, 3.4, 48, 1
 holoCyl.position.y = 1.7;
 pedestal.add(holoCyl);
 
-/* ---------- heroes ---------- */
-const models = HERO_DEFS.map((d) => {
+/* ---------- heroes + uploaded GLB skins ---------- */
+const UP = (() => {
+  // Arena previews use sibling 8080/8081 hosts; local development uses ports.
+  if (/^\d+-/.test(location.hostname)) return location.protocol + '//' + location.hostname.replace(/^\d+-/, '8081-');
+  if (location.hostname) return location.protocol + '//' + location.hostname + ':8081';
+  return 'http://localhost:8081';
+})();
+const UPDIR = 'models/uploads/';
+const UPLOAD_POLL_MS = 2500;
+const uploadCache = new Map();
+const customModels = new Map();
+
+function buildBayModel(d) {
   const rig = buildHumanoid({
     accent: d.color, visor: d.color2, bulk: d.bulk, scale: d.scale,
     pauldrons: d.pauldrons, hood: d.hood, crest: d.crest, plate: d.plate,
@@ -167,18 +182,142 @@ const models = HERO_DEFS.map((d) => {
   g.add(rig.root);
   scene.add(g);
   g.visible = false;
-  const M = { def: d, rig, group: g, drone: null };
-  if (d.id === 'aegis') { M.gauntlets = buildIonGauntlets(rig, d.color); M.shield = buildRiotShield(rig, d.color2); }
-  else if (d.id === 'lyra') { M.gloves = buildMedGloves(rig, d.color); M.drone = buildDrone(rig, d.color2); g.add(M.drone.group); }
-  else { M.pistol = buildRailPistol(rig, d.color); M.drone = buildDrone(rig, d.color2); g.add(M.drone.group); }
+  const M = { def: d, rig, group: g, drone: null, addons: [], importedBody: null, importedSkin: null, mixer: null, importedAction: null };
+  if (d.id === 'aegis') {
+    M.gauntlets = buildIonGauntlets(rig, d.color); M.shield = buildRiotShield(rig, d.color2);
+    M.addons.push(M.gauntlets.L.group, M.gauntlets.R.group, M.shield.group);
+  } else if (d.id === 'lyra') {
+    M.gloves = buildMedGloves(rig, d.color); M.drone = buildDrone(rig, d.color2); g.add(M.drone.group);
+    M.addons.push(M.gloves.L.group, M.gloves.R.group, M.drone.group);
+  } else {
+    M.pistol = buildRailPistol(rig, d.color); M.drone = buildDrone(rig, d.color2); g.add(M.drone.group);
+    M.addons.push(M.pistol.group, M.drone.group);
+  }
   rig.disc.material.opacity = 0.0;
   return M;
-});
+}
+
+const models = HERO_DEFS.map(buildBayModel);
+
+function disposeImported(M) {
+  if (M.importedBody) {
+    M.group.remove(M.importedBody);
+    M.importedBody = null;
+  }
+  if (M.mixer) M.mixer.stopAllAction();
+  M.mixer = null;
+  M.importedAction = null;
+  M.importedSkin = null;
+  M.importedTuning = null;
+  M.rig.root.visible = true;
+  M.addons.forEach((o) => { if (o) o.visible = true; });
+}
+
+const clipAliases = {
+  idle: ['idle', 'stand', 'rest'], move: ['walk', 'walking', 'run', 'jog'],
+  attack: ['attack', 'atk', 'swing', 'slash', 'melee'], cast: ['cast', 'spell', 'ability'],
+  down: ['death', 'die', 'down', 'defeat'],
+};
+function importedClip(M, pose) {
+  const clips = M.importedSkin && M.importedSkin.clips || [];
+  const anim = M.importedTuning && M.importedTuning.anim || {};
+  const slot = pose === 'move' ? 'walk' : pose === 'down' ? 'death' : pose;
+  const want = String(anim[slot] || 'auto').trim().toLowerCase();
+  if (want === 'off' || want === 'none' || want === '') return null;
+  if (want !== 'auto') {
+    return clips.find((c) => String(c.name || '').toLowerCase() === want) ||
+      clips.find((c) => String(c.name || '').toLowerCase().includes(want));
+  }
+  const aliases = clipAliases[pose] || clipAliases.idle;
+  return aliases.map((a) => clips.find((c) => String(c.name || '').toLowerCase().includes(a))).find(Boolean) ||
+    (pose === 'idle' || pose === 'move' ? clips[0] : null);
+}
+function setImportedPose(M, pose) {
+  if (!M.mixer || !M.importedSkin) return;
+  const clip = importedClip(M, pose);
+  if (!clip) {
+    if (M.importedAction) M.importedAction.action.fadeOut(0.12);
+    M.importedAction = null;
+    return;
+  }
+  if (M.importedAction && M.importedAction.clip === clip && M.importedAction.pose === pose) return;
+  if (M.importedAction) M.importedAction.action.fadeOut(0.12);
+  const action = M.mixer.clipAction(clip);
+  action.reset();
+  action.clampWhenFinished = pose === 'attack' || pose === 'cast' || pose === 'down';
+  const speed = Number(M.importedTuning && M.importedTuning.anim && M.importedTuning.anim.speed);
+  action.setEffectiveTimeScale(Number.isFinite(speed) ? speed : 1);
+  action.setLoop(action.clampWhenFinished ? THREE.LoopOnce : THREE.LoopRepeat, action.clampWhenFinished ? 1 : Infinity);
+  action.fadeIn(0.12).play();
+  M.importedAction = { clip, pose, action };
+}
+function applyImportedSkin(M, skin, tuning = null) {
+  disposeImported(M);
+  if (!skin || !skin.template) return;
+  const body = cloneRig(skin.template);
+  const scale = Number.isFinite(tuning && tuning.scale) ? tuning.scale : 1;
+  const pos = tuning && tuning.pos || { x: 0, y: 0, z: 0 };
+  body.scale.multiplyScalar(scale);
+  body.position.set(body.position.x * scale + (pos.x || 0), body.position.y * scale + (pos.y || 0), body.position.z * scale + (pos.z || 0));
+  body.rotation.y = (skin.yaw || 0) + ((tuning && tuning.yawDeg || 0) * Math.PI / 180);
+  M.group.add(body);
+  M.importedBody = body;
+  M.importedSkin = skin;
+  M.importedTuning = tuning;
+  M.rig.root.visible = false;
+  M.addons.forEach((o) => { if (o) o.visible = false; });
+  M._importedBase = { pos: body.position.clone(), rot: body.rotation.clone() };
+  if (skin.clips && skin.clips.length && (!tuning || !tuning.anim || tuning.anim.on !== 0)) {
+    M.mixer = new THREE.AnimationMixer(body);
+    setImportedPose(M, 'idle');
+  }
+}
+
+function customDef(file) {
+  const base = HERO_DEFS[0];
+  let h = 0;
+  for (let i = 0; i < file.length; i++) h = (h * 33 + file.charCodeAt(i)) & 0xffffff;
+  const stem = file.replace(/\.(glb|gltf)$/i, '');
+  return Object.assign({}, base, {
+    id: 'upload:' + file,
+    name: stem.toUpperCase().slice(0, 20),
+    tag: 'UPLOADED GLB', role: 'CUSTOM MODEL',
+    bio: 'Imported from Hero Studio · ' + file,
+    weapon: 'UPLOADED MODEL · HERO STUDIO',
+    color: (h ^ 0x18e0ff) & 0xffffff,
+    color2: (h ^ 0xff2fa0) & 0xffffff,
+  });
+}
+
+async function loadCustomSkin(url, key) {
+  const cached = uploadCache.get(url);
+  if (cached && cached.key === key) return cached.skin;
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const gltf = await parseGLB(await r.arrayBuffer());
+  const template = gltf.scene || gltf.scenes[0];
+  normalizeToStage(template, 2.4);
+  const skin = { template, clips: (gltf.animations || []).filter((c) => c && c.duration > 0), yaw: 0, url };
+  uploadCache.set(url, { key, skin });
+  return skin;
+}
+
+function removeCustomModel(url) {
+  const M = customModels.get(url);
+  if (!M) return;
+  disposeImported(M);
+  scene.remove(M.group);
+  const i = models.indexOf(M);
+  if (i >= 0) models.splice(i, 1);
+  customModels.delete(url);
+}
+
 
 /* ---------- state ---------- */
 const S = {
   index: 0, model: models[0],
   yaw: 0.62, pitch: 0.20, dist: 7.6, targetY: 1.78,
+  cameraMode: 'follow',
   spin: true, pose: 'idle', poseT: 0, attack: 0, cast: 0,
   drag: false, lastX: 0, lastY: 0, time: 0, flash: 0,
   detail: false, focus: new THREE.Vector3(0, 1.78, 0),
@@ -187,14 +326,105 @@ const hex = (n) => '#' + n.toString(16).padStart(6, '0');
 
 /* ---------- UI ---------- */
 const tabsEl = document.getElementById('tabs');
-tabsEl.innerHTML = HERO_DEFS.map((d, i) => `
-  <button class="tab" data-i="${i}" style="--c:${hex(d.color)}">
-    <b>${d.name}</b><span>${d.role}</span>
-  </button>`).join('');
-tabsEl.querySelectorAll('.tab').forEach((b) => {
-  b.onclick = () => select(+b.dataset.i);
-  b.onmouseenter = () => SFX.ready && SFX.play('uiHover');
-});
+function renderTabs() {
+  tabsEl.innerHTML = '';
+  models.forEach((m, i) => {
+    const b = document.createElement('button');
+    b.className = 'tab';
+    b.dataset.i = i;
+    b.style.setProperty('--c', hex(m.def.color));
+    const name = document.createElement('b');
+    name.textContent = m.def.name;
+    const role = document.createElement('span');
+    role.textContent = m.def.role;
+    b.append(name, role);
+    b.onclick = () => select(i);
+    b.onmouseenter = () => SFX.ready && SFX.play('uiHover');
+    tabsEl.appendChild(b);
+  });
+}
+renderTabs();
+
+const bayStatus = document.getElementById('uploadState');
+const defaultSkinURLs = new Set(HERO_DEFS.map((d) => UPDIR + d.id + '.glb'));
+let bayFileSignature = '';
+let bayTuningSignature = '';
+let baySyncBusy = false;
+function setBayStatus(text, tone = '') {
+  if (!bayStatus) return;
+  bayStatus.textContent = text;
+  bayStatus.className = tone;
+}
+function customUploadFiles(files, tuning) {
+  const assigned = new Set(defaultSkinURLs);
+  for (const d of HERO_DEFS) {
+    const model = tuning && tuning[d.id] && tuning[d.id].model;
+    if (model) assigned.add(model);
+  }
+  return files.filter((f) => {
+    if (!f || !/\.(glb|gltf)$/i.test(f.name)) return false;
+    // Hero Studio also stores per-skill GLBs in the same library; those are
+    // effects, not bodies, and should not become Character Bay tabs.
+    if (/(?:-s\d+)?-fx\.(?:glb|gltf)$/i.test(f.name)) return false;
+    return !assigned.has(UPDIR + f.name);
+  });
+}
+async function syncBayUploads(initial = false) {
+  if (baySyncBusy) return;
+  baySyncBusy = true;
+  try {
+    const [filesRes, tuning] = await Promise.all([
+      fetch(UP + '/files', { cache: 'no-store' }).then((r) => r.ok ? r.json() : []),
+      ensureTuning(true),
+    ]);
+    const files = Array.isArray(filesRes) ? filesRes : [];
+    const fileSignature = files.filter((f) => /\.(glb|gltf)$/i.test(f.name))
+      .map((f) => f.name + ':' + f.bytes + ':' + (f.mtime || '')).sort().join('|');
+    const tuningSignature = JSON.stringify(tuning || {});
+    if (!initial && fileSignature === bayFileSignature && tuningSignature === bayTuningSignature) return;
+    bayFileSignature = fileSignature;
+    bayTuningSignature = tuningSignature;
+    setBayStatus('SYNCING HERO STUDIO LIBRARY…');
+
+    // The three roster tabs use exactly the same tuning/model contract as the
+    // game. Saving a new model assignment in Hero Studio therefore changes the
+    // body shown here without a code change or page reload.
+    const skins = await ensureGLBSkins(tuning, true);
+    for (const d of HERO_DEFS) applyImportedSkin(models.find((m) => m.def.id === d.id), skins[d.id] || null, tuning[d.id] || null);
+
+    const wanted = customUploadFiles(files, tuning);
+    const wantedURLs = new Set(wanted.map((f) => UPDIR + f.name));
+    for (const url of [...customModels.keys()]) if (!wantedURLs.has(url)) removeCustomModel(url);
+    for (const f of wanted) {
+      const url = UPDIR + f.name;
+      const key = f.name + ':' + f.bytes + ':' + (f.mtime || '');
+      let M = customModels.get(url);
+      if (!M) {
+        M = buildBayModel(customDef(f.name));
+        customModels.set(url, M);
+        models.push(M);
+      }
+      try {
+        const skin = await loadCustomSkin(url, key);
+        if (M._uploadKey !== key) { applyImportedSkin(M, skin); M._uploadKey = key; }
+      } catch (e) {
+        setBayStatus('UPLOAD LIBRARY · ' + f.name + ' FAILED', 'bad');
+      }
+    }
+
+    const selectedId = S.model && S.model.def.id;
+    renderTabs();
+    const keep = models.findIndex((m) => m.def.id === selectedId);
+    select(keep >= 0 ? keep : 0, true);
+    setBayStatus(models.length > HERO_DEFS.length
+      ? 'HERO STUDIO SYNCED · ' + (models.length - HERO_DEFS.length) + ' UPLOADED MODEL' + (models.length - HERO_DEFS.length === 1 ? '' : 'S')
+      : 'HERO STUDIO SYNCED · PROCEDURAL ROSTER', 'ok');
+  } catch (e) {
+    setBayStatus('HERO STUDIO LIBRARY OFFLINE · RETRYING', 'bad');
+  } finally {
+    baySyncBusy = false;
+  }
+}
 
 function bars(def) {
   const rows = [
@@ -208,9 +438,11 @@ function bars(def) {
 }
 
 function select(i, silent) {
+  if (!models[i]) return;
   const prev = S.model;
   S.index = i;
   S.model = models[i];
+  S.targetY = S.model.importedBody ? 1.2 : 1.78;
   models.forEach((m, k) => { m.group.visible = k === i; });
   const d = S.model.def;
   document.documentElement.style.setProperty('--c', hex(d.color));
@@ -320,9 +552,35 @@ document.getElementById('spin').onclick = (e) => {
   e.currentTarget.classList.toggle('on', S.spin);
   e.currentTarget.textContent = S.spin ? 'AUTO-SPIN ON' : 'AUTO-SPIN OFF';
 };
+
+/* ---------- camera view ---------- */
+const cameraModeEl = document.getElementById('cameraMode');
+const cameraModeButtons = cameraModeEl.querySelectorAll('[data-camera-mode]');
+function setCameraMode(mode, silent = false) {
+  if (mode !== 'follow' && mode !== 'free') return;
+  S.cameraMode = mode;
+  // A free view should hold its composition; auto-spin can still be
+  // re-enabled explicitly with the separate control.
+  if (mode === 'free' && S.spin) {
+    S.spin = false;
+    const spinButton = document.getElementById('spin');
+    spinButton.classList.remove('on');
+    spinButton.textContent = 'AUTO-SPIN OFF';
+  }
+  cameraModeButtons.forEach((b) => {
+    const active = b.dataset.cameraMode === mode;
+    b.classList.toggle('on', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+  cameraModeEl.dataset.mode = mode;
+  if (!silent && SFX.ready) SFX.play('uiClick');
+}
+cameraModeButtons.forEach((b) => {
+  b.onclick = () => setCameraMode(b.dataset.cameraMode);
+});
 /** frame the actual weapon mesh rather than a guessed height */
 function focusPoint() {
-  if (!S.detail) return new THREE.Vector3(0, S.targetY, 0);
+  if (!S.detail || S.model.importedBody) return new THREE.Vector3(0, S.targetY, 0);
   const M = S.model, o = new THREE.Vector3();
   const node = M.pistol ? M.pistol.group : M.gauntlets ? M.gauntlets.R.group : M.gloves.R.group;
   node.getWorldPosition(o);
@@ -350,6 +608,7 @@ addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === '1') select(0); if (k === '2') select(1); if (k === '3') select(2);
   if (k === ' ') { e.preventDefault(); signature(); }
+  if (k === 'f') setCameraMode(S.cameraMode === 'follow' ? 'free' : 'follow');
   if (k === 'm') SFX.toggleMute();
 });
 addEventListener('resize', () => {
@@ -364,6 +623,11 @@ addEventListener('pointerdown', unlock);
 addEventListener('keydown', unlock);
 
 select(0, true);
+// Hero Studio writes into the shared upload dropbox. Poll both the library and
+// hero_tuning.json so a newly uploaded model, or a new assignment to Aegis/Lyra/
+// Nyx, appears in this bay without a manual refresh.
+syncBayUploads(true);
+setInterval(() => syncBayUploads(false), UPLOAD_POLL_MS);
 
 /* ---------- loop ---------- */
 let last = performance.now();
@@ -376,8 +640,10 @@ function frame(now) {
 
   if (S.spin && !S.drag) S.yaw += dt * 0.24;
 
-  // camera orbit around the current focus (body centre, or the weapon in detail mode)
-  S.focus.lerp(focusPoint(), Math.min(1, dt * 4.5));
+  // Follow mode keeps the framing on the body or weapon detail. Free mode
+  // leaves the orbit pivot where the viewer put it, so changing pose/detail
+  // cannot pull the camera away from a hand-picked composition.
+  if (S.cameraMode === 'follow') S.focus.lerp(focusPoint(), Math.min(1, dt * 4.5));
   const cd = S.dist, cp = S.pitch;
   const cx = S.focus.x + Math.sin(S.yaw) * Math.cos(cp) * cd;
   const cz = S.focus.z + Math.cos(S.yaw) * Math.cos(cp) * cd;
@@ -398,6 +664,14 @@ function frame(now) {
     speed, time: S.time, attack: S.attack, cast: S.cast, dead,
     style: d.style, block: d.id === 'aegis',
   });
+  if (M.importedBody) {
+    setImportedPose(M, S.pose);
+    const B = M._importedBase;
+    M.importedBody.position.y = B.pos.y + (dead ? -0.15 : 0) + S.attack * 0.04;
+    M.importedBody.rotation.x = B.rot.x - (dead ? 1.35 : 0) + S.cast * 0.08;
+    M.importedBody.rotation.z = B.rot.z + Math.sin(S.time * 8) * 0.025 * speed;
+    if (M.mixer) M.mixer.update(dt);
+  }
 
   // weapon idles
   if (M.pistol) {
@@ -425,8 +699,9 @@ function frame(now) {
     dr.eye.material.opacity = 0.7 + 0.3 * Math.sin(S.time * 6);
   }
 
-  // idle sparkle from the chest core
-  if (Math.random() < 0.25) {
+  // idle sparkle from the procedural chest core; imported bodies may not have
+  // the game's core node, so do not emit invisible particles for them.
+  if (!M.importedBody && Math.random() < 0.25) {
     const p = new THREE.Vector3();
     rig.core.getWorldPosition(p);
     fx.spawn({
@@ -456,4 +731,5 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-window.BAY = { S, select, signature, models };
+setCameraMode('follow', true);
+window.BAY = { S, select, signature, setCameraMode, models, syncBayUploads };

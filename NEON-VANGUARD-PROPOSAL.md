@@ -562,10 +562,244 @@ and an online leaderboard.
 **New regression tests:** `tools/p0test.mjs` covers telegraphs, i-frames, elite spawning, live settings
 application, persistence and the summary screen. `smoke`, `combotest` and `audiotest` all still pass clean.
 
+### Point-light pool (v1.8)
+
+v1.7's closing note said the next step was `InstancedMesh`. It still is — but measuring first turned up
+something bigger that no roadmap item covered.
+
+**The finding.** `Enemy.build()` gave every enemy its own `PointLight`, and `Pickup` did the same for every
+charge shard. A shard drops on most kills and lives 15 s, so a busy wave stacked dozens of them on top of
+up to 45 enemies. Measured with a new Node harness that runs the real constructors: **45 live enemies =
+45 point lights**, 330 draw calls, 213 materials, 45 canvas textures.
+
+**Why that is worse than it sounds.** three.js r169 bakes the light *count* into the shader program cache
+key, in the installed library:
+
+| Line | Code |
+|---|---|
+| 20843 | `numPointLights: lights.point.length` |
+| 20974 | `array.push( parameters.numPointLights )` — inside `getProgramCacheKeyParameters` |
+| 19566 | `.replace( /NUM_POINT_LIGHTS/g, parameters.numPointLights )` |
+
+So every spawn, death and shard pickup changed the count and made every material in the frame compile a new
+program — and meanwhile the fragment shader looped over 45+ lights for every lit pixel. None of this showed
+up in the test suite, because under swiftshader every frame already costs ~250 ms.
+
+**The fix.** `src/lights.js` — a fixed pool created once at boot (8 enemy + 4 pickup + 4 effect slots, in
+`BALANCE.perf`). Each frame the nearest enemies and pickups borrow a light, with the boss and Charge Cores
+guaranteed a slot; abilities `acquire()`/`release()` theirs. Unused slots stay `visible` at intensity 0,
+because `projectObject()` skips invisible objects *before* it reaches the `isLight` branch — hiding a spare
+would change the count and defeat the scheme.
+
+**Result:** the scene's point-light count is now **constant at 16** for the entire run, down from 45+ and
+climbing. No spawn, death, pickup or ultimate can recompile a shader any more. A leaked slot is benign by
+construction — it costs a glow, never a hitch.
+
+**Two bugs the new test caught on the first run**, both of which would have shipped:
+- `setBudget()` read `budget.enemy` while `balance.js` stores `lightsEnemy`, so the pool built **zero**
+  lights. The game still ran — just completely unlit.
+- Four ability code paths wrote `light.intensity` without checking for `null`. `acquire()` returns null
+  when the effect pool is exhausted (four ultimates at once), so the first Trinity chain would have thrown.
+
+**Verification, and its limit.** `tools/lighttest.mjs` runs 35 assertions against the real `Enemy` and
+`Pickup` constructors — light count invariant across 40 rounds of spawn/kill churn, nearest-wins ordering,
+boss and Core priority, pool exhaustion, double-release, `clear()` on run reset, and budget resizing.
+`tools/geocheck.mjs` reports per-type draw calls, vertices, bbox, materials and textures; enemy lights are
+now zero at every population. **The six puppeteer suites were not run** — the sandbox had no browser and
+blocked every Chrome download host. The lighting *look* is therefore unverified: the far-field red wash
+from dozens of overlapping 5 m lights is gone by design, and the 8 nearest enemies still light the floor
+around the player.
+
 ---
+
+### Character hard-surface pass (v1.9)
+
+Every hero was built from smooth primitives — `BoxGeometry` torsos, `CapsuleGeometry` limbs,
+`SphereGeometry` shoulder pads — which is exactly why they read as "square and round" next to the
+`concept/*.jpg` sheets, which are all **chamfered, faceted plate armour**.
+
+**Two ingredients produce the hard-surface read, both procedural (still zero asset files):**
+
+1. **Chamfered plates.** A new `chamfer(w,h,d,mat)` builder makes a box whose outline is beveled by a
+   single angular bevel (`ExtrudeGeometry` with `bevelSegments:1`). Chest, collar, abs, pelvis, head,
+   pauldrons, fists and feet all became chamfered plates; limbs became tapered hexagonal segments
+   (`seg()`), shoulder pads faceted icosahedra, and the chest core a hex prism — matching the concept's
+   hex cores.
+2. **Flat shading.** `flatShading: true` on the two metal materials, so each facet catches the key light
+   as a distinct plane. This alone is the difference between "armour" and "smooth plastic".
+
+Per-hero silhouette beats were added: layered angled pauldrons for AEGIS, a hood + waist tabard for LYRA,
+a crest blade + tabard for NYX, hip tassets for all. The bone/joint names returned by `buildHumanoid` are
+unchanged, so `animateRig` and `heroes.js` work untouched. Rig triangles actually **dropped** (aegis
+3,760 → 1,180), so the pass is free on the triangle budget; heroes add ~a dozen draw calls each, which is
+a fixed cost (3 heroes) and the enemy-instancing work is what addresses the enemy side.
+
+**A headless art loop, because the sandbox has no WebGL:** `tools/charpreview.mjs` runs the real
+`buildHumanoid` + `animateRig` + weapon builders in Node and dumps world-space triangles to JSON;
+`tools/render.py` rasterises that JSON to a PNG (painter's algorithm + flat lambert + emissive) that a
+person can actually look at. Before/after captures are in `screenshots/rig-before-*.png` and
+`rig-after-*.png`. This loop is now the sanctioned way to iterate on character art without a browser —
+image diffs of the live game remain meaningless, but a controlled posed dump is not.
+
+### Hero Studio: skins, skill effects and a cast bench (v1.9.1 → v1.11.3)
+
+The proposal's long-run plan says the asset pipeline is where this goes next: concept sheet → image-to-3D →
+GLB. That only works if someone can *fit* the result into the game without rebuilding it, so the art tools got
+a unified asset surface: `hero-studio.html` feeds the live `character-bay.html` library alongside the playable build.
+
+**What it edits** (all of it written to `models/uploads/hero_tuning.json`, read once by `startGame()`):
+
+1. **Size and placement** — `scale`, `pos{x,y,z}`, `yawDeg`. This is what fixes the AI-rebuild artefact of a
+   body sunk to the floor or facing backwards; previously it needed a code change and a rebuild. In v1.10.1 it
+   became trustworthy: the three uploaded hero GLBs were exporting with their pivot at the body centre, the
+   loader compensated (centring + a 1.199 m lift written into `root.position`), and the hero animation loop —
+   which owns that position every frame — overwrote the compensation. The lower half of every hero sat under
+   the deck plate. `pos` is now documented and implemented as an **adjustment on top of the loader's fit**
+   (0/0/0 is correct), the lift survives a clone via `userData.stage`, the size multiplier is carried by the
+   same base so a 1.35× hero still stands on the floor, and the studio panel gained type-in boxes next to the
+   sliders, a feet/head readout that flags clipping, `auto-lift` and `reset`.
+2. **Action motion** — the nine `DEFAULT_MOTION` coefficients that give an unrigged statue its walk bob,
+   lunge, hip twist, cast lean, hurt recoil, idle sway and topple.
+3. **Skill effects, per skill** — v1.9 had exactly one effect slot per hero, so SEISMIC SLAM, BASTION FIELD
+   and MAGNETRON all fired the same burst. v1.10 gives every hero a slot per skill (Q / E / R) plus a shared
+   slot that keeps a v1 file working unchanged, and each slot carries its own **look**: `scale y dur grow
+   spin rise fade opacity light tint blend` for a `.glb` prop, plus `rate vblend face loop` for a video
+   billboard (`.mp4` / `.webm` / `.ogv`).
+
+**How the effect reaches the frame.** `useSkill(i)` calls `Hero.playFX(G, i)` → `fxpack.fxFor()` resolves
+that slot (per-skill, else shared, else nothing) → `fxpack.spawnFX()` builds it. The studio previews through
+the same `spawnFX`, so a tuned effect that looks right in the editor is the same object the match draws —
+there is no second preview path to drift.
+
+**Cost discipline, because uploaded content is the one thing the render budget cannot see.** `spawnFX`
+allocates nothing per cast in the common case: GLB subtrees come from a per-file free list, tinted /
+re-blended material sets are cached per look signature and shared by concurrent casts (a fade or a
+translucent look is the only case that needs its own material set, and even those are recycled rather than
+disposed, so no cast ever drops a shader program), one
+`<video>` + `VideoTexture` is refcounted per clip file instead of a decoder per cast, and the glow light is
+borrowed from the fixed pool in `lights.js` so the scene's light count still never moves. `kill()` — not
+`disposeObj()` — releases the effect, and every FX coroutine carries a `dispose()` hook so the run reset that
+truncates `G.effects` cannot strand one. The studio also prints the tri/mesh cost of whatever you drop and
+warns above 24 meshes, because that is draw calls **per cast**.
+
+**A bench inside the editor (v1.11).** An effect is only 90% of the picture: what it *reads* against is the
+cast — the leap, the impact frame, the ability's own rings and shake, bodies flying. `src/sim.js` gives the
+studio a stand-in arena (0/3/6 targets with only the fields the abilities read) and runs the **real**
+`Hero.useSkill(i, G)` in it, with `½×`/`¼×` slow motion applied once to `dt` so the whole page slows together.
+`tools/simtest.mjs` (41 assertions) drives all nine abilities plus the basic attacks through it headlessly and
+checks the things nobody could check without a browser: that every cast expires, that the scene is left
+*identical* (same visible set, same total children — a planted per-cast leak turns it red), that the light pool
+balances, that no non-finite transform reaches the frame, and that the bench never double-ticks the page's own
+effect list. The studio also gained an in-panel **HOW FX WORK IN THIS BUILD** explainer, because the six-step chain
+(`useSkill → playFX → fxFor → spawnFX → coroutine → kill`) is exactly the thing people get lost on.
+
+Reviewing the same question one layer down produced **`MOTION-AUDIT.md`**: heroes have no animation clips at
+all — a frame is one positional write plus four decaying envelopes (`attackAnim`, `castAnim`, `hurtAnim`,
+`downed`), and an uploaded GLB skin is a rigid statue that those envelopes rock and bob. It measures two
+shipping bugs (`seismicSlam` restores the hips to a hardcoded `0.95`, so a GLB-skinned AEGIS floats 0.95 m
+above the deck for the rest of the run after one Q; `animateRig` writes a flat `0.95` where `buildHumanoid`
+built `0.95 * scale`, so every procedural hero stands ~15 cm inside the deck) and states why
+`template.clone(true)` must become `SkeletonUtils.clone` *before* anyone wires a mixer: today the four heroes
+share one skeleton because nothing writes a bone. `tools/animcheck.mjs` re-measures all of it and stays green
+until something new breaks — the report came first, the fixes followed it.
+
+**v1.11.3** landed phase A's skeleton-isolated clones (`cloneRig`, so a hero body and a pooled FX prop never deform from the
+same bones). The pass after it gave the bench a body: `CAST SIM` now runs the game's own order — `Hero.move` then
+`Hero.update` — behind a **MOVE** row and a `dash` button, so walk, drift, dash, the 1.1 s combo clock and every
+envelope decay are previewable at all, and the studio stops hand-decaying the envelopes while the bench owns them.
+Three consequences worth stating: the panel can no longer *lie* about a timing (it is ticking the same state
+machine), the per-frame paths were stripped down to zero allocations and are now gated statically so they stay
+that way, and — the reason the change was worth making — the first cast through the new loop failed the "no leak"
+assertion and exposed a shipping bug nothing had ever been able to see: `railshot` wrote its charge ramp every
+frame and cleared it in the fire branch, so its own coroutine wrote `1` back over the clear and NYX kept the
+overcharge aura, a maxed coil and a particle per frame **for the rest of the run**. One gate fixed it (F8).
+`FX LOOK` also gained an `anchor` row — *cast point* (unchanged default) or *follow hero* — because the slam turns
+out to move the caster 1.18 m past where its uploaded effect was planted (F3), and that is a choice for the person
+making the effect, not one a bug fix should make for them.
+
+**v1.11.4 — the clips, now that the body is honest.** Every hero frame is four decaying envelopes, and until this
+point an uploaded skin had nothing to plug them into: the loader had `gltf.animations` in hand and dropped it. Now
+`glbskin` keeps the clips, `clipFor()` resolves a slot by exact name, substring or alias list, and
+`Hero.poseClips()` blends five weighted layers — idle, walk, attack, hurt, death — with `walk` from the hero's
+measured velocity, `attack` from `attackAnim`, `hurt` from `hurtAnim` and `death` from `downed`, all cross-faded by
+one `anim.fade` number. It is a *layer*, not a mode: `animateGLB` still owns the root, so bob/lean/lunge keep
+working on top of a clip, a file with half its states rigged plays the half it has, and a file with no clips (all
+seven files in `models/uploads/`, still) behaves exactly as it did — plus `anim.on: 0` to opt out per hero. The
+studio got the two rows that make this reachable without a code change: pick which `.glb` a hero wears, and name
+the clip for each state — the field echoes back what it resolved to, so `not in file` is visible instead of being
+inferred from a hero that stands still. `hero_tuning.json` is v3; v1 and v2 files load untouched.
+
+Eleven new measurements in `animcheck` are the proof, run against a rigged 3-bone fixture the repo generates in
+memory (`tools/lib/rigged.mjs`) because nothing in `models/uploads/` has a skeleton: an idle clip lifts hips no
+transform layer can reach; the walk clip rocks an axis the idle clip never touches; `attackAnim` takes the spine;
+`downed` puts the hips on the floor and standing back up hands the weight over *through the fade*; one
+`poseClips` call is exactly one frame of `mixer.time`; two heroes playing the *same* clip animate independently
+(that is phase A earning its keep); and a poisoned `speed` or NaN `spd` cannot put a NaN in a bone. Two bugs fell
+out of writing it: `anim.on: 0` did not switch anything off (the merge happened after the test), and a deliberate
+`off` in a name field was reported as a typo — the second is why `clipOff()` exists as its own function.
+
+**Judging a file before you spend a slot.** The LIBRARY list got its own preview: every row ends in `▶`,
+which fires that file at the hero through the same `spawnFX` a real cast uses, with the params the file would
+actually cast with (edited slot → shared → this hero's other slot → kind defaults, via `fxpack.fxPreviewFor`).
+Because a preview must not become an edit, `fxPreviewFor` hands back a clamped **copy** — `skintest` asserts
+that the tuning object is byte-identical before and after a preview, and that an entry no slot references
+still spawns, pools and dies cleanly. `⟳ loop` re-fires on a 0.22 s beat, because a 0.65 s shockwave is not
+judgable from one play.
+
+**Testing without a browser.** `tools/skintest.mjs` grew from 39 to 138 assertions, plus a new
+`tools/herofit.mjs` (18) that walks the real committed GLBs through parse → normalise → `Hero.build` →
+`animateGLB` and asserts the feet land on y = 0 at default tuning, at 1.35× size and 90 frames into a walk —
+the cheapest possible guard against a "looks fine in the viewer, buried in the game" class of bug. The suite now covers the whole
+pipeline headlessly: v1 → v2 config migration, slot resolution and fallback, `clampFX` against NaN /
+out-of-range / hand-edited JSON, URL-keyed bank de-duplication, free-list reuse, shared-material mutation
+(proved by hooking `Material.prototype.dispose`), light acquire/release balance, video refcounting, and that a
+run-reset `dispose()` leaves the scene clean.
+
+**An onboarding path for the art side.** Because the whole loop is file-based, the repo ships four sample AEGIS
+skill effects and the guide that walks a non-programmer through them (`FX-AEGIS.md`, generated and validated by
+`node tools/fxsample.mjs`). Each sample is 3–11 meshes / 184–568 tris and the generator spawns every one
+through the real `fxpack` path before calling it good — so the examples double as a regression fixture for the
+effect layer, and the "too heavy to be a per-cast prop" guard has something to be measured against.
+
+**Not done, on purpose.** `hero_tuning.json` is a sandbox-only artefact (the dropbox server writes it, and the
+game re-reads it on each restart), so deployment needs a checked-in copy or a real backend; `nyx.glb` is still a byte-identical copy of
+`aegis.glb`; and the studio cannot retarget an *animated* GLB (no skinning/clip support yet — see the
+backlog in `HANDOFF.md` §8).
 
 ### Recommendation
 
 **Proceed on three.js.** Approve Phase 1 (vertical slice, 3–4 weeks) with a hard gate:
 *audio + hit-stop + upgrade draft + tuning overlay*, then re-evaluate against the four open questions above.
 If the answer to Q2 is "co-op is the product", insert a 1-week netcode-seam spike **before** Phase 1 content work.
+
+---
+
+## Long-run deployment & content pipeline
+
+**Verdict.** The single-file, zero-asset build is the right *vertical slice* — instant load, no pipeline,
+nothing to break — but the wrong *product* packaging. For real deployment, split the engine from its
+content, move characters/props to an authored asset pipeline, and keep procedural generation only where it
+earns its keep (FX, particles, arena dressing, the music). AI image-to-3D is a **content-acceleration
+stage**, not a runtime dependency.
+
+**Staged plan.**
+
+1. **Ship the slice and playtest it.** Four strangers, fifteen minutes each. The dominant risk for a real
+   product is the fun loop, not the tech — every item below is secondary to that signal (see §9 of the
+   original proposal).
+2. **Packaging: bundler + CDN, not one HTML file.** Move to a Vite/esbuild build that emits hashed JS/CSS
+   and content files served from a CDN with cache headers. A single 717 KB file defeats HTTP caching: every
+   update forces a full re-download. Keep the single-file build as a demo artifact.
+3. **Content pipeline on glTF.** Standardise on GLB + one shared humanoid skeleton. Flow: concept sheet →
+   image-to-3D (Tripo / TRELLIS) for the base mesh → retopo + bake to budget + LODs in Blender → export GLB
+   → `GLTFLoader`. Keep the procedural rig as the in-engine fallback and for FX, and reuse its animator
+   targets where possible.
+4. **Runtime perf for real (including low-end) devices:** enemy `InstancedMesh` (already backlog #1),
+   texture atlases, LODs, and the fixed light pool from v1.8. These are what let the enemy cap grow.
+5. **Decide platform + co-op before heavy content investment.** Web keeps lean budgets; native (Electron /
+   Steam) or mobile changes asset budgets and packaging. If co-op is the product, insert the netcode seam
+   *now* — it is the one open question that reshapes the architecture rather than the content.
+
+**Licensing note for shipped assets.** Free tiers don't cover shipping: Tripo's free plan is
+non-commercial and Meshy's free outputs are public CC BY 4.0. For a real game, budget ~$20/mo on a hosted
+tool or self-host an MIT-licensed model (TRELLIS.2).

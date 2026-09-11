@@ -260,6 +260,28 @@
   #audiobtn.off{color:#ff7a95;border-color:rgba(255,90,120,.4);box-shadow:none}
   #hint{position:absolute;left:50%;transform:translateX(-50%);bottom:104px;font-size:10px;opacity:.45;letter-spacing:.2em;animation:hintfade 1s 16s forwards}
   @keyframes hintfade{to{opacity:0}}
+
+  /* ---------- touch controls ---------- */
+  #touchControls{display:none;position:absolute;inset:0;pointer-events:none;touch-action:none}
+  body.touch #touchControls{display:block}
+  body.touch #hint{display:none}
+  .touchStick{position:absolute;width:116px;height:116px;border:1px solid rgba(24,224,255,.38);border-radius:50%;
+    background:radial-gradient(circle,rgba(24,224,255,.13),rgba(8,14,28,.3) 62%,transparent 64%);
+    box-shadow:inset 0 0 22px rgba(24,224,255,.12),0 0 18px rgba(0,180,255,.12);pointer-events:auto}
+  .touchStick i{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px;border-radius:50%;
+    background:rgba(24,224,255,.34);border:1px solid rgba(124,249,255,.8);box-shadow:0 0 16px rgba(24,224,255,.5);pointer-events:none}
+  #touchMove{left:24px;bottom:28px}
+  #touchAim{right:24px;bottom:28px}
+  #touchActions{position:absolute;right:34px;bottom:158px;display:flex;gap:6px;pointer-events:auto;align-items:end}
+  #touchActions .tbtn{min-width:42px;height:36px}
+  #touchFire{position:absolute;right:151px;bottom:158px;width:66px;height:44px}
+  #touchSwap{position:absolute;left:154px;bottom:158px;width:58px;height:34px}
+  #touchPause{position:absolute;right:24px;top:70px;width:42px;height:30px}
+  .tbtn{font-family:var(--font);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#bff;
+    background:rgba(8,14,28,.78);border:1px solid rgba(24,224,255,.42);border-radius:7px;pointer-events:auto;
+    touch-action:none;user-select:none;-webkit-user-select:none}
+  .tbtn:active,.tbtn.down{color:#04101a;background:var(--cy);border-color:#fff}
+  @media (min-width:701px) and (pointer:fine){body.touch #touchControls{display:none}}
 </style>
 </head>
 <body>
@@ -297,6 +319,19 @@
   <div id="dmgv"></div>
   <div id="ultflash"></div>
   <div id="hint">Tab / 1 2 3 — switch operative · Q E R — abilities · Space — dash · M — mute</div>
+  <div id="touchControls" aria-label="Touch controls">
+    <div id="touchMove" class="touchStick" aria-label="Move"><i></i></div>
+    <div id="touchAim" class="touchStick" aria-label="Aim"><i></i></div>
+    <button id="touchFire" class="tbtn" data-touch-button="fire">fire</button>
+    <div id="touchActions">
+      <button class="tbtn" data-touch-button="q">Q</button>
+      <button class="tbtn" data-touch-button="e">E</button>
+      <button class="tbtn" data-touch-button="r">R</button>
+      <button class="tbtn" data-touch-button="dash">dash</button>
+    </div>
+    <button id="touchSwap" class="tbtn" data-touch-button="swap">swap</button>
+    <button id="touchPause" class="tbtn" data-touch-button="pause">Ⅱ</button>
+  </div>
 </div>
 
 <div class="overlay" id="menu">

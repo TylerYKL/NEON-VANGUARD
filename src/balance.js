@@ -67,10 +67,21 @@ export const BALANCE = {
     lyra: { hp: 220, speed: 8.3, armor: 0.05 },
     nyx: { hp: 195, speed: 8.7, armor: 0 },
   },
+  // Point-light pool sizes. These are the HARD CAP on simultaneous point
+  // lights of each kind — see src/lights.js. The count must stay constant
+  // during play: three.js keys its shader programs on the light count, so
+  // raising or lowering this at runtime recompiles every material once.
+  perf: {
+    lightsEnemy: 8,
+    lightsPickup: 4,
+    lightsEffect: 4,
+  },
   enemies: {
     skitter: { hp: 55, speed: 10.5, dmg: 9, cd: 1.9, tell: 0.38 },
     brute: { hp: 210, speed: 6.2, dmg: 22, cd: 1.5, tell: 0.5 },
+    charger: { hp: 150, speed: 10.8, dmg: 28, cd: 2.2, tell: 0.62 },
     sentinel: { hp: 130, speed: 3.4, dmg: 15, cd: 2.6, tell: 0.55 },
+    warden: { hp: 185, speed: 2.6, dmg: 24, cd: 3.4, tell: 0.75 },
     juggernaut: { hp: 2600, speed: 4.6, dmg: 38, cd: 2.0, tell: 0.85 },
   },
 };
@@ -96,6 +107,7 @@ export const RANGES = {
   iframe: [0, 1, 0.02], cooldown: [0.2, 6, 0.1], duration: [0.05, 1, 0.01], dodgeEnergy: [0, 40, 1],
   hp: [10, 4000, 5], speed: [0.5, 20, 0.1], armor: [0, 0.9, 0.01],
   dmg: [1, 200, 1], cd: [0.2, 8, 0.1], tell: [0, 3, 0.05],
+  lightsEnemy: [0, 45, 1], lightsPickup: [0, 24, 1], lightsEffect: [0, 12, 1],
 };
 
 const DEFAULTS = JSON.parse(JSON.stringify(BALANCE));

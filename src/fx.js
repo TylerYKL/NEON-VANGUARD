@@ -17,13 +17,76 @@ export class FX {
     this.shakeDecay = 6;
     this.flash = 0;
     this.flashColor = new THREE.Color(0xffffff);
-    this.pMul = 1;       // particle budget multiplier (FX Intensity setting)
+    this.pMul = 1;       // particle quality multiplier (FX Intensity setting)
     this.shakeMul = 1;   // screen-shake multiplier (accessibility setting)
+    this.particleBudget = MAX_P;
+    this.ringBudget = 40;
+    this.beamBudget = 24;
+    this.sparkBudget = 400;
+    this.dropped = { particles: 0, rings: 0, beams: 0, sparks: 0 };
+    this.quality = 1;
     this._initParticles();
     this._initRings();
     this._initBeams();
     this._initSparks();
     this._initTells();
+  }
+
+  /** Apply the player's FX quality profile without changing the fixed GPU buffers.
+      Low keeps the readable silhouettes, Normal is the authored mix, and Cinematic
+      permits the full burst counts. The governor may temporarily call this with a
+      lower value, but it never allocates a second particle system. */
+  setQuality(level) {
+    const q = clamp(Number(level), 0.35, 1.6);
+    this.quality = q;
+    this.pMul = q;
+    const detail = q <= 1 ? 0.55 + (q - 0.5) * 0.9 : 1;
+    this.particleBudget = Math.round(MAX_P * clamp(detail, 0.35, 1));
+    this.ringBudget = Math.max(12, Math.round(40 * clamp(0.65 + q * 0.35, 0.65, 1)));
+    this.beamBudget = Math.max(8, Math.round(24 * clamp(0.65 + q * 0.35, 0.65, 1)));
+    this.sparkBudget = Math.max(80, Math.round(400 * clamp(0.55 + q * 0.45, 0.55, 1)));
+    // A live setting change must be a hard cap immediately, not only on the
+    // next admission. Retire the oldest pooled visuals first so Low remains
+    // predictable even when switched during a large hit burst.
+    if (this.alive > this.particleBudget) {
+      let excess = this.alive - this.particleBudget;
+      for (let i = 0; i < MAX_P && excess > 0; i++) {
+        if (this.life[i] > 0) {
+          this.life[i] = 0;
+          this.pAlpha[i] = 0;
+          this.alive--;
+          excess--;
+        }
+      }
+    }
+    if (this.rings && this.rings.length > this.ringBudget) {
+      while (this.rings.length > this.ringBudget) {
+        const r = this.rings.shift();
+        r.m.visible = false;
+        this.ringPool.push(r.m);
+      }
+    }
+    if (this.beams && this.beams.length > this.beamBudget) {
+      while (this.beams.length > this.beamBudget) {
+        const b = this.beams.shift();
+        b.m.visible = false;
+        this.beamPool.push(b.m);
+      }
+    }
+    if (this.sparks && this.sparks.length > this.sparkBudget) {
+      this.sparks.splice(0, this.sparks.length - this.sparkBudget);
+    }
+  }
+
+  budgetStats() {
+    return {
+      quality: this.quality,
+      particles: this.alive + '/' + this.particleBudget,
+      rings: this.rings.length + '/' + this.ringBudget,
+      beams: this.beams.length + '/' + this.beamBudget,
+      sparks: this.sparks.length + '/' + this.sparkBudget,
+      dropped: { ...this.dropped },
+    };
   }
 
   /* ---------------- particles ---------------- */
@@ -82,8 +145,14 @@ export class FX {
   }
 
   spawn(o) {
+    if (this.alive >= this.particleBudget) {
+      this.dropped.particles++;
+      return -1;
+    }
     const i = this.head;
     this.head = (this.head + 1) % MAX_P;
+    if (this.life[i] > 0) this.alive = Math.max(0, this.alive - 1);
+    this.alive++;
     const i3 = i * 3;
     this.pPos[i3] = o.x; this.pPos[i3 + 1] = o.y; this.pPos[i3 + 2] = o.z;
     this.vel[i3] = o.vx; this.vel[i3 + 1] = o.vy; this.vel[i3 + 2] = o.vz;
@@ -137,6 +206,7 @@ export class FX {
 
   /** motes that fly toward a point (heal / singularity intake) */
   attract(from, to, color, count, opts = {}) {
+    count = Math.max(1, Math.round(count * this.pMul));
     for (let k = 0; k < count; k++) {
       const a = Math.random() * TAU, r = opts.r ?? 2;
       this.spawn({
@@ -151,9 +221,16 @@ export class FX {
   updateParticles(dt) {
     const P = this.pPos, V = this.vel, L = this.life, A = this.pAlpha, S = this.pSize;
     for (let i = 0; i < MAX_P; i++) {
-      if (L[i] <= 0) { if (A[i] !== 0) A[i] = 0; continue; }
+      if (L[i] <= 0) {
+        if (A[i] !== 0) { A[i] = 0; this.alive = Math.max(0, this.alive - 1); }
+        continue;
+      }
       L[i] -= dt;
-      if (L[i] <= 0) { A[i] = 0; continue; }
+      if (L[i] <= 0) {
+        A[i] = 0;
+        this.alive = Math.max(0, this.alive - 1);
+        continue;
+      }
       const i3 = i * 3;
       if (this.mode[i] === 1) {
         const dx = this.tx[i3] - P[i3], dy = this.tx[i3 + 1] - P[i3 + 1], dz = this.tx[i3 + 2] - P[i3 + 2];
@@ -197,8 +274,12 @@ export class FX {
   }
 
   ring(pos, color, opts = {}) {
+    if (this.rings.length >= this.ringBudget) {
+      this.dropped.rings++;
+      return null;
+    }
     const m = this.ringPool.pop();
-    if (!m) return null;
+    if (!m) { this.dropped.rings++; return null; }
     m.visible = true;
     m.position.set(pos.x, pos.y + (opts.y ?? 0.12), pos.z);
     m.material.color.set(color);
@@ -245,8 +326,12 @@ export class FX {
   }
 
   beam(from, to, color, opts = {}) {
+    if (this.beams.length >= this.beamBudget) {
+      this.dropped.beams++;
+      return;
+    }
     const m = this.beamPool.pop();
-    if (!m) return;
+    if (!m) { this.dropped.beams++; return; }
     m.visible = true;
     m.material.color.set(color);
     m.material.opacity = 1;
@@ -290,7 +375,10 @@ export class FX {
   }
 
   spark(pos, dir, color, opts = {}) {
-    if (this.sparks.length >= this.MAXS) this.sparks.shift();
+    if (this.sparks.length >= this.sparkBudget) {
+      this.dropped.sparks++;
+      return;
+    }
     this.sparks.push({
       x: pos.x, y: pos.y, z: pos.z,
       vx: dir.x, vy: dir.y, vz: dir.z,
