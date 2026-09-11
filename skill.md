@@ -27,7 +27,7 @@ A skill manifest is loaded into:
 Hero Studio (Beta) → Imported skill manifest
 ```
 
-After a skill is registered, the manifest can be applied with the explicit **Apply manifest to VFX editor** action. That updates the registered VFX profile and in-memory hero assignments; use **Save routing to game** to persist routing. An unregistered manifest remains a review-only card and cannot cast.
+After a skill is registered, the manifest can be applied with the explicit **Apply manifest to VFX editor** action. That updates the registered VFX profile and in-memory hero assignments; use **Save routing to game** to persist both the routing and the applied manifest profile for the next game boot. An unregistered manifest remains a review-only card and cannot cast.
 
 Unknown settings are ignored by the VFX settings merger until the matching ability is registered in code.
 

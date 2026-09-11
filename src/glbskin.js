@@ -268,6 +268,9 @@ export function normalizeTuning(raw) {
     };
   }
   out.referenceSkills = normalizeReferenceSkills(raw && raw.referenceSkills);
+  out.skillManifests = raw && raw.skillManifests && typeof raw.skillManifests === 'object'
+    ? raw.skillManifests
+    : {};
   return out;
 }
 

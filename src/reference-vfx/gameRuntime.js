@@ -11,6 +11,7 @@ import { frame } from './core/FrameUniforms.js';
 import { patchOnBeforeCompile } from './utils/shaderPatch.js';
 import { normalizeReferenceSkills } from './heroSkills.js';
 import { settings } from './config/settings.js';
+import { applySkillManifestSettings } from './skillManifest.js';
 
 /**
  * Runs the reference ability pool inside the real arena renderer.
@@ -65,6 +66,7 @@ export class GameReferenceVFX {
 
   setTuning(tuning) {
     this.mapping = normalizeReferenceSkills(tuning?.referenceSkills);
+    applySkillManifestSettings(tuning?.skillManifests?.solar || tuning?.skillManifests?.['solar-flare']);
   }
 
   /**

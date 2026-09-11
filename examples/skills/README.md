@@ -24,7 +24,7 @@ When `solar-flare.skill.json` is imported through the right-side VFX Editor:
 1. It is displayed in **Hero Studio (Beta) → Imported skill manifest**.
 2. Solar Flare appears in the bottom skill bar as a registered `X` ability.
 3. Choose **Apply manifest to VFX editor** to apply the validated VFX profile and in-memory Aegis Q / Nyx E assignments.
-4. Choose **Save routing to game** to persist the routing through the config API.
-5. Press `X` in the VFX Lab to test the reference ability, or save routing and restart `neon-vanguard.html` to test the assigned Aegis/Nyx gameplay path. The headless CAST SIM test also covers the Solar Flare impact and burn path.
+4. Choose **Save routing to game** to persist the routing and applied Solar profile through the config API.
+5. Press `X` in the VFX Lab to test the reference ability, or save routing and restart `neon-vanguard.html` to test the assigned Aegis/Nyx gameplay path with the saved manifest tuning. The headless CAST SIM test also covers the Solar Flare impact and burn path.
 
 The importer validates the manifest and never executes its `implementation` section. The compatibility panel reports what remains legacy-only.

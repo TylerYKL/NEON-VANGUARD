@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { normalizeTuning } from '../src/glbskin.js';
 import { GameReferenceVFX } from '../src/reference-vfx/gameRuntime.js';
 import { REFERENCE_CASTS } from '../src/reference-vfx/heroSkills.js';
+import { settings } from '../src/reference-vfx/config/settings.js';
 
 let pass = 0;
 let fail = 0;
@@ -54,6 +55,14 @@ runtime.clear();
 check('game bridge clears active pooled casts', runtime.abilities.active.length === 0);
 
 runtime.setTuning(solarNormalized);
+const persistedSolar = normalizeTuning({
+  referenceSkills: { map: { aegis: ['solar', 'thunder', 'meteor'] } },
+  skillManifests: {
+    'solar-flare': { id: 'solar-flare', input: { range: 9.25 } },
+  },
+});
+runtime.setTuning(persistedSolar);
+check('saved solar manifest reapplies its profile on game boot', Math.abs(settings.solar.range - 9.25) < 1e-9);
 let solarImpacts = 0;
 const solarCast = runtime.cast(hero, 0, { onImpact: () => solarImpacts++ });
 check('solar ability class is pooled by the game bridge', solarCast?.element === 'solar', solarCast?.element);

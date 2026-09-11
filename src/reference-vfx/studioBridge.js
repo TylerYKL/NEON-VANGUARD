@@ -1,6 +1,6 @@
 import { AnimationMixer, Box3, LoopRepeat, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { settings } from './config/settings.js';
+import { applySkillManifestSettings } from './skillManifest.js';
 import {
   HERO_IDS,
   REFERENCE_CASTS,
@@ -240,31 +240,7 @@ export function installStudioBridge(app) {
       return;
     }
     const manifest = lastManifest;
-    const c = settings.solar;
-    const input = manifest.input || {};
-    const timing = manifest.timing || {};
-    const gameplay = manifest.gameplay || {};
-    const status = gameplay.status || {};
-    const profile = manifest.vfxProfile || {};
-    const finite = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
-    c.range = Math.max(1, Math.min(20, finite(input.range, c.range)));
-    c.minRange = Math.max(0, Math.min(c.range, finite(input.minRange, c.minRange)));
-    const travelSpeed = finite(timing.travelSpeed,
-      finite(timing.travelTime, 0) > 0 ? c.range / finite(timing.travelTime, 1) : c.speed);
-    c.speed = Math.max(1, Math.min(30, travelSpeed));
-    c.cooldown = Math.max(0.1, Math.min(15, finite(timing.cooldown, c.cooldown)));
-    c.impactDuration = Math.max(0.1, Math.min(3, finite(timing.holdTime, c.impactDuration)));
-    c.fadeDuration = Math.max(0.1, Math.min(3, finite(timing.fadeTime, c.fadeDuration)));
-    c.impactRadius = Math.max(0.1, Math.min(5, finite(gameplay.impactRadius, c.impactRadius)));
-    c.damage = Math.max(0, Math.min(300, finite(gameplay.damage, c.damage)));
-    c.burnDuration = Math.max(0, Math.min(10, finite(status.duration, c.burnDuration)));
-    c.burnTick = Math.max(0.1, Math.min(5, finite(status.tickInterval, c.burnTick)));
-    c.burnDamage = Math.max(0, Math.min(100, finite(status.damagePerTick, c.burnDamage)));
-    c.sparkRate = Math.max(0, Math.min(240, finite(profile.rate, c.sparkRate)));
-    c.sparkLifetime = Math.max(0.1, Math.min(3, finite(profile.life, c.sparkLifetime)));
-    c.sparkSpeed = Math.max(0, Math.min(20, finite(profile.speed, c.sparkSpeed)));
-    if (/^#[0-9a-f]{6}$/i.test(profile.color0 || '')) c.colorCore = profile.color0;
-    if (/^#[0-9a-f]{6}$/i.test(profile.color1 || '')) c.colorEdge = profile.color1;
+    applySkillManifestSettings(manifest);
 
     let applied = 0;
     for (const [heroId, slotKey] of Object.entries(manifest.assignments || {})) {
@@ -276,6 +252,7 @@ export function installStudioBridge(app) {
     }
     route.on = true;
     lastManifest = manifest;
+    savedConfig.skillManifests = { ...(savedConfig.skillManifests || {}), [manifest.id]: manifest };
     manifestState.status = `Applied in memory · ${applied} route(s) · save routing to persist`;
     manifestState.vfx = 'profile applied to solar settings';
     manifestStatus.updateDisplay();
@@ -290,7 +267,9 @@ export function installStudioBridge(app) {
     const assignments = Object.entries(manifest.assignments || {})
       .map(([hero, slot]) => `${hero}:${slot || '—'}`)
       .join(' · ') || 'none';
-    manifestState.status = 'Loaded for review · runtime registration required';
+    manifestState.status = manifest.id === 'solar-flare' || manifest.id === 'solar'
+      ? 'Loaded · registered Solar Flare · apply to test'
+      : 'Loaded for review · runtime registration required';
     manifestState.id = manifest.id || '—';
     manifestState.label = manifest.label || '—';
     manifestState.slot = manifest.input?.key || '—';
@@ -300,7 +279,9 @@ export function installStudioBridge(app) {
     for (const controller of [manifestStatus, manifestId, manifestLabel, manifestSlot, manifestPhases, manifestAssignments, manifestVFX]) {
       controller.updateDisplay();
     }
-    compatibilityNotes.skillImport = `Loaded ${manifest.label || manifest.id || 'skill'} · code registration still required`;
+    compatibilityNotes.skillImport = manifest.id === 'solar-flare' || manifest.id === 'solar'
+      ? 'Solar Flare registered · apply and save to use it'
+      : `Loaded ${manifest.label || manifest.id || 'skill'} · code registration still required`;
     skillImportNotice?.updateDisplay();
     manifestFolder.open();
     app.hud.addManifestSkill?.(manifest);
@@ -399,7 +380,11 @@ export function installStudioBridge(app) {
   }
 
   async function saveRouting() {
-    const payload = { ...savedConfig, referenceSkills: route };
+    const payload = {
+      ...savedConfig,
+      referenceSkills: route,
+      skillManifests: savedConfig.skillManifests || {},
+    };
     setStatus('Saving skill routing…');
     try {
       await saveConfig(payload, 'Routing saved · restart the match to apply');
