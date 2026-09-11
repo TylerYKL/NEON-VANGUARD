@@ -5,7 +5,8 @@
   "scripts": {
     "build": "node build.mjs",
     "validate:skills": "node tools/skilltest.mjs",
-    "test": "npm run validate:skills && node tools/reftest.mjs && node tools/simtest.mjs && node tools/vfxtest.mjs && node tools/skintest.mjs"
+    "test": "npm run validate:skills && node tools/reftest.mjs && node tools/simtest.mjs && node tools/vfxtest.mjs && node tools/skintest.mjs",
+    "verify": "npm test && npm run build"
   },
   "keywords": [],
   "author": "",
