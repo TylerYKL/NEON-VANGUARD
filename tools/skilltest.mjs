@@ -34,6 +34,11 @@ check('ability manifests use the same validated contract', abilityReport.valid);
 check('valid unregistered abilities remain review-only', abilityReport.valid && !abilityReport.registered);
 check('unregistered ability explains registration requirement', abilityReport.warnings.some((item) => /registration.*required/.test(item.message)));
 
+const prism = JSON.parse(fs.readFileSync(new URL('../examples/skills/prism-burst.ability.json', import.meta.url), 'utf8'));
+const prismReport = validateSkillManifest(prism);
+check('Prism Burst sample passes upload validation', prismReport.valid, JSON.stringify(prismReport.errors));
+check('Prism Burst sample remains review-only until registered', !prismReport.registered);
+
 const invalid = structuredClone(solar);
 invalid.id = 'Bad ID';
 invalid.input.key = 'G';

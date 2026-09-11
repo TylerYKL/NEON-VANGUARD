@@ -2,6 +2,8 @@
 
 `solar-flare.skill.json` is the design and implementation manifest for the registered Solar Flare test ability. It documents the input shape, timing phases, gameplay payload, VFX profile, audio cue, hero assignments, and the code registration points used by the runtime.
 
+`prism-burst.ability.json` is a second sample for the upload validator. It is structurally valid and includes VFX/gameplay metadata, but it is intentionally unregistered so the upload result should be **VALID · REVIEW-ONLY** and the Apply action should remain disabled.
+
 ## Import and apply behavior
 
 This sample is now a registered Solar Flare test ability. It still uses an explicit two-stage import/apply flow so uploading JSON cannot silently modify gameplay.

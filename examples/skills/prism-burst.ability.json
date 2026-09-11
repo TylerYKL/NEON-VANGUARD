@@ -1,0 +1,99 @@
+{
+  "$schema": "neon-vanguard-ability-v1",
+  "kind": "neon-vanguard-ability",
+  "version": 1,
+  "id": "prism-burst",
+  "label": "Prism Burst",
+  "description": "A focused spectrum bolt that fractures into a short-lived radial burst on impact.",
+  "input": {
+    "key": "F",
+    "targeting": "line",
+    "range": 11.5,
+    "minRange": 1.5
+  },
+  "timing": {
+    "cooldown": 3.5,
+    "castTime": 0.16,
+    "travelTime": 0.46,
+    "impactTime": 0.46,
+    "holdTime": 0.18,
+    "fadeTime": 0.42
+  },
+  "gameplay": {
+    "damage": 42,
+    "impactRadius": 1.6,
+    "knockback": 0.8,
+    "status": {
+      "type": "expose",
+      "duration": 1.5,
+      "tickInterval": 0.5,
+      "damagePerTick": 0
+    }
+  },
+  "phases": [
+    {
+      "id": "charge",
+      "duration": 0.16,
+      "telegraph": "line"
+    },
+    {
+      "id": "travel",
+      "duration": 0.46,
+      "effect": "prism-burst.projectile"
+    },
+    {
+      "id": "fracture",
+      "duration": 0.18,
+      "effect": "prism-burst.shards",
+      "gameplay": "apply-impact-and-expose"
+    },
+    {
+      "id": "fade",
+      "duration": 0.42,
+      "effect": "prism-burst.fade"
+    }
+  ],
+  "vfxProfile": {
+    "burst": 72,
+    "rate": 48,
+    "duration": 0.64,
+    "life": 0.72,
+    "speed": 8.5,
+    "spread": 0.7,
+    "accelY": -1.2,
+    "size0": 0.18,
+    "size1": 0.02,
+    "spin": 4.0,
+    "opacity0": 1.0,
+    "opacity1": 0,
+    "shape": 1,
+    "blend": 1,
+    "billboard": 1,
+    "easing": 2,
+    "follow": 0,
+    "color0": "#e9ffff",
+    "color1": "#9f6bff",
+    "audio": "models/uploads/prism-burst.ogg",
+    "audioVol": 0.65,
+    "audioRate": 1.05
+  },
+  "assignments": {
+    "aegis": "R",
+    "nyx": "Q",
+    "lyra": "E"
+  },
+  "implementation": {
+    "abilityClass": "not-registered",
+    "registry": "src/reference-vfx/heroSkills.js",
+    "editorProfile": "src/reference-vfx/config/settings.js"
+  },
+  "importStatus": {
+    "currentlySupported": false,
+    "reason": "Valid VFX and gameplay design contract; a runtime ability class and registry entry are still required before it can be applied or cast.",
+    "nextSteps": [
+      "Implement the pooled reference ability class.",
+      "Register prism-burst in the reference cast registry.",
+      "Add gameplay routing and a CAST SIM assertion before enabling it."
+    ]
+  }
+}
