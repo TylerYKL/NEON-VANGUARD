@@ -95,7 +95,7 @@
     "nextSteps": [
       "Upload optional solar-flare.ogg or GLB assets if the skill package uses them.",
       "Tune the registered Solar Flare profile in the VFX Editor.",
-      "Run CAST SIM and the reference/gameplay test suite before shipping changes."
+      "Press X in the VFX Lab, restart neon-vanguard.html after saving routing, and run the reference/gameplay test suite before shipping changes."
     ]
   }
 }
