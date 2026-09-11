@@ -27,6 +27,7 @@ animation, sound effect and music cue is generated at runtime.
 | `character-bay.html` | character turntable viewer — orbit, poses, weapon detail, ability preview, and live Hero Studio GLB library |
 | `hero-studio.html` | **Hero Studio (Beta)** — combined Linear VFX casts, Aegis/Nyx/Lyra Q/E/R routing, live lil-gui tuning, model assignment, skill assets/audio, GLB import, PNG references, and expandable legacy workflows |
 | `hero-studio-legacy.html` | Standalone legacy Hero Studio workflow — uploaded GLB/video/GPU VFX slots, CAST SIM, audio assignment, save/import, and settings |
+| `skill.md` | Ordered skill ability authoring guide — add, import, route, test, disable, and remove VFX/gameplay skills |
 | `concept/*.jpg` | rendered concept sheets (art-direction target for Phase 3) |
 | `models/ref/` | bind-pose sheets for the three heroes + **`RIG-SPEC.md`**, the contract a rigged `.glb` must satisfy to animate |
 
