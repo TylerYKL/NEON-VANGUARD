@@ -1,6 +1,6 @@
 import { AnimationMixer, Box3, LoopRepeat, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { applySkillManifestSettings } from './skillManifest.js';
+import { applySkillManifestSettings, isRegisteredSkillManifest } from './skillManifest.js';
 import {
   HERO_IDS,
   REFERENCE_CASTS,
@@ -203,6 +203,7 @@ export function installStudioBridge(app) {
   const manifestAssignments = manifestFolder.add(manifestState, 'assignments').name('assignments').disable();
   const manifestVFX = manifestFolder.add(manifestState, 'vfx').name('VFX profile').disable();
   const applyManifestButton = manifestFolder.add({ apply: () => applyImportedManifest() }, 'apply').name('Apply manifest to VFX editor');
+  applyManifestButton.disable();
   manifestFolder.close();
 
   const compatibility = studio.addFolder('Compatibility / not migrated');
@@ -240,6 +241,13 @@ export function installStudioBridge(app) {
       return;
     }
     const manifest = lastManifest;
+    if (!isRegisteredSkillManifest(manifest)) {
+      manifestState.status = 'Loaded for review · runtime registration required';
+      manifestVFX.updateDisplay();
+      manifestStatus.updateDisplay();
+      setStatus('Manifest is not registered · no gameplay changes applied', true);
+      return;
+    }
     applySkillManifestSettings(manifest);
 
     let applied = 0;
@@ -267,9 +275,12 @@ export function installStudioBridge(app) {
     const assignments = Object.entries(manifest.assignments || {})
       .map(([hero, slot]) => `${hero}:${slot || '—'}`)
       .join(' · ') || 'none';
-    manifestState.status = manifest.id === 'solar-flare' || manifest.id === 'solar'
+    const registered = isRegisteredSkillManifest(manifest);
+    manifestState.status = registered
       ? 'Loaded · registered Solar Flare · apply to test'
       : 'Loaded for review · runtime registration required';
+    if (registered) applyManifestButton.enable();
+    else applyManifestButton.disable();
     manifestState.id = manifest.id || '—';
     manifestState.label = manifest.label || '—';
     manifestState.slot = manifest.input?.key || '—';
@@ -279,7 +290,7 @@ export function installStudioBridge(app) {
     for (const controller of [manifestStatus, manifestId, manifestLabel, manifestSlot, manifestPhases, manifestAssignments, manifestVFX]) {
       controller.updateDisplay();
     }
-    compatibilityNotes.skillImport = manifest.id === 'solar-flare' || manifest.id === 'solar'
+    compatibilityNotes.skillImport = registered
       ? 'Solar Flare registered · apply and save to use it'
       : `Loaded ${manifest.label || manifest.id || 'skill'} · code registration still required`;
     skillImportNotice?.updateDisplay();

@@ -8,6 +8,7 @@ import { normalizeTuning } from '../src/glbskin.js';
 import { GameReferenceVFX } from '../src/reference-vfx/gameRuntime.js';
 import { REFERENCE_CASTS } from '../src/reference-vfx/heroSkills.js';
 import { settings } from '../src/reference-vfx/config/settings.js';
+import { isRegisteredSkillManifest } from '../src/reference-vfx/skillManifest.js';
 
 let pass = 0;
 let fail = 0;
@@ -37,6 +38,8 @@ const solarNormalized = normalizeTuning({
 });
 check('solar manifest ID is a registered reference cast',
   solarNormalized.referenceSkills.map.aegis[0] === 'solar');
+check('arbitrary manifest IDs remain unregistered',
+  !isRegisteredSkillManifest({ id: 'prototype-skill' }));
 
 const runtime = new GameReferenceVFX({
   scene: new THREE.Scene(),

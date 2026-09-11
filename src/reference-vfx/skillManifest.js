@@ -3,13 +3,17 @@ import { settings } from './config/settings.js';
 const finite = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 
+export const isRegisteredSkillManifest = (manifest) => Boolean(
+  manifest && ['solar', 'solar-flare'].includes(manifest.id),
+);
+
 /**
  * Apply the safe, serialisable portion of a registered skill manifest to the
  * live reference settings. This never imports or executes the manifest's
  * implementation field.
  */
 export function applySkillManifestSettings(manifest) {
-  if (!manifest || !['solar', 'solar-flare'].includes(manifest.id)) return false;
+  if (!isRegisteredSkillManifest(manifest)) return false;
   const c = settings.solar;
   const input = manifest.input || {};
   const timing = manifest.timing || {};
