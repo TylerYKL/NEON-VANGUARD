@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node build.mjs",
+    "validate:skills": "node tools/skilltest.mjs",
+    "test": "npm run validate:skills && node tools/reftest.mjs && node tools/simtest.mjs && node tools/vfxtest.mjs && node tools/skintest.mjs"
   },
   "keywords": [],
   "author": "",

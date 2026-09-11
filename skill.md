@@ -19,7 +19,7 @@ This accepts either:
 
 - A complete reference-VFX settings snapshot with `global` and registered ability blocks such as `ice`, `thunder`, `meteor`, `beam`, or `snare`.
 - A collection of named settings presets.
-- A `neon-vanguard-skill` manifest such as `examples/skills/solar-flare.skill.json`.
+- A `neon-vanguard-skill` or `neon-vanguard-ability` manifest such as `examples/skills/solar-flare.skill.json`.
 
 A skill manifest is loaded into:
 
@@ -28,6 +28,8 @@ Hero Studio (Beta) → Imported skill manifest
 ```
 
 After a skill is registered, the manifest can be applied with the explicit **Apply manifest to VFX editor** action. That updates the registered VFX profile and in-memory hero assignments; use **Save routing to game** to persist both the routing and the applied manifest profile for the next game boot. An unregistered manifest remains a review-only card and cannot cast.
+
+Use **Upload + validate skill…** in the VFX Editor to send a `.skill.json` or `.ability.json` manifest to the workspace API. Validation runs in the browser and again in `tools/upload_server.py`; invalid JSON is rejected before it is written, while a structurally valid but unregistered ID is stored as review-only. Uploaded valid manifests are discovered again when Hero Studio reloads. The upload/import path never executes `implementation` metadata.
 
 Unknown settings are ignored by the VFX settings merger until the matching ability is registered in code.
 

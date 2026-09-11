@@ -270,7 +270,7 @@ export function installStudioBridge(app) {
     setStatus(`Solar Flare applied · ${applied} hero slot(s) · save routing to persist`, true);
   }
 
-  function showImportedSkill(manifest) {
+  function showImportedSkill(manifest, notify = true) {
     lastManifest = manifest;
     const assignments = Object.entries(manifest.assignments || {})
       .map(([hero, slot]) => `${hero}:${slot || '—'}`)
@@ -296,7 +296,7 @@ export function installStudioBridge(app) {
     skillImportNotice?.updateDisplay();
     manifestFolder.open();
     app.hud.addManifestSkill?.(manifest);
-    setStatus(`Skill manifest loaded · ${manifest.label || manifest.id || 'unnamed'} · design-only`, true);
+    if (notify) setStatus(`Skill manifest loaded · ${manifest.label || manifest.id || 'unnamed'} · ${registered ? 'registered' : 'design-only'}`, true);
   }
 
   window.addEventListener('neon:skill-manifest-import', (event) => {
@@ -308,6 +308,21 @@ export function installStudioBridge(app) {
   } catch {
     // A private/restricted storage context should not prevent Hero Studio boot.
   }
+
+  // Rehydrate manifests uploaded through the workspace dropbox so a reload
+  // still shows both registered and review-only abilities in the skill list.
+  fetch(`${API}/skills`, { cache: 'no-store' })
+    .then((response) => response.ok ? response.json() : [])
+    .then((reports) => Promise.all((Array.isArray(reports) ? reports : [])
+      .filter((report) => report.valid && report.name)
+      .map((report) => fetch(`${API}/skill/${encodeURIComponent(report.name)}`)
+        .then((response) => response.ok ? response.json() : null)
+        .catch(() => null))))
+    .then((manifests) => manifests.filter((manifest) => manifest && typeof manifest === 'object')
+      .forEach((manifest) => showImportedSkill(manifest, false)))
+    .catch(() => {
+      // The dropbox is optional; local import and the rest of Hero Studio remain usable.
+    });
 
   function heroConfig(heroId = state.hero) {
     if (!savedConfig[heroId] || typeof savedConfig[heroId] !== 'object') savedConfig[heroId] = {};

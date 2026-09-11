@@ -1,4 +1,11 @@
 import { settings, applySettings, snapshotSettings, DEFAULT_SETTINGS } from '../config/settings.js';
+import { validateSkillManifest, isSupportedManifestKind } from '../skillValidator.js';
+
+const UPLOAD_API = (() => {
+  const host = location.hostname;
+  if (/^\d+-/.test(host)) return `${location.protocol}//${host.replace(/^\d+-/, '8081-')}`;
+  return `${location.protocol}//${host}:8081`;
+})();
 
 // Namespaced afresh: the settings tree was rebuilt around the ice ability, so
 // presets saved against the old elemental blocks would merge into nothing.
@@ -104,10 +111,57 @@ export class PresetManager {
     URL.revokeObjectURL(url);
   }
 
+  _rememberSkillManifest(data) {
+    globalThis.__neonLastSkillManifest = data;
+    try {
+      sessionStorage.setItem('neon.lastSkillManifest', JSON.stringify(data));
+    } catch {
+      // A private/restricted storage context should not block the import.
+    }
+    globalThis.dispatchEvent?.(new CustomEvent('neon:skill-manifest-import', {
+      detail: data,
+    }));
+  }
+
+  /** Upload a validated skill/ability manifest to the workspace dropbox. */
+  uploadSkillFromFile() {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.skill.json,.ability.json,application/json';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return resolve({ uploaded: false, valid: false, errors: [] });
+        try {
+          const data = JSON.parse(await file.text());
+          const validation = validateSkillManifest(data);
+          if (!validation.valid) return resolve({ uploaded: false, valid: false, validation });
+          const base = String(data.id || file.name.replace(/\.json$/i, '')).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+          const filename = /\.(?:skill|ability)\.json$/i.test(file.name) ? file.name : `${base}.skill.json`;
+          const response = await fetch(`${UPLOAD_API}/upload/${encodeURIComponent(filename)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          let result = {};
+          try { result = await response.json(); } catch { /* server may return plain text */ }
+          if (!response.ok) {
+            return resolve({ uploaded: false, valid: false, validation: result.validation || validation, error: result.error || `HTTP ${response.status}` });
+          }
+          this._rememberSkillManifest(data);
+          resolve({ uploaded: true, valid: true, filename, validation: result.validation || validation, skillManifest: data.label || data.id || 'unnamed skill' });
+        } catch (error) {
+          resolve({ uploaded: false, valid: false, errors: [{ path: '$', message: error.message || String(error) }] });
+        }
+      };
+      input.click();
+    });
+  }
+
   /**
    * Import from a JSON file chosen by the user.
    * Accepts either a single settings snapshot or a map of presets.
-   * @returns {Promise<{ imported: string[], applied: boolean, skillManifest?: string }>}
+   * @returns {Promise<{ imported: string[], applied: boolean, skillManifest?: string, validation?: object }>}
    */
   importFromFile() {
     return new Promise((resolve) => {
@@ -119,20 +173,17 @@ export class PresetManager {
         if (!file) return resolve({ imported: [], applied: false });
         try {
           const data = JSON.parse(await file.text());
-          // Skill manifests describe a future gameplay ability, not a settings
-          // snapshot. Surface them to the combined Hero Studio instead of
-          // silently treating every manifest field as a named preset.
-          if (data && data.kind === 'neon-vanguard-skill') {
-            globalThis.__neonLastSkillManifest = data;
-            try {
-              sessionStorage.setItem('neon.lastSkillManifest', JSON.stringify(data));
-            } catch {
-              // A private/restricted storage context should not block the import.
+          // Skill and ability manifests are contracts, not settings snapshots.
+          // Validate them and surface them to the combined Hero Studio instead
+          // of silently treating every manifest field as a named preset.
+          if (data && isSupportedManifestKind(data.kind)) {
+            const validation = validateSkillManifest(data);
+            if (!validation.valid) {
+              resolve({ imported: [], applied: false, validation });
+              return;
             }
-            globalThis.dispatchEvent?.(new CustomEvent('neon:skill-manifest-import', {
-              detail: data,
-            }));
-            resolve({ imported: [], applied: false, skillManifest: data.label || data.id || 'unnamed skill' });
+            this._rememberSkillManifest(data);
+            resolve({ imported: [], applied: false, validation, skillManifest: data.label || data.id || 'unnamed skill' });
             return;
           }
           // A settings snapshot always has a `global` block; anything else is

@@ -180,6 +180,18 @@ export class Editor {
     folder.add({ exportOne: () => this.presets.exportJSON() }, 'exportOne').name('Export current (JSON)');
     folder.add({ exportAll: () => this.presets.exportAll() }, 'exportAll').name('Export all presets');
 
+    const reportValidation = (result, verb) => {
+      if (result.validation && !result.validation.valid) {
+        const first = result.validation.errors?.[0];
+        this.hooks.onToast?.(`${verb} rejected · ${first?.path || 'manifest'}: ${first?.message || 'invalid manifest'}`);
+      } else if (result.error) {
+        this.hooks.onToast?.(`${verb} failed · ${result.error}`);
+      } else if (result.skillManifest) {
+        const state = result.validation?.registered ? 'registered' : 'review-only';
+        this.hooks.onToast?.(`${verb}: ${result.skillManifest} · ${state}`);
+      }
+    };
+
     folder
       .add(
         {
@@ -187,20 +199,37 @@ export class Editor {
             const result = await this.presets.importFromFile();
             refreshOptions();
             this.refresh();
-            this.hooks.onToast?.(
-              result.skillManifest
-                ? `Skill manifest loaded: ${result.skillManifest} · review Hero Studio compatibility`
-                : result.applied
-                  ? 'Settings imported'
-                  : result.imported.length
-                    ? `Imported ${result.imported.length} preset(s)`
-                    : 'Nothing imported'
+            if (result.validation) reportValidation(result, 'Skill validation');
+            else this.hooks.onToast?.(
+              result.applied
+                ? 'Settings imported'
+                : result.imported.length
+                  ? `Imported ${result.imported.length} preset(s)`
+                  : 'Nothing imported'
             );
           }
         },
         'import'
       )
       .name('Import JSON…');
+
+    folder
+      .add(
+        {
+          upload: async () => {
+            const result = await this.presets.uploadSkillFromFile();
+            if (result.uploaded) {
+              reportValidation(result, `Uploaded and validated ${result.filename}`);
+            } else if (result.validation || result.error) {
+              reportValidation(result, 'Skill upload');
+            } else {
+              this.hooks.onToast?.('No skill manifest selected');
+            }
+          }
+        },
+        'upload'
+      )
+      .name('Upload + validate skill…');
 
     folder
       .add(

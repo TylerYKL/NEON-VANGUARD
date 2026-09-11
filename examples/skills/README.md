@@ -6,7 +6,7 @@
 
 This sample is now a registered Solar Flare test ability. It still uses an explicit two-stage import/apply flow so uploading JSON cannot silently modify gameplay.
 
-There are two existing JSON import paths:
+There are two existing JSON import paths, plus a validated workspace upload path:
 
 1. **Right-side VFX Editor → Presets → Import JSON…**
    - Accepts a complete reference-VFX settings snapshot containing `global` and `ice`.
@@ -19,6 +19,12 @@ There are two existing JSON import paths:
    - It updates model scale, placement, yaw, animation, legacy skill FX slots, GPU VFX slots, and reference routing.
    - It does not register a new skill ID or new ability class.
 
+3. **VFX Editor → Upload + validate skill…**
+   - Accepts `.skill.json` and `.ability.json` documents.
+   - Validates kind, version, ID, input, timing, phases, assignments, and object shapes before sending them to `tools/upload_server.py`.
+   - The API validates again and only saves valid manifests under `models/uploads/`; `GET /skills` reports valid, registered, and review-only status.
+   - Upload/import never executes `implementation` paths. Valid unregistered documents are listed for review but cannot be applied or cast.
+
 When `solar-flare.skill.json` is imported through the right-side VFX Editor:
 
 1. It is displayed in **Hero Studio (Beta) → Imported skill manifest**.
@@ -27,4 +33,4 @@ When `solar-flare.skill.json` is imported through the right-side VFX Editor:
 4. Choose **Save routing to game** to persist the routing and applied Solar profile through the config API.
 5. Press `X` in the VFX Lab to test the reference ability, or save routing and restart `neon-vanguard.html` to test the assigned Aegis/Nyx gameplay path with the saved manifest tuning. The headless CAST SIM test also covers the Solar Flare impact and burn path.
 
-The importer validates the manifest and never executes its `implementation` section. The compatibility panel reports what remains legacy-only.
+The importer and upload endpoint validate the manifest and never execute its `implementation` section. The compatibility panel reports what remains legacy-only. Start the API with `python3 tools/upload_server.py` to enable upload and reload discovery; the static VFX page still boots with local import and defaults if the API is offline.
