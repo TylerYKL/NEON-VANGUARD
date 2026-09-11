@@ -28,5 +28,10 @@ x[0-9]*.png
 # setup travel with the repo on purpose:  git add -f models/uploads/hero_tuning.json
 models/uploads/hero_tuning.json
 
+# Skill packages uploaded through the VFX dropbox are workspace data; keep
+# versioned authoring samples under examples/skills/ instead.
+models/uploads/*.skill.json
+models/uploads/*.ability.json
+
 # python bytecode
 __pycache__/
