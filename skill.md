@@ -71,6 +71,47 @@ A manifest should describe:
 
 The `implementation` section is documentation only. Never dynamically import or execute a module path from JSON.
 
+## Effect ID naming
+
+`phases[].effect` is currently a manifest label only. The runtime does not resolve it as an asset or module ID, so there is no enforced prefix rule today.
+
+Use the project convention below for future compatibility:
+
+```text
+{id}.{phase}
+```
+
+Examples:
+
+```text
+solar-flare.projectile
+solar-flare.impact
+solar-flare.fade
+wanjian.sword-converge
+```
+
+Therefore `wanjian.sword-converge` is valid for a skill with the ID `wanjian`; keep the phase suffix readable and stable. Do not put a file path, JavaScript module path, or executable expression in this field.
+
+## Current registered skill lists
+
+The current VFX Lab ability registry is exactly:
+
+```js
+['ice', 'thunder', 'meteor', 'beam', 'snare']
+```
+
+The current Hero Studio reference-cast registry contains the same IDs:
+
+| ID | Label | Key |
+|---|---|---|
+| `ice` | Frost Lance | Q |
+| `thunder` | Storm Lance | E |
+| `meteor` | Cinder Fall | R |
+| `beam` | Nova Beam | F |
+| `snare` | Voltaic Snare | V |
+
+`solar` is **not** registered yet. The Solar Flare JSON is currently a manifest-only sample and its amber `JSON · NOT PLAYABLE` card is intentional. Adding `solar` requires updating both the VFX ability registry and `REFERENCE_CASTS`, plus the settings, editor, input, gameplay, routing, and tests described below.
+
 ---
 
 # Adding a new skill
@@ -472,6 +513,87 @@ Open `hero-studio.html` and verify:
 6. Applying assignments updates the Hero Studio routing controls.
 7. CAST SIM fires the real skill.
 8. The main match uses the same impact timing and mechanic.
+
+---
+
+# Portable skill packages and uploaded assets
+
+A folder-based skill package is recommended for source control and handoff, but uploading asset files alone does not create a real ability. The code registry and gameplay implementation are still required.
+
+## Recommended repository layout
+
+Use a stable skill-ID folder for source material:
+
+```text
+examples/skills/<skill-id>/
+├── <skill-id>.skill.json       # manifest and tuning contract
+├── README.md                   # art, gameplay, and implementation notes
+├── preview/                    # optional PNG/GIF reference artwork
+└── checksums.txt               # optional asset verification
+
+src/reference-vfx/abilities/
+└── <PascalCase>Ability.js      # real pooled ability implementation
+
+models/uploads/
+├── <skill-id>-s0-fx.glb        # optional Q FX asset
+├── <skill-id>-s1-fx.glb        # optional E FX asset
+├── <skill-id>-s2-fx.glb        # optional R FX asset
+├── <skill-id>.webm             # optional video FX
+└── <skill-id>.ogg              # optional audio cue
+```
+
+Keep source manifests and documentation under `examples/skills/<skill-id>/` or a future `skills/<skill-id>/` directory. Keep runtime-discovered GLB, video, and audio files in `models/uploads/` until the library API supports nested package directories.
+
+## Important upload limitation
+
+`tools/upload_server.py` currently accepts a **flat filename** and saves it directly into `models/uploads/`. It strips directory components and only accepts supported file extensions. The current VFX Editor `/files` picker also scans that flat upload directory.
+
+Therefore:
+
+- `models/uploads/solar-flare-s0-fx.glb` will be discovered by the current library.
+- `skills/solar-flare/assets/solar-flare-s0-fx.glb` will not automatically appear in the current picker.
+- A folder can be committed to the repository for portability, but nested files need library-scanner/importer support before they become selectable in the UI.
+- Use unique skill-prefixed filenames to avoid collisions in the flat upload directory.
+- Do not put JavaScript source in `models/uploads/`; code belongs in `src/` and must be reviewed, tested, and bundled.
+
+## Portable skill package checklist
+
+```text
+[ ] Stable skill ID chosen and documented
+[ ] <skill-id>.skill.json included
+[ ] Effect IDs use {id}.{phase}, for example solar-flare.impact
+[ ] README explains targeting, timing, gameplay, VFX, audio, and assignments
+[ ] Preview PNG/GIF references included if needed
+[ ] Ability class included under src/reference-vfx/abilities/
+[ ] GLB/video/audio files use unique flat names in models/uploads/
+[ ] JSON asset paths point to models/uploads/<filename>
+[ ] Settings profile added to settings.js
+[ ] AbilityManager registry entry added
+[ ] ELEMENTS and ELEMENT_META entry added
+[ ] Input key registered
+[ ] REFERENCE_CASTS and normalization entry added
+[ ] Hero Studio assignment support added
+[ ] Gameplay mechanic added to heroes.js
+[ ] CAST SIM support added
+[ ] Missing assets have a procedural or silent fallback
+[ ] Repeated casts and cleanup tested
+[ ] node build.mjs completed
+[ ] all skill/runtime tests pass
+[ ] package and assets are committed together
+```
+
+## Making a package portable
+
+For a portable handoff, commit the manifest, implementation, documentation, and referenced assets together. A fresh checkout still needs:
+
+```bash
+npm install
+node build.mjs
+python3 -m http.server 8080 --bind 0.0.0.0 --directory .
+python3 tools/upload_server.py
+```
+
+The upload server is only needed for Hero Studio save/config and library discovery. Committed assets can be served directly, but their JSON paths must match the location used by the runtime.
 
 ---
 
