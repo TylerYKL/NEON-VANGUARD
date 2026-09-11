@@ -30,7 +30,7 @@ five clip slots and the studio rows are all shipped and tested. What is missing 
 |---|---|
 | `neon-vanguard.html` | the game (717 KB, open it directly, no server needed) |
 | `character-bay.html` | character turntable viewer with live Hero Studio GLB library |
-| `hero-studio.html` | **Hero Studio (Beta)** — five approved casts, playable Aegis/Nyx/Lyra Q/E/R routing, model/skill/audio assignment, profiles, GLB import, PNG gallery, and expandable legacy workflow |
+| `hero-studio.html` | **Hero Studio (Beta)** — five approved casts plus the Solar Flare test ability, playable Aegis/Nyx/Lyra Q/E/R routing, model/skill/audio assignment, profiles, GLB import, PNG gallery, and expandable legacy workflow |
 | `hero-studio-legacy.html` | Standalone legacy GLB/video/GPU VFX/audio/CAST SIM studio workflow |
 | `skill.md` | Ordered add/remove workflow for future VFX and gameplay skill abilities |
 

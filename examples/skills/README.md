@@ -1,8 +1,10 @@
 # Skill JSON sample
 
-`solar-flare.skill.json` is a design and implementation manifest for a future skill. It documents the input shape, timing phases, gameplay payload, VFX profile, audio cue, hero assignments, and the code registration points required to make the skill playable.
+`solar-flare.skill.json` is the design and implementation manifest for the registered Solar Flare test ability. It documents the input shape, timing phases, gameplay payload, VFX profile, audio cue, hero assignments, and the code registration points used by the runtime.
 
-## Important: this is not currently a drop-in importer
+## Import and apply behavior
+
+This sample is now a registered Solar Flare test ability. It still uses an explicit two-stage import/apply flow so uploading JSON cannot silently modify gameplay.
 
 There are two existing JSON import paths:
 
@@ -17,6 +19,12 @@ There are two existing JSON import paths:
    - It updates model scale, placement, yaw, animation, legacy skill FX slots, GPU VFX slots, and reference routing.
    - It does not register a new skill ID or new ability class.
 
-When `solar-flare.skill.json` is imported through the right-side VFX Editor, it is now recognized as a skill manifest and displayed in **Hero Studio (Beta) → Imported skill manifest**. It does not add Solar Flare to gameplay or change an existing cast. The VFX Editor shows this limitation in **Compatibility / not migrated → skillImport**.
+When `solar-flare.skill.json` is imported through the right-side VFX Editor:
 
-To make this sample a real playable skill, implement the steps in its `importStatus.nextSteps`: add the ability class, registry entry, gameplay hook, editor profile, routing support, and tests. After that, a dedicated manifest importer can be added safely without accepting arbitrary executable behavior from JSON.
+1. It is displayed in **Hero Studio (Beta) → Imported skill manifest**.
+2. Solar Flare appears in the bottom skill bar as a registered `X` ability.
+3. Choose **Apply manifest to VFX editor** to apply the validated VFX profile and in-memory Aegis Q / Nyx E assignments.
+4. Choose **Save routing to game** to persist the routing through the config API.
+5. Use **CAST SIM** or press `X` in the VFX Lab to test the real Solar Flare ability.
+
+The importer validates the manifest and never executes its `implementation` section. The compatibility panel reports what remains legacy-only.

@@ -11,6 +11,7 @@ import { vfxFor, spawnVFX } from './vfx.js';
 import { ARENA } from './world.js';
 import { SFX } from './audio.js';
 import { BALANCE as B } from './balance.js';
+import { settings as referenceSettings } from './reference-vfx/config/settings.js';
 
 /* ============================================================
    HERO ROSTER — 3 switchable operatives, cyber-modern loadouts
@@ -557,18 +558,23 @@ export class Hero {
     if (sk.ult) { this.energy = 0; this.ultMul = 1; G.onUltCast(this, sk); }
     else this.cds[i] = sk.cd * (1 - (G.mods ? G.mods.cdr : 0));
     this.castAnim = 1;
+    const referenceCastId = G.referenceVFX?.mapping?.map?.[this.def.id]?.[i] || null;
     const referenceCast = G.referenceVFX?.cast(this, i, {
-      onImpact: () => this._runSkillMechanic(i, G),
+      onImpact: (ability) => this._runSkillMechanic(i, G, referenceCastId, ability),
     });
     // Reference casts own the readable visual phase when enabled. The legacy
     // GLB/video/GPU slot remains available as an explicit compatibility option,
     // rather than stacking two unrelated effects on every skill by default.
     if (!referenceCast || G.glbTuning?.referenceSkills?.legacyFx) this.playFX(G, i);
-    if (!referenceCast) this._runSkillMechanic(i, G);
+    if (!referenceCast) this._runSkillMechanic(i, G, referenceCastId, null);
     G.announceSkill(this, sk);
   }
 
-  _runSkillMechanic(i, G) {
+  _runSkillMechanic(i, G, referenceCastId = null, ability = null) {
+    if (referenceCastId === 'solar') {
+      this.solarFlareMechanic(G, ability);
+      return;
+    }
     const key = this.def.id + i;
     switch (key) {
       case 'aegis0': this.seismicSlam(G); break;
@@ -580,6 +586,42 @@ export class Hero {
       case 'nyx0': this.railshot(G); break;
       case 'nyx1': this.swarm(G); break;
       case 'nyx2': this.singularity(G); break;
+    }
+  }
+
+  solarFlareMechanic(G, ability = null) {
+    const self = this;
+    const c = referenceSettings.solar;
+    const impact = ability?.position?.clone?.() || this.pos.clone();
+    const victims = [];
+
+    for (const enemy of G.enemies) {
+      if (enemy.dead) continue;
+      const distance = flatDist(enemy.pos, impact);
+      if (distance > c.impactRadius + enemy.radius) continue;
+      const falloff = Math.max(0.2, 1 - distance / Math.max(c.impactRadius, 0.001));
+      G.damageEnemy(enemy, c.damage * falloff, impact, { knock: 5 * falloff, source: self });
+      victims.push(enemy);
+    }
+
+    // Burn is a real gameplay effect, released on the same impact frame as the
+    // pooled reference VFX. It is deliberately owned by the effect list so a
+    // match reset cancels it through the normal cleanup path.
+    if (victims.length && c.burnDuration > 0 && c.burnDamage > 0) {
+      G.addEffect({
+        t: 0,
+        nextTick: 0,
+        update(dt) {
+          this.t += dt;
+          if (this.t >= this.nextTick) {
+            this.nextTick += Math.max(0.1, c.burnTick);
+            for (const enemy of victims) {
+              if (!enemy.dead) G.damageEnemy(enemy, c.burnDamage, impact, { silent: true, source: self });
+            }
+          }
+          return this.t < c.burnDuration;
+        },
+      });
     }
   }
 

@@ -28,6 +28,14 @@ check('reference routing defaults all heroes',
   normalized.referenceSkills.map.nyx.length === 3 && normalized.referenceSkills.map.lyra.length === 3);
 check('reference routing clamps unknown casts',
   normalized.referenceSkills.map.aegis.every((id) => REFERENCE_CASTS.some((cast) => cast.id === id)));
+const solarNormalized = normalizeTuning({
+  referenceSkills: {
+    on: true,
+    map: { aegis: ['solar', 'thunder', 'meteor'] },
+  },
+});
+check('solar manifest ID is a registered reference cast',
+  solarNormalized.referenceSkills.map.aegis[0] === 'solar');
 
 const runtime = new GameReferenceVFX({
   scene: new THREE.Scene(),
@@ -44,6 +52,14 @@ for (let i = 0; i < 240; i++) runtime.update(1 / 60, i / 60);
 check('game bridge fires hero mechanic at reference impact', impacts === 1, String(impacts));
 runtime.clear();
 check('game bridge clears active pooled casts', runtime.abilities.active.length === 0);
+
+runtime.setTuning(solarNormalized);
+let solarImpacts = 0;
+const solarCast = runtime.cast(hero, 0, { onImpact: () => solarImpacts++ });
+check('solar ability class is pooled by the game bridge', solarCast?.element === 'solar', solarCast?.element);
+for (let i = 0; i < 240; i++) runtime.update(1 / 60, i / 60);
+check('solar reaches its real reference impact phase', solarImpacts === 1, String(solarImpacts));
+runtime.clear();
 
 if (fail) {
   console.log(`\nERRORS ${fail}  (${pass} passed, ${fail} failed)`);

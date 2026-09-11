@@ -90,14 +90,12 @@
     "editorProfile": "src/reference-vfx/config/settings.js"
   },
   "importStatus": {
-    "currentlySupported": false,
-    "reason": "The current JSON importers load VFX settings presets or hero_tuning.json; they do not register new gameplay abilities from a skill manifest.",
+    "currentlySupported": true,
+    "reason": "Solar Flare is registered as a manifest-backed reference ability. Import the manifest, choose Apply manifest to VFX editor, then Save routing to game to persist the assignments.",
     "nextSteps": [
-      "Implement SolarFlareAbility.js using the phase contract.",
-      "Register solar-flare in heroSkills.js and the cast selector.",
-      "Connect gameplay damage, timing, and targeting in heroes.js.",
-      "Add the profile fields to the lil-gui VFX Editor.",
-      "Add a runtime and simulation test before enabling the assignment entries."
+      "Upload optional solar-flare.ogg or GLB assets if the skill package uses them.",
+      "Tune the registered Solar Flare profile in the VFX Editor.",
+      "Run CAST SIM and the reference/gameplay test suite before shipping changes."
     ]
   }
 }

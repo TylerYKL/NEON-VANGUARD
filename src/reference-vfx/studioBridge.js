@@ -1,5 +1,6 @@
 import { AnimationMixer, Box3, LoopRepeat, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { settings } from './config/settings.js';
 import {
   HERO_IDS,
   REFERENCE_CASTS,
@@ -135,6 +136,7 @@ export function installStudioBridge(app) {
   let modelOptions = { 'procedural body': '' };
   let assetOptions = { 'no legacy asset': '' };
   let audioOptions = { 'no audio cue': '' };
+  let lastManifest = null;
 
   const state = {
     hero: 'aegis',
@@ -200,6 +202,7 @@ export function installStudioBridge(app) {
   const manifestPhases = manifestFolder.add(manifestState, 'phases').name('phase count').disable();
   const manifestAssignments = manifestFolder.add(manifestState, 'assignments').name('assignments').disable();
   const manifestVFX = manifestFolder.add(manifestState, 'vfx').name('VFX profile').disable();
+  const applyManifestButton = manifestFolder.add({ apply: () => applyImportedManifest() }, 'apply').name('Apply manifest to VFX editor');
   manifestFolder.close();
 
   const compatibility = studio.addFolder('Compatibility / not migrated');
@@ -209,7 +212,7 @@ export function installStudioBridge(app) {
     gpu: 'Legacy-only: GPU VFX profile editor and particle tuning',
     audio: 'Mixed: slot assignment persists here; legacy playback controls remain legacy',
     castSim: 'Legacy-only: CAST SIM remains in the compatibility view',
-    skillImport: 'Not supported: new gameplay skills are code-registered, not JSON-registered',
+    skillImport: 'Registered IDs only: JSON applies Solar Flare; new IDs still require code',
     legacyPanel: 'Open compatibility view for the complete legacy workflow',
   };
   let skillImportNotice;
@@ -231,7 +234,59 @@ export function installStudioBridge(app) {
     if (toast) app.hud.showToast(message);
   }
 
+  function applyImportedManifest() {
+    if (!lastManifest) {
+      setStatus('No skill manifest loaded', true);
+      return;
+    }
+    const manifest = lastManifest;
+    const c = settings.solar;
+    const input = manifest.input || {};
+    const timing = manifest.timing || {};
+    const gameplay = manifest.gameplay || {};
+    const status = gameplay.status || {};
+    const profile = manifest.vfxProfile || {};
+    const finite = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+    c.range = Math.max(1, Math.min(20, finite(input.range, c.range)));
+    c.minRange = Math.max(0, Math.min(c.range, finite(input.minRange, c.minRange)));
+    const travelSpeed = finite(timing.travelSpeed,
+      finite(timing.travelTime, 0) > 0 ? c.range / finite(timing.travelTime, 1) : c.speed);
+    c.speed = Math.max(1, Math.min(30, travelSpeed));
+    c.cooldown = Math.max(0.1, Math.min(15, finite(timing.cooldown, c.cooldown)));
+    c.impactDuration = Math.max(0.1, Math.min(3, finite(timing.holdTime, c.impactDuration)));
+    c.fadeDuration = Math.max(0.1, Math.min(3, finite(timing.fadeTime, c.fadeDuration)));
+    c.impactRadius = Math.max(0.1, Math.min(5, finite(gameplay.impactRadius, c.impactRadius)));
+    c.damage = Math.max(0, Math.min(300, finite(gameplay.damage, c.damage)));
+    c.burnDuration = Math.max(0, Math.min(10, finite(status.duration, c.burnDuration)));
+    c.burnTick = Math.max(0.1, Math.min(5, finite(status.tickInterval, c.burnTick)));
+    c.burnDamage = Math.max(0, Math.min(100, finite(status.damagePerTick, c.burnDamage)));
+    c.sparkRate = Math.max(0, Math.min(240, finite(profile.rate, c.sparkRate)));
+    c.sparkLifetime = Math.max(0.1, Math.min(3, finite(profile.life, c.sparkLifetime)));
+    c.sparkSpeed = Math.max(0, Math.min(20, finite(profile.speed, c.sparkSpeed)));
+    if (/^#[0-9a-f]{6}$/i.test(profile.color0 || '')) c.colorCore = profile.color0;
+    if (/^#[0-9a-f]{6}$/i.test(profile.color1 || '')) c.colorEdge = profile.color1;
+
+    let applied = 0;
+    for (const [heroId, slotKey] of Object.entries(manifest.assignments || {})) {
+      const slot = { Q: 0, E: 1, R: 2 }[slotKey];
+      if (route.map[heroId] && slot !== undefined) {
+        route.map[heroId][slot] = 'solar';
+        applied++;
+      }
+    }
+    route.on = true;
+    lastManifest = manifest;
+    manifestState.status = `Applied in memory · ${applied} route(s) · save routing to persist`;
+    manifestState.vfx = 'profile applied to solar settings';
+    manifestStatus.updateDisplay();
+    manifestVFX.updateDisplay();
+    app.editor.refresh();
+    renderRoute({ loadAssignedModel: false });
+    setStatus(`Solar Flare applied · ${applied} hero slot(s) · save routing to persist`, true);
+  }
+
   function showImportedSkill(manifest) {
+    lastManifest = manifest;
     const assignments = Object.entries(manifest.assignments || {})
       .map(([hero, slot]) => `${hero}:${slot || '—'}`)
       .join(' · ') || 'none';

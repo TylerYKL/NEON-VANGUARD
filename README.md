@@ -25,7 +25,7 @@ animation, sound effect and music cue is generated at runtime.
 |---|---|
 | `neon-vanguard.html` | the game — 3 switchable operatives, waves, boss, ultimate chain, audio |
 | `character-bay.html` | character turntable viewer — orbit, poses, weapon detail, ability preview, and live Hero Studio GLB library |
-| `hero-studio.html` | **Hero Studio (Beta)** — combined Linear VFX casts, Aegis/Nyx/Lyra Q/E/R routing, live lil-gui tuning, model assignment, skill assets/audio, GLB import, PNG references, and expandable legacy workflows |
+| `hero-studio.html` | **Hero Studio (Beta)** — five approved Linear VFX casts plus the Solar Flare test ability, Aegis/Nyx/Lyra Q/E/R routing, live lil-gui tuning, model assignment, skill assets/audio, GLB import, PNG references, and expandable legacy workflows |
 | `hero-studio-legacy.html` | Standalone legacy Hero Studio workflow — uploaded GLB/video/GPU VFX slots, CAST SIM, audio assignment, save/import, and settings |
 | `skill.md` | Ordered skill ability authoring guide — add, import, route, test, disable, and remove VFX/gameplay skills |
 | `concept/*.jpg` | rendered concept sheets (art-direction target for Phase 3) |
@@ -209,7 +209,7 @@ The **PLAYABLE HERO SKILL ROUTING** panel assigns any of the five casts to AEGIS
 
 The beta page also has direct `.glb` import, uploaded hero model assignment with scale/yaw/height controls and idle animation playback, per-hero Q/E/R legacy asset and audio slot assignment, a clickable gallery of the existing skill PNG artwork, and an expandable embedded legacy workflow for GLB/video slots, GPU VFX profiles, audio assignment, CAST SIM, settings collapse/expand, and JSON save/import. The standalone `hero-studio-legacy.html` remains available for a larger legacy-only view.
 
-A worked future-skill manifest is available at [`examples/skills/solar-flare.skill.json`](examples/skills/solar-flare.skill.json). Importing it through the right-side VFX Editor now loads its metadata into **Hero Studio (Beta) → Imported skill manifest** for review, but it intentionally does not register new gameplay code or alter an existing cast. The importer boundaries and required code-registration steps are documented in [`examples/skills/README.md`](examples/skills/README.md).
+A worked skill manifest is available at [`examples/skills/solar-flare.skill.json`](examples/skills/solar-flare.skill.json). Solar Flare is now the first registered manifest-backed test ability: import it through the right-side VFX Editor, choose **Apply manifest to VFX editor**, then save the routing to test it in the VFX Lab and Hero Studio. The importer boundaries and add/remove workflow are documented in [`examples/skills/README.md`](examples/skills/README.md) and [`skill.md`](skill.md).
 
 The **GPU VFX · THREE-VFX STYLE** section is a vanilla-three editor inspired by the upstream `three-vfx` particle model. The upstream package is React/R3F-oriented and still marked work-in-progress, so this build keeps a serialisable profile and a renderer-native adapter: one instanced mesh per effect, with lifetime, velocity, acceleration, scale, colour and opacity animated in the GPU shader. Select **ALL / Q / E / R**, tune the profile, press **▶ PREVIEW** to judge it without changing gameplay, then press **ENABLE IN GAME**, **SAVE**, and restart the run. The preview and match both call `src/vfx.js:spawnVFX()`, so there is no separate effect implementation to drift.
 

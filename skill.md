@@ -27,7 +27,7 @@ A skill manifest is loaded into:
 Hero Studio (Beta) → Imported skill manifest
 ```
 
-It also appears in the bottom skill bar as an amber `JSON · NOT PLAYABLE` card. This confirms that the manifest was read, but it does not create a playable ability until the implementation and registry steps below are complete.
+After a skill is registered, the manifest can be applied with the explicit **Apply manifest to VFX editor** action. That updates the registered VFX profile and in-memory hero assignments; use **Save routing to game** to persist routing. An unregistered manifest remains a review-only card and cannot cast.
 
 Unknown settings are ignored by the VFX settings merger until the matching ability is registered in code.
 
@@ -94,13 +94,13 @@ Therefore `wanjian.sword-converge` is valid for a skill with the ID `wanjian`; k
 
 ## Current registered skill lists
 
-The current VFX Lab ability registry is exactly:
+The current VFX Lab ability registry is:
 
 ```js
-['ice', 'thunder', 'meteor', 'beam', 'snare']
+['ice', 'thunder', 'meteor', 'beam', 'snare', 'solar']
 ```
 
-The current Hero Studio reference-cast registry contains the same IDs:
+The current Hero Studio reference-cast registry contains these IDs:
 
 | ID | Label | Key |
 |---|---|---|
@@ -109,8 +109,9 @@ The current Hero Studio reference-cast registry contains the same IDs:
 | `meteor` | Cinder Fall | R |
 | `beam` | Nova Beam | F |
 | `snare` | Voltaic Snare | V |
+| `solar` | Solar Flare | X |
 
-`solar` is **not** registered yet. The Solar Flare JSON is currently a manifest-only sample and its amber `JSON · NOT PLAYABLE` card is intentional. Adding `solar` requires updating both the VFX ability registry and `REFERENCE_CASTS`, plus the settings, editor, input, gameplay, routing, and tests described below.
+`solar` is now registered as the first manifest-backed test ability. Its JSON can be imported, applied to the Solar Flare profile, and assigned to hero slots. The remaining manifest workflow still validates IDs and requires explicit save actions.
 
 ---
 

@@ -1711,6 +1711,33 @@ export const settings = {
   },
 
   /* ------------------------------------------------------------------ */
+  /* Solar Flare — manifest-backed test ability                         */
+  /* ------------------------------------------------------------------ */
+  solar: {
+    range: 7.5,
+    minRange: 1.0,
+    speed: 13,
+    cooldown: 5.0,
+    impactDuration: 0.42,
+    fadeDuration: 0.7,
+    impactRadius: 1.25,
+    damage: 75,
+    burnDuration: 2.0,
+    burnTick: 0.5,
+    burnDamage: 8,
+    sparkRate: 80,
+    sparkLifetime: 0.45,
+    sparkSpeed: 5.5,
+    lightIntensity: 13,
+    lightRadius: 10,
+    lightColor: '#ff9c3d',
+    castFlash: 0.1,
+    colorCore: '#fff1a6',
+    colorEdge: '#ff6b24',
+    colorSmoke: '#54230d'
+  },
+
+  /* ------------------------------------------------------------------ */
   /* Camera rig                                                          */
   /* ------------------------------------------------------------------ */
   camera: {
@@ -1827,7 +1854,7 @@ export const CastShape = Object.freeze({
  * array, and the index is the slot the keyboard binds to — adding a third
  * ability is a new file, an entry here and a settings block above.
  */
-export const ELEMENTS = ['ice', 'thunder', 'meteor', 'beam', 'snare'];
+export const ELEMENTS = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'solar'];
 
 /**
  * Registry metadata: how an ability is presented, and how it is aimed.
@@ -1846,6 +1873,12 @@ export const ELEMENT_META = {
     key: 'V',
     hint: 'Voltaic Snare',
     cast: CastShape.ZONE
+  },
+  solar: {
+    label: 'Solar Flare',
+    accent: '#ffb347',
+    key: 'X',
+    hint: 'Solar Flare'
   }
 };
 

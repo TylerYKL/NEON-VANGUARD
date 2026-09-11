@@ -337,6 +337,34 @@ heroes[active].pos.x = save;
 step(2);
 check('…and clears when the value is sane again', !sim.faulted);
 
+/* ---------- 5b. manifest-backed Solar Flare gameplay path ---------- */
+{
+  active = heroes.findIndex((h) => h.def.id === 'aegis');
+  const solarHero = heroes[active];
+  sim.setTargets(3);
+  for (const enemy of G.enemies) enemy.pos.set(solarHero.pos.x + 0.6, 0, solarHero.pos.z);
+  G.referenceVFX = {
+    mapping: { map: { aegis: ['solar', 'thunder', 'meteor'] } },
+    cast(hero, slot, hooks) {
+      hooks.onImpact?.({ position: hero.pos.clone(), element: 'solar' });
+      return { element: 'solar' };
+    },
+  };
+  solarHero.cds[0] = 0;
+  const hpBeforeSolar = G.enemies.reduce((sum, enemy) => sum + enemy.hp, 0);
+  const solarFired = sim.cast(0);
+  const hpAfterImpact = G.enemies.reduce((sum, enemy) => sum + enemy.hp, 0);
+  check('Solar Flare enters useSkill through the registered reference ID', solarFired === true);
+  check('Solar Flare applies its real impact damage', hpAfterImpact < hpBeforeSolar,
+    hpBeforeSolar + ' -> ' + hpAfterImpact);
+  step(180);
+  const hpAfterBurn = G.enemies.reduce((sum, enemy) => sum + enemy.hp, 0);
+  check('Solar Flare burn continues through the real effect list', hpAfterBurn < hpAfterImpact,
+    hpAfterImpact + ' -> ' + hpAfterBurn);
+  G.referenceVFX = undefined;
+  settle();
+}
+
 /* ---------- 6. uninstall restores G ---------- */
 const wanted = ['enemies', 'heroes', 'barriers', 'mods', 'popText', 'groundAim', 'damageEnemy', 'announceSkill', 'onUltCast', 'panOf'];
 const snapshot = {};
