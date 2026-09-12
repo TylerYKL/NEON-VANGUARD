@@ -42,11 +42,11 @@ import { addMat, clamp, flatDist } from './util.js';
    nothing about timing is simulated twice.
    ============================================================ */
 
-export const SIM_TARGETS = [0, 3, 6];
+export const SIM_TARGETS = [0, 3, 6, 9, 12];
 export const SIM_SPEEDS = [1, 0.5, 0.25];     // the studio scales dt; this is just the menu
 const DUMMY_H = 1.7, DUMMY_R = 0.5;
 /** what the CAST SIM's MOVE row offers; `idle` is the only one that leaves the hero alone */
-export const SIM_MOVE = ['idle', 'walk', 'strafe', 'circle'];
+export const SIM_MOVE = ['idle', 'walk', 'strafe', 'circle', 'wasd'];
 
 /** Build the bench. `opts` is the seam to the page: everything UI-ish is a callback. */
 export function createSim(G, opts = {}) {
@@ -64,6 +64,7 @@ export function createSim(G, opts = {}) {
     on: false, speed: 1, targets: [], pool: [], n: 3, faults: 0,
     stats: { casts: 0, blocked: 0, forced: 0, hits: 0, parts: 0, dmg: 0, since: 0, last: '—', impact: -1, slot: '', name: '' },
     fx: null, projectiles: null, hooks: null,
+      keys: new Set(),
   };
 
   /* ---------- the stand-in arena ---------- */
@@ -120,6 +121,26 @@ export function createSim(G, opts = {}) {
     sim.n = n;
   }
   sim.makeFresh = () => { const d = makeDummy(); return d; };
+
+   /* ---------- WASD input ----------
+     Only live while the bench is on AND the MOVE row is set to 'wasd', so a
+     user typing in a lil-gui number field never moves the hero. The listener
+     is bound on install and removed on uninstall — the page must not carry a
+     global key handler when the sim is closed. */
+  function onWasdDown(e) {
+    if (!sim.on || sim.mmode !== 'wasd') return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (e.code === 'KeyW' || e.code === 'KeyA' || e.code === 'KeyS' || e.code === 'KeyD') {
+      sim.keys.add(e.code);
+    }
+  }
+  function onWasdUp(e) {
+    sim.keys.delete(e.code);
+  }
+  function onWasdBlur() {
+    sim.keys.clear();
+  }
 
   /* ---------- the hooks the real ability code expects ---------- */
   function install() {
@@ -225,6 +246,10 @@ export function createSim(G, opts = {}) {
     sim.mmode = 'idle'; sim.dist = 0;
     set('announceSkill', (h, sk) => { sim.stats.last = sk.name; onAnnounce(h, sk); });
     set('onUltCast', () => { sim.stats.ult = (sim.stats.ult || 0) + 1; });
+    window.addEventListener('keydown', onWasdDown);
+    window.addEventListener('keyup', onWasdUp);
+    window.addEventListener('blur', onWasdBlur);
+    sim._wasdBound = true;
     sim.hooks = { prev, set };
     sim.on = true;
     place(sim.n);
@@ -235,6 +260,13 @@ export function createSim(G, opts = {}) {
     for (const k in sim.hooks.prev) G[k] = sim.hooks.prev[k];
     if (Object.getOwnPropertyDescriptor(G, 'projectiles')?.get) delete G.projectiles;
     if (sim.restoreSpawn) { sim.restoreSpawn(); sim.restoreSpawn = null; }
+    if (sim._wasdBound) {
+      window.removeEventListener('keydown', onWasdDown);
+      window.removeEventListener('keyup', onWasdUp);
+      window.removeEventListener('blur', onWasdBlur);
+      sim._wasdBound = false;
+      sim.keys.clear();
+    }
     sim.hooks = null;
     sim.on = false;                       // cast() is inert once the hooks are gone
     sim.mmode = 'idle';
@@ -309,13 +341,35 @@ export function createSim(G, opts = {}) {
        resets an idle combo) and the weapon flourishes. Decaying any of those here as well
        would run the page at 2×, so the bench supplies *input* and the hero keeps its own
        clocks — which is also what makes the slam's leap and a dash actually travel here. */
-    if (h) {
+     if (h) {
       moveDir.set(0, 0, 0);
       if (sim.mmode === 'walk') moveDir.set(Math.sin(h.facing), 0, Math.cos(h.facing));
       else if (sim.mmode === 'strafe') moveDir.set(Math.cos(h.facing), 0, -Math.sin(h.facing));
       else if (sim.mmode === 'circle') {
         h.facing += dt * 0.8;                       // keeps a walking hero inside the arena
         moveDir.set(Math.sin(h.facing), 0, Math.cos(h.facing));
+      } else if (sim.mmode === 'wasd') {
+        /* Camera-relative: W is always "up the screen". The forward axis is the
+           horizontal vector from the camera to the hero; the right axis is that
+           vector rotated -90° about +Y. Works for any camera the page has — a
+           fixed top-down, an orbit, a follow cam — without reading its type. */
+        const ix = (sim.keys.has('KeyD') ? 1 : 0) - (sim.keys.has('KeyA') ? 1 : 0);
+        const iz = (sim.keys.has('KeyW') ? 1 : 0) - (sim.keys.has('KeyS') ? 1 : 0);
+        if (ix || iz) {
+          const cam = G.camera;
+          if (cam) {
+            const dx = h.pos.x - cam.position.x;
+            const dz = h.pos.z - cam.position.z;
+            const len = Math.hypot(dx, dz) || 1;
+            const fx = dx / len, fz = dz / len;    // forward (screen up)
+            const rx = -fz, rz = fx;               // right   (screen right)
+            moveDir.set(fx * iz + rx * ix, 0, fz * iz + rz * ix);
+          } else {
+            moveDir.set(ix, 0, iz);                // no camera: world axes
+          }
+          if (moveDir.lengthSq() > 1) moveDir.normalize();
+          if (!h.downed) h.facing = Math.atan2(moveDir.x, moveDir.z);
+        }
       }
       h.move(dt, moveDir);
       h.update(dt, G);                              // main.js's order: move, then update
@@ -382,6 +436,7 @@ export function createSim(G, opts = {}) {
   sim.setTargets = (n) => { if (sim.on) place(n); else sim.n = n; };
   sim.setMove = (m) => {
     sim.mmode = SIM_MOVE.includes(m) ? m : 'idle';
+    sim.keys.clear();                              // ← 新增：切模式时不残留按键
     if (sim.mmode === 'idle') { const hh = hero(); if (hh && hh.vel) hh.vel.set(0, 0, 0); }
   };
   /** The dodge is the one piece of movement with its own FX set — afterimages, a ring, a
