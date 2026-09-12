@@ -94,6 +94,34 @@ for (let i = 0; i < 240; i++) runtime.update(1 / 60, i / 60);
 check('Prism Burst reaches its real reference impact phase', prismImpacts === 1, String(prismImpacts));
 runtime.clear();
 
+const wanjianNormalized = normalizeTuning({
+  referenceSkills: { map: { aegis: ['wanjian', 'thunder', 'meteor'] } },
+  skillManifests: {
+    'wanjian': {
+      id: 'wanjian',
+      input: { range: 15.0 },
+      gameplay: { damage: 500, impactRadius: 9.0, status: { duration: 4.0 } },
+      timing: { travelTime: 4.25, holdTime: 0.6, fadeTime: 1.65 },
+      vfxProfile: { burst: 500, speed: 32.0, color0: '#88e0ff', color1: '#d0f0ff' },
+    },
+  },
+});
+runtime.setTuning(wanjianNormalized);
+check('saved Wanjian manifest reapplies its profile on game boot',
+  Math.abs(settings.wanjian.range - 15.0) < 1e-9);
+let wanjianImpacts = 0;
+const wanjianCast = runtime.cast(hero, 0, { onImpact: () => wanjianImpacts++ });
+check('Wanjian ability class is pooled by the game bridge',
+  wanjianCast?.element === 'wanjian', wanjianCast?.element);
+/* The wanjian travel phase is a fixed 4.25 s sequence (converge → fuse → form →
+   charge → strike), so the impact lands at roughly frame 255 of 60 Hz. 480 frames
+   = 8 s gives headroom for the fade phase to start; the assertion is on the
+   count, not the timestamp, matching the pattern solar / prism established. */
+for (let i = 0; i < 480; i++) runtime.update(1 / 60, i / 60);
+check('Wanjian reaches its real reference impact phase', wanjianImpacts === 1, String(wanjianImpacts));
+runtime.clear();
+
+
 if (fail) {
   console.log(`\nERRORS ${fail}  (${pass} passed, ${fail} failed)`);
   process.exitCode = 1;
