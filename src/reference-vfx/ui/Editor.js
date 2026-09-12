@@ -2023,6 +2023,11 @@ export class Editor {
     const c = settings.character;
     const R = Editor.range;
 
+    const movement = folder.addFolder('Movement');
+    R(movement, c, 'moveSpeed', 0, 12, 0.1, 'move speed');
+    R(movement, c, 'moveBounds', 4, 30, 0.5, 'deck bounds');
+    movement.add({ note: 'WASD / arrow keys · camera-relative' }, 'note').name('controls').disable();
+
     // The mixer's own rate, so it scales the idle and the cast clips together.
     // The same value as Global → animation speed, mirrored here where it is
     // actually reached for; `listen` keeps the two readouts honest.

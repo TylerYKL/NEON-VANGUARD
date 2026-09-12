@@ -41,7 +41,7 @@ export class HUD {
         <div><strong>R</strong> — Cinder Fall &nbsp; <strong>F</strong> — Nova Beam</div>
         <div><strong>V</strong> — Voltaic Snare &nbsp; <strong>X</strong> — Solar Flare &nbsp; <strong>B</strong> — Prism Burst</div>
         <div class="hud__help-note">V is a far cast — aimed with a circle, not an arrow. X and B are manifest-backed abilities.</div>
-        <div><strong>Move</strong> — aim &nbsp; <strong>Left click</strong> — cast</div>
+        <div><strong>WASD / arrows</strong> — move &nbsp; <strong>Mouse</strong> — aim &nbsp; <strong>Left click</strong> — cast</div>
         <div><strong>Esc / right click</strong> — cancel the cast</div>
         <div><strong>Right drag</strong> — orbit &nbsp; <strong>Scroll</strong> — zoom</div>
         <div style="margin-top:6px">

@@ -207,6 +207,10 @@ export const settings = {
   /* Character                                                           */
   /* ------------------------------------------------------------------ */
   character: {
+    /* --- movement --- */
+    moveSpeed: 4.0, // metres/second for WASD / arrow-key movement in the studio
+    moveBounds: 18, // keep the preview character on the reference deck
+
     /* --- blending the cast clip over the idle --- */
     // The idle loops forever; a cast clip is a one-shot laid over the top of it,
     // so these are the two edges of that overlap. In fast, out soft: the throw

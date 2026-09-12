@@ -30,6 +30,7 @@ export class InputManager extends EventEmitter {
     window.addEventListener('pointermove', this._onPointerMove);
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
+    window.addEventListener('blur', this._onBlur);
     this.dom.addEventListener('contextmenu', this._onContextMenu);
   }
 
@@ -68,6 +69,9 @@ export class InputManager extends EventEmitter {
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
 
     this.keys.add(event.code);
+    if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(event.code)) {
+      event.preventDefault();
+    }
 
     switch (event.code) {
       // Ability slots. Keep these in step with `ELEMENT_META[...].key`.
@@ -127,11 +131,16 @@ export class InputManager extends EventEmitter {
     this.keys.delete(event.code);
   };
 
+  _onBlur = () => {
+    this.keys.clear();
+  };
+
   dispose() {
     this.dom.removeEventListener('pointerdown', this._onPointerDown);
     window.removeEventListener('pointermove', this._onPointerMove);
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
+    window.removeEventListener('blur', this._onBlur);
     this.dom.removeEventListener('contextmenu', this._onContextMenu);
     this.clear();
   }

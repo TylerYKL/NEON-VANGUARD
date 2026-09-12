@@ -130,6 +130,7 @@ export class App {
     this.selectAbility(ELEMENTS[0], { silent: true });
 
     this._focusPoint = new Vector3();
+    this._moveDirection = new Vector3();
   }
 
   /** The ability currently in the slot. */
@@ -138,6 +139,43 @@ export class App {
   }
 
   /* ------------------------------------------------------------------ */
+
+  /**
+   * Move the preview character with camera-relative WASD / arrow keys.
+   * InputManager owns the key lifecycle; App owns the transform so aim, camera
+   * follow and the beta sim all observe the same position on the same frame.
+   */
+  _updateMovement(dt) {
+    const keys = this.input.keys;
+    const ix = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
+      - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+    const iz = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+      - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+    if (!ix && !iz) return;
+
+    const dx = this.character.position.x - this.camera.position.x;
+    const dz = this.character.position.z - this.camera.position.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const forwardX = dx / length;
+    const forwardZ = dz / length;
+    const rightX = -forwardZ;
+    const rightZ = forwardX;
+
+    this._moveDirection.set(
+      forwardX * iz + rightX * ix,
+      0,
+      forwardZ * iz + rightZ * ix
+    );
+    if (this._moveDirection.lengthSq() > 1) this._moveDirection.normalize();
+
+    const speed = Math.max(0, Number(settings.character.moveSpeed) || 0);
+    this.character.position.addScaledVector(this._moveDirection, speed * dt);
+
+    const bounds = Math.max(1, Number(settings.character.moveBounds) || 18);
+    this.character.position.x = MathUtils.clamp(this.character.position.x, -bounds, bounds);
+    this.character.position.z = MathUtils.clamp(this.character.position.z, -bounds, bounds);
+    this.character.setFacing(Math.atan2(this._moveDirection.x, this._moveDirection.z));
+  }
 
   _bindEvents() {
     this.renderer.onResize((width, height, pixelRatio) => {
@@ -308,6 +346,7 @@ export class App {
 
     // Targeting runs on *real* time so the arrow keeps sweeping and animating
     // while the sandbox is paused — pausing freezes the effects, not the UI.
+    this._updateMovement(dt);
     this.aim.setOrigin(this.character.position);
     this.aim.update(raw);
 
