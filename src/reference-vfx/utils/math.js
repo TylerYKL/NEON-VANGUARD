@@ -30,6 +30,7 @@ export const Easing = {
   outQuad: (t) => t * (2 - t),
   inOutQuad: (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
   inCubic: (t) => t * t * t,
+  inQuint: (t) => t * t * t * t * t,
   outCubic: (t) => 1 - Math.pow(1 - t, 3),
   inOutCubic: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
   outQuint: (t) => 1 - Math.pow(1 - t, 5),
