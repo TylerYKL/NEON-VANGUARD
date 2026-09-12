@@ -1710,6 +1710,148 @@ export const settings = {
     colorFlash: '#cdefff' // the full-screen flash when it blooms
   },
 
+  /* ================================================================== */
+  /* WANJIAN — ability seven, the ultimate                              */
+  /* ================================================================== */
+  /**
+   * 万剑归宗 — hundreds of spectral swords converge from the sky, fuse into a
+   * giant blade, and slam into the aimed point. Ground fissures tear out to
+   * `zoneRadius`, sparks and motes spray, the screen shakes and flashes.
+   *
+   * The travel phase is *fixed duration* rather than `length / speed` — the
+   * sub-beats (converge → fuse → form → charge → strike) are absolute seconds
+   * off `age`, and an early cast landing at 6 m would otherwise compress the
+   * whole sequence. `travelDuration` is what the override of `advance()` in
+   * `WanjianAbility` actually reads.
+   */
+  wanjian: {
+    /* --- the cast --- */
+    range: 15.0,
+    minRange: 0.0,
+    zoneRadius: 9.0,
+    travelDuration: 4.25, // seconds from spawn to the slam
+    cooldown: 45.0,
+    castAnim: 'cast1',
+
+    /* --- sub-beat timings, absolute seconds into the cast --- */
+    swordConvergeEnd: 2.6, // last sword has arrived
+    swordFuseEnd: 3.2, // all swords absorbed into the core
+    giantFormStart: 2.8, // giant begins scaling up
+    giantFormEnd: 3.4, // giant fully formed
+    giantChargeEnd: 4.0, // charge complete
+    strikeEnd: 4.25, // == travelDuration; sword has hit the floor
+
+    /* --- the swarm --- */
+    swordCount: 500,
+    convergeHeight: 22.0, // how high above the impact point the blades meet
+    spawnRadiusMin: 22.0,
+    spawnRadiusMax: 64.0,
+    spawnYSpread: 42.0,
+    turnsMin: 1.2,
+    turnsMax: 4.4,
+    yWaveAmp: 3.0,
+    swordScale: 1.4,
+    swordColorA: '#88e0ff',
+    swordColorB: '#d0f0ff',
+    swordCoreColor: '#ffffff',
+    swordFresnel: 2.0,
+
+    /* --- the giant sword --- */
+    giantBladeLength: 9.0,
+    giantBladeWidth: 0.55,
+    giantStartY: 22.0, // group.position.y at charge
+    giantHitY: 10.0, // group.position.y at the slam
+    giantChargePulse: 3.0,
+    giantChargeSpin: 1.2,
+    giantColor: '#a8e8ff',
+    giantEdgeColor: '#ffffff',
+    giantHotColor: '#ffb347',
+
+    /* --- impact --- */
+    shockRadius: 12.0,
+    fissureRadius: 9.0,
+    fissureLife: 5.0,
+    scorchRadius: 4.5,
+    scorchLife: 6.0,
+    scorchIntensity: 0.9,
+    colorScorch: '#0a0813',
+    colorShockA: '#a8e8ff',
+    colorShockB: '#ffffff',
+
+    /* --- sparks, motes, smoke, debris --- */
+    sparkRate: 320,
+    sparkSize: 0.16,
+    sparkSpeed: 9.0,
+    sparkLifetime: 0.6,
+    sparkGravity: -14.0,
+    sparkStretch: 0.22,
+    colorSparkA: '#ffffff',
+    colorSparkB: '#d0f0ff',
+    colorSparkC: '#88e0ff',
+    colorSparkD: '#123f6e',
+
+    moteRate: 120,
+    moteSize: 0.06,
+    moteSpeed: 2.0,
+    moteLifetime: 1.8,
+    moteRise: 1.2,
+    moteTurbulence: 0.7,
+    colorMoteA: '#ffffff',
+    colorMoteB: '#a8e8ff',
+    colorMoteC: '#88e0ff',
+    colorMoteD: '#041e32',
+
+    smokeRate: 60,
+    smokeSize: 1.2,
+    smokeSpeed: 1.4,
+    smokeLifetime: 2.6,
+    smokeOpacity: 0.07,
+    smokeRise: 0.8,
+    colorSmokeA: '#41566d',
+    colorSmokeB: '#35485e',
+    colorSmokeC: '#2a3949',
+    colorSmokeD: '#1a2430',
+
+    debrisRate: 30,
+    debrisSize: 0.06,
+    debrisSpeed: 6.0,
+    debrisLifetime: 1.4,
+    debrisGravity: -17.0,
+    colorDebrisA: '#2b323c',
+    colorDebrisB: '#1f252d',
+    colorDebrisC: '#1a1f26',
+    colorDebrisD: '#1a1f26',
+
+    /* --- dynamic light --- */
+    lightIntensity: 28,
+    lightRadius: 20,
+    lightColor: '#88e0ff',
+    lightFlicker: 0.25,
+    lightFlickerSpeed: 18,
+
+    /* --- feedback --- */
+    castFlash: 0.08,
+    colorCastFlash: '#cdefff',
+    burstSize: 5.0,
+    burstIntensity: 1.6,
+    burstSparks: 260,
+    burstMotes: 200,
+    burstDebris: 80,
+    impactShake: 1.4,
+    shakeDuration: 0.9,
+    impactFlash: 0.35,
+    rumble: 0.06,
+    colorBurstA: '#88e0ff',
+    colorBurstB: '#d0f0ff',
+    colorBurstC: '#ffffff',
+    colorFlash: '#d0f0ff',
+
+    /* --- base-class phase durations --- */
+    impactDuration: 0.6,
+    fadeDuration: 1.65
+  },
+
+
   /* ------------------------------------------------------------------ */
   /* Solar Flare — manifest-backed test ability                         */
   /* ------------------------------------------------------------------ */
