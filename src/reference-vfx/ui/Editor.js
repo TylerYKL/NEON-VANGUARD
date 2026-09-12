@@ -41,6 +41,7 @@ export class Editor {
     this._buildSnare();
     this._buildSolar();
     this._buildPrism();
+    this._buildWanjian();
     this._buildEnvironment();
     this._buildPost();
     this._buildCamera();
@@ -1658,6 +1659,148 @@ export class Editor {
     folder.addColor(s, 'colorSmoke').name('smoke colour');
 
     this.prismFolder = folder;
+  }
+
+  /**
+   * 万剑归宗 — the ultimate.
+   *
+   * Every number in this folder is read by `WanjianAbility` against live
+   * `settings.wanjian` each frame, so the whole panel reshapes a cast that is
+   * already in the air — including with the clock paused (`P`). The sub-beat
+   * controls under "Beat Timings" are the ones that change the *feel* most: they
+   * decide whether the swarm lingers, whether the giant sword has time to hang,
+   * and how snappy the slam is.
+   *
+   * Note that the caster is targeting a zone (`CastShape.ZONE`) — the circle
+   * indicator the player sees is drawn by `settings.zone`, not from anything
+   * here. `zoneRadius` on the ability block is the *promise* that circle
+   * makes, and it lives in "The cast" below.
+   */
+  _buildWanjian() {
+    const folder = this.gui.addFolder('⚔  万剑归宗');
+    const c = settings.wanjian;
+    const R = Editor.range;
+
+    /* --- the cast --- */
+    const cast = folder.addFolder('The cast');
+    R(cast, c, 'range', 5, 30, 0.5, 'max range');
+    R(cast, c, 'minRange', 0, 6, 0.1, 'min range');
+    R(cast, c, 'zoneRadius', 2, 16, 0.1, 'footprint radius');
+    R(cast, c, 'travelDuration', 2, 10, 0.05, 'total duration');
+    R(cast, c, 'cooldown', 5, 120, 1, 'cooldown');
+    Editor.castAnimation(cast, c);
+
+    /* --- sub-beat timings (absolute seconds into the cast) --- */
+    const beats = folder.addFolder('Beat timings');
+    R(beats, c, 'swordConvergeEnd', 0.5, 6, 0.05, 'converge ends');
+    R(beats, c, 'swordFuseEnd', 1, 7, 0.05, 'fuse ends');
+    R(beats, c, 'giantFormStart', 1, 7, 0.05, 'giant forms at');
+    R(beats, c, 'giantFormEnd', 2, 8, 0.05, 'giant formed by');
+    R(beats, c, 'giantChargeEnd', 2, 10, 0.05, 'charge ends');
+    R(beats, c, 'strikeEnd', 3, 12, 0.05, 'strike lands at');
+    R(beats, c, 'impactDuration', 0.1, 3, 0.01, 'impact phase');
+    R(beats, c, 'fadeDuration', 0.5, 6, 0.05, 'fade phase');
+
+    /* --- the swarm --- */
+    const swarm = folder.addFolder('The swarm');
+    R(swarm, c, 'swordCount', 1, 500, 1, 'sword count');
+    R(swarm, c, 'spawnRadiusMin', 5, 40, 0.5, 'spawn radius min');
+    R(swarm, c, 'spawnRadiusMax', 20, 120, 1, 'spawn radius max');
+    R(swarm, c, 'spawnYSpread', 5, 80, 0.5, 'vertical spread');
+    R(swarm, c, 'convergeHeight', 3, 40, 0.5, 'converge height');
+    R(swarm, c, 'turnsMin', 0.2, 3, 0.05, 'turns min');
+    R(swarm, c, 'turnsMax', 1, 10, 0.05, 'turns max');
+    R(swarm, c, 'yWaveAmp', 0, 10, 0.1, 'y-wave amplitude');
+    R(swarm, c, 'swordScale', 0.2, 4, 0.05, 'sword scale');
+    R(swarm, c, 'swordFresnel', 0, 6, 0.05, 'fresnel');
+    swarm.addColor(c, 'swordColorA').name('core colour');
+    swarm.addColor(c, 'swordColorB').name('edge colour');
+    swarm.addColor(c, 'swordCoreColor').name('hot core');
+
+    /* --- the giant sword --- */
+    const giant = folder.addFolder('The giant sword');
+    R(giant, c, 'giantBladeLength', 3, 24, 0.1, 'blade length');
+    R(giant, c, 'giantBladeWidth', 0.1, 2.5, 0.01, 'blade width');
+    R(giant, c, 'giantStartY', 3, 60, 0.5, 'charge height');
+    R(giant, c, 'giantHitY', 0, 30, 0.5, 'impact height');
+    R(giant, c, 'giantChargePulse', 0, 10, 0.05, 'charge pulse');
+    R(giant, c, 'giantChargeSpin', -6, 6, 0.05, 'charge spin');
+    giant.addColor(c, 'giantColor').name('body colour');
+    giant.addColor(c, 'giantEdgeColor').name('edge colour');
+    giant.addColor(c, 'giantHotColor').name('charge hot');
+
+    /* --- impact --- */
+    const impact = folder.addFolder('Impact');
+    R(impact, c, 'shockRadius', 2, 30, 0.1, 'shockwave radius');
+    R(impact, c, 'fissureRadius', 1, 24, 0.1, 'crack reach');
+    R(impact, c, 'fissureLife', 0.5, 20, 0.1, 'crack lifetime');
+    R(impact, c, 'scorchRadius', 0.5, 15, 0.1, 'scorch radius');
+    R(impact, c, 'scorchLife', 0.5, 25, 0.1, 'scorch lifetime');
+    R(impact, c, 'scorchIntensity', 0, 2, 0.01, 'scorch intensity');
+    R(impact, c, 'impactShake', 0, 4, 0.05, 'shake');
+    R(impact, c, 'shakeDuration', 0.1, 4, 0.01, 'shake duration');
+    R(impact, c, 'impactFlash', 0, 1.5, 0.01, 'screen flash');
+    R(impact, c, 'rumble', 0, 0.5, 0.005, 'travel rumble');
+    impact.addColor(c, 'colorScorch').name('scorch');
+    impact.addColor(c, 'colorShockA').name('shockwave ring');
+    impact.addColor(c, 'colorShockB').name('shockwave crest');
+    impact.addColor(c, 'colorFlash').name('flash colour');
+
+    /* --- particles --- */
+    const particles = folder.addFolder('Particles');
+    R(particles, c, 'sparkRate', 0, 1200, 1, 'spark rate');
+    R(particles, c, 'sparkSize', 0.005, 0.8, 0.005, 'spark size');
+    R(particles, c, 'sparkSpeed', 0, 40, 0.1, 'spark speed');
+    R(particles, c, 'sparkLifetime', 0.05, 4, 0.01, 'spark lifetime');
+    R(particles, c, 'sparkGravity', -50, 5, 0.1, 'spark gravity');
+    R(particles, c, 'sparkStretch', 0, 3, 0.01, 'spark stretch');
+    Editor.gradient(particles, c, 'colorSpark', 'Spark colour');
+
+    R(particles, c, 'moteRate', 0, 900, 1, 'mote rate');
+    R(particles, c, 'moteSize', 0.005, 0.4, 0.005, 'mote size');
+    R(particles, c, 'moteSpeed', 0, 20, 0.05, 'mote speed');
+    R(particles, c, 'moteLifetime', 0.2, 8, 0.05, 'mote lifetime');
+    R(particles, c, 'moteRise', -5, 8, 0.05, 'mote rise');
+    R(particles, c, 'moteTurbulence', 0, 3, 0.01, 'mote turbulence');
+    Editor.gradient(particles, c, 'colorMote', 'Mote colour');
+
+    R(particles, c, 'smokeRate', 0, 500, 1, 'smoke rate');
+    R(particles, c, 'smokeSize', 0.05, 4, 0.01, 'smoke size');
+    R(particles, c, 'smokeSpeed', 0, 8, 0.05, 'smoke speed');
+    R(particles, c, 'smokeLifetime', 0.2, 10, 0.05, 'smoke lifetime');
+    R(particles, c, 'smokeOpacity', 0, 1, 0.005, 'smoke opacity');
+    R(particles, c, 'smokeRise', -2, 5, 0.01, 'smoke rise');
+    Editor.gradient(particles, c, 'colorSmoke', 'Smoke colour');
+
+    R(particles, c, 'debrisRate', 0, 400, 1, 'debris rate');
+    R(particles, c, 'debrisSize', 0.005, 0.4, 0.005, 'debris size');
+    R(particles, c, 'debrisSpeed', 0, 25, 0.1, 'debris speed');
+    R(particles, c, 'debrisLifetime', 0.1, 5, 0.05, 'debris lifetime');
+    R(particles, c, 'debrisGravity', -50, 0, 0.1, 'debris gravity');
+    Editor.gradient(particles, c, 'colorDebris', 'Debris colour');
+
+    /* --- burst particles --- */
+    const burst = folder.addFolder('Burst counts');
+    R(burst, c, 'burstSparks', 0, 900, 1, 'burst sparks');
+    R(burst, c, 'burstMotes', 0, 900, 1, 'burst motes');
+    R(burst, c, 'burstDebris', 0, 400, 1, 'burst debris');
+    R(burst, c, 'burstSize', 0.5, 20, 0.1, 'burst size');
+    R(burst, c, 'burstIntensity', 0, 5, 0.01, 'burst intensity');
+    burst.addColor(c, 'colorBurstA').name('burst shell');
+    burst.addColor(c, 'colorBurstB').name('burst body');
+    burst.addColor(c, 'colorBurstC').name('burst rim');
+    R(burst, c, 'castFlash', 0, 1.5, 0.01, 'cast flash');
+    burst.addColor(c, 'colorCastFlash').name('cast flash colour');
+
+    /* --- light --- */
+    const light = folder.addFolder('Dynamic light');
+    R(light, c, 'lightIntensity', 0, 150, 0.5, 'light intensity');
+    R(light, c, 'lightRadius', 1, 60, 0.5, 'light radius');
+    R(light, c, 'lightFlicker', 0, 1, 0.01, 'light flicker');
+    R(light, c, 'lightFlickerSpeed', 0, 60, 0.5, 'flicker rate');
+    light.addColor(c, 'lightColor').name('light colour');
+
+    this.wanjianFolder = folder;
   }
 
   _buildEnvironment() {
