@@ -2021,7 +2021,7 @@ export const CastShape = Object.freeze({
  * array, and the index is the slot the keyboard binds to — adding a third
  * ability is a new file, an entry here and a settings block above.
  */
-export const S = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'solar', 'prism','wanjian'];
+export const ELEMENTS = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'solar', 'prism', 'wanjian'];
 
 /**
  * Registry metadata: how an ability is presented, and how it is aimed.
@@ -2029,7 +2029,7 @@ export const S = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'solar', 'prism',
  * `key` must match `InputManager`. `cast` is read by `AimController` to pick
  * between the arrow and the circle; omit it and the ability is a line cast.
  */
-export const _META = {
+export const ELEMENT_META = {
   ice: { label: 'Frost Lance', accent: '#5fd0ff', key: 'Q', hint: 'Frost Lance' },
   thunder: { label: 'Storm Lance', accent: '#7fb4ff', key: 'E', hint: 'Storm Lance' },
   meteor: { label: 'Cinder Fall', accent: '#ff8a3c', key: 'R', hint: 'Cinder Fall' },
