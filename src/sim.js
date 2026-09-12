@@ -64,8 +64,13 @@ export function createSim(G, opts = {}) {
     on: false, speed: 1, targets: [], pool: [], n: 3, faults: 0,
     stats: { casts: 0, blocked: 0, forced: 0, hits: 0, parts: 0, dmg: 0, since: 0, last: '—', impact: -1, slot: '', name: '' },
     fx: null, projectiles: null, hooks: null,
-      keys: new Set(),
+    keys: new Set(),
   };
+  // The studio runs in a browser, while the integration suite supplies a
+  // deliberately minimal window stub. Keyboard input is optional in either
+  // environment and must not make the headless bench fail to install.
+  const keyboard = typeof window !== 'undefined' && typeof window.addEventListener === 'function'
+    ? window : null;
 
   /* ---------- the stand-in arena ---------- */
   function ensureFX() {
@@ -246,10 +251,12 @@ export function createSim(G, opts = {}) {
     sim.mmode = 'idle'; sim.dist = 0;
     set('announceSkill', (h, sk) => { sim.stats.last = sk.name; onAnnounce(h, sk); });
     set('onUltCast', () => { sim.stats.ult = (sim.stats.ult || 0) + 1; });
-    window.addEventListener('keydown', onWasdDown);
-    window.addEventListener('keyup', onWasdUp);
-    window.addEventListener('blur', onWasdBlur);
-    sim._wasdBound = true;
+    if (keyboard) {
+      keyboard.addEventListener('keydown', onWasdDown);
+      keyboard.addEventListener('keyup', onWasdUp);
+      keyboard.addEventListener('blur', onWasdBlur);
+      sim._wasdBound = true;
+    }
     sim.hooks = { prev, set };
     sim.on = true;
     place(sim.n);
@@ -261,9 +268,9 @@ export function createSim(G, opts = {}) {
     if (Object.getOwnPropertyDescriptor(G, 'projectiles')?.get) delete G.projectiles;
     if (sim.restoreSpawn) { sim.restoreSpawn(); sim.restoreSpawn = null; }
     if (sim._wasdBound) {
-      window.removeEventListener('keydown', onWasdDown);
-      window.removeEventListener('keyup', onWasdUp);
-      window.removeEventListener('blur', onWasdBlur);
+      keyboard.removeEventListener('keydown', onWasdDown);
+      keyboard.removeEventListener('keyup', onWasdUp);
+      keyboard.removeEventListener('blur', onWasdBlur);
       sim._wasdBound = false;
       sim.keys.clear();
     }

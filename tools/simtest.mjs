@@ -110,7 +110,8 @@ const visible = () => scene.children.reduce((n, o) => n + (o.visible ? 1 : 0), 0
 check('sim starts off and installs on the first cast', !sim.on);
 sim.setTargets(3);
 check('SIM_TARGETS / SIM_SPEEDS menus are the studio’s controls',
-  SIM_TARGETS.length === 3 && SIM_SPEEDS.length === 3 && SIM_SPEEDS[0] === 1);
+  SIM_TARGETS.length === 5 && SIM_TARGETS.includes(9) && SIM_TARGETS.includes(12)
+    && SIM_SPEEDS.length === 3 && SIM_SPEEDS[0] === 1);
 
 /* the contract, in one assertion */
 {
