@@ -5,6 +5,7 @@ import { BeamAbility } from './BeamAbility.js';
 import { SnareAbility } from './SnareAbility.js';
 import { SolarFlareAbility } from './SolarFlareAbility.js';
 import { PrismBurstAbility } from './PrismBurstAbility.js';
+import { WanjianAbility } from './WanjianAbility.js';
 import { ELEMENTS } from '../config/settings.js';
 import { ObjectPool } from '../utils/ObjectPool.js';
 
@@ -16,7 +17,8 @@ const ABILITY_TYPES = {
   beam: BeamAbility,
   snare: SnareAbility,
   solar: SolarFlareAbility,
-  prism: PrismBurstAbility
+  prism: PrismBurstAbility,
+  wanjian: WanjianAbility
 };
 
 const MAX_CONCURRENT = 4;
