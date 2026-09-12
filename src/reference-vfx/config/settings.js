@@ -1768,6 +1768,13 @@ export const settings = {
     giantHotColor: '#ffb347',
 
     /* --- impact --- */
+    damage: 500,
+    knockback: 5.0,
+    burnDuration: 4.0,
+    burnTick: 0.5,
+    burnDamage: 18,
+    stunDuration: 0.6,
+    
     shockRadius: 12.0,
     fissureRadius: 9.0,
     fissureLife: 5.0,
