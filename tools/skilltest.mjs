@@ -37,7 +37,7 @@ check('unregistered ability explains registration requirement', abilityReport.wa
 const prism = JSON.parse(fs.readFileSync(new URL('../examples/skills/prism-burst.ability.json', import.meta.url), 'utf8'));
 const prismReport = validateSkillManifest(prism);
 check('Prism Burst sample passes upload validation', prismReport.valid, JSON.stringify(prismReport.errors));
-check('Prism Burst sample remains review-only until registered', !prismReport.registered);
+check('Prism Burst sample is now recognised as registered', prismReport.registered);
 
 const invalid = structuredClone(solar);
 invalid.id = 'Bad ID';

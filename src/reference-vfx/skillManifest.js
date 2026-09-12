@@ -2,10 +2,18 @@ import { settings } from './config/settings.js';
 
 const finite = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+const MANIFEST_RUNTIME_IDS = Object.freeze({
+  solar: 'solar',
+  'solar-flare': 'solar',
+  prism: 'prism',
+  'prism-burst': 'prism',
+});
 
-export const isRegisteredSkillManifest = (manifest) => Boolean(
-  manifest && ['solar', 'solar-flare'].includes(manifest.id),
-);
+export function runtimeIdForManifest(manifest) {
+  return MANIFEST_RUNTIME_IDS[manifest?.id] || null;
+}
+
+export const isRegisteredSkillManifest = (manifest) => Boolean(runtimeIdForManifest(manifest));
 
 /**
  * Apply the safe, serialisable portion of a registered skill manifest to the
@@ -13,8 +21,9 @@ export const isRegisteredSkillManifest = (manifest) => Boolean(
  * implementation field.
  */
 export function applySkillManifestSettings(manifest) {
-  if (!isRegisteredSkillManifest(manifest)) return false;
-  const c = settings.solar;
+  const runtimeId = runtimeIdForManifest(manifest);
+  if (!runtimeId) return false;
+  const c = settings[runtimeId];
   const input = manifest.input || {};
   const timing = manifest.timing || {};
   const gameplay = manifest.gameplay || {};
@@ -31,13 +40,18 @@ export function applySkillManifestSettings(manifest) {
   c.fadeDuration = clamp(finite(timing.fadeTime, c.fadeDuration), 0.1, 3);
   c.impactRadius = clamp(finite(gameplay.impactRadius, c.impactRadius), 0.1, 5);
   c.damage = clamp(finite(gameplay.damage, c.damage), 0, 300);
-  c.burnDuration = clamp(finite(status.duration, c.burnDuration), 0, 10);
-  c.burnTick = clamp(finite(status.tickInterval, c.burnTick), 0.1, 5);
-  c.burnDamage = clamp(finite(status.damagePerTick, c.burnDamage), 0, 100);
   c.sparkRate = clamp(finite(profile.rate, c.sparkRate), 0, 240);
   c.sparkLifetime = clamp(finite(profile.life, c.sparkLifetime), 0.1, 3);
   c.sparkSpeed = clamp(finite(profile.speed, c.sparkSpeed), 0, 20);
   if (/^#[0-9a-f]{6}$/i.test(profile.color0 || '')) c.colorCore = profile.color0;
   if (/^#[0-9a-f]{6}$/i.test(profile.color1 || '')) c.colorEdge = profile.color1;
+
+  if (runtimeId === 'solar') {
+    c.burnDuration = clamp(finite(status.duration, c.burnDuration), 0, 10);
+    c.burnTick = clamp(finite(status.tickInterval, c.burnTick), 0.1, 5);
+    c.burnDamage = clamp(finite(status.damagePerTick, c.burnDamage), 0, 100);
+  } else {
+    c.exposeDuration = clamp(finite(status.duration, c.exposeDuration), 0, 10);
+  }
   return true;
 }

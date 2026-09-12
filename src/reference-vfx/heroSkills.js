@@ -5,6 +5,7 @@ export const REFERENCE_CASTS = Object.freeze([
   { id: 'beam', label: 'Nova Beam', key: 'F' },
   { id: 'snare', label: 'Voltaic Snare', key: 'V' },
   { id: 'solar', label: 'Solar Flare', key: 'X' },
+  { id: 'prism', label: 'Prism Burst', key: 'B' },
 ]);
 
 export const REFERENCE_CAST_IDS = new Set(REFERENCE_CASTS.map((cast) => cast.id));

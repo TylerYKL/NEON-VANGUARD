@@ -40,6 +40,7 @@ export class Editor {
     this._buildBeam();
     this._buildSnare();
     this._buildSolar();
+    this._buildPrism();
     this._buildEnvironment();
     this._buildPost();
     this._buildCamera();
@@ -1630,6 +1631,33 @@ export class Editor {
     folder.addColor(s, 'colorSmoke').name('smoke colour');
 
     this.solarFolder = folder;
+  }
+
+  _buildPrism() {
+    const folder = this.gui.addFolder('◇  Prism Burst');
+    const s = settings.prism;
+    const R = Editor.range;
+
+    R(folder, s, 'range', 1, 20, 0.1, 'range');
+    R(folder, s, 'minRange', 0, 6, 0.1, 'minimum range');
+    R(folder, s, 'speed', 1, 30, 0.1, 'travel speed');
+    R(folder, s, 'cooldown', 0.1, 15, 0.1, 'cooldown');
+    R(folder, s, 'impactDuration', 0.1, 3, 0.01, 'impact duration');
+    R(folder, s, 'fadeDuration', 0.1, 3, 0.01, 'fade duration');
+    R(folder, s, 'impactRadius', 0.1, 5, 0.05, 'impact radius');
+    R(folder, s, 'damage', 0, 300, 1, 'impact damage');
+    R(folder, s, 'exposeDuration', 0, 10, 0.1, 'expose duration');
+    R(folder, s, 'sparkRate', 0, 240, 1, 'spark rate');
+    R(folder, s, 'sparkLifetime', 0.1, 3, 0.01, 'spark lifetime');
+    R(folder, s, 'sparkSpeed', 0, 20, 0.1, 'spark speed');
+    R(folder, s, 'lightIntensity', 0, 30, 0.1, 'light intensity');
+    R(folder, s, 'lightRadius', 1, 30, 0.1, 'light radius');
+    R(folder, s, 'castFlash', 0, 1, 0.01, 'cast flash');
+    folder.addColor(s, 'colorCore').name('core colour');
+    folder.addColor(s, 'colorEdge').name('edge colour');
+    folder.addColor(s, 'colorSmoke').name('smoke colour');
+
+    this.prismFolder = folder;
   }
 
   _buildEnvironment() {

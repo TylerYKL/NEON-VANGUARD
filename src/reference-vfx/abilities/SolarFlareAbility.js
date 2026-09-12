@@ -19,8 +19,8 @@ const _up = new Vector3(0, 1, 0);
  * and burn are released by heroes.js at the same reference impact phase.
  */
 export class SolarFlareAbility extends Ability {
-  constructor(context) {
-    super('solar', context);
+  constructor(context, element = 'solar') {
+    super(element, context);
     this.impact = new Vector3();
     this.sparkEmitter = new RateEmitter();
   }
@@ -29,7 +29,7 @@ export class SolarFlareAbility extends Ability {
   createShaders() {}
 
   createParticles() {
-    this.sparks = this.ctx.particles.get('solar.sparks', {
+    this.sparks = this.ctx.particles.get(`${this.element}.sparks`, {
       capacity: 3200,
       shape: ParticleShape.STREAK,
       additive: true,

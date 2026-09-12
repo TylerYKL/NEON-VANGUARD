@@ -1,8 +1,8 @@
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const HERO_IDS = new Set(['aegis', 'nyx', 'lyra']);
-const SLOT_KEYS = new Set(['Q', 'E', 'R', 'F', 'V', 'X']);
+const SLOT_KEYS = new Set(['Q', 'E', 'R', 'F', 'V', 'X', 'B']);
 const TARGETING = new Set(['line', 'zone', 'point', 'self', 'cone']);
-const REGISTERED_IDS = new Set(['solar', 'solar-flare']);
+const REGISTERED_IDS = new Set(['solar', 'solar-flare', 'prism', 'prism-burst']);
 const MANIFEST_KINDS = new Set(['neon-vanguard-skill', 'neon-vanguard-ability']);
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);

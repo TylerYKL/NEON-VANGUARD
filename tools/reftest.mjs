@@ -73,6 +73,27 @@ for (let i = 0; i < 240; i++) runtime.update(1 / 60, i / 60);
 check('solar reaches its real reference impact phase', solarImpacts === 1, String(solarImpacts));
 runtime.clear();
 
+const prismNormalized = normalizeTuning({
+  referenceSkills: { map: { aegis: ['prism', 'thunder', 'meteor'] } },
+  skillManifests: {
+    'prism-burst': {
+      id: 'prism-burst',
+      input: { range: 11.5 },
+      gameplay: { damage: 42, impactRadius: 1.6, status: { duration: 1.5 } },
+      timing: { travelTime: 0.46, holdTime: 0.18, fadeTime: 0.42 },
+      vfxProfile: { rate: 48, life: 0.72, speed: 8.5, color0: '#e9ffff', color1: '#9f6bff' },
+    },
+  },
+});
+runtime.setTuning(prismNormalized);
+check('saved Prism Burst manifest reapplies its profile on game boot', Math.abs(settings.prism.range - 11.5) < 1e-9);
+let prismImpacts = 0;
+const prismCast = runtime.cast(hero, 0, { onImpact: () => prismImpacts++ });
+check('Prism Burst ability class is pooled by the game bridge', prismCast?.element === 'prism', prismCast?.element);
+for (let i = 0; i < 240; i++) runtime.update(1 / 60, i / 60);
+check('Prism Burst reaches its real reference impact phase', prismImpacts === 1, String(prismImpacts));
+runtime.clear();
+
 if (fail) {
   console.log(`\nERRORS ${fail}  (${pass} passed, ${fail} failed)`);
   process.exitCode = 1;

@@ -1738,6 +1738,31 @@ export const settings = {
   },
 
   /* ------------------------------------------------------------------ */
+  /* Prism Burst — registered ability sample                            */
+  /* ------------------------------------------------------------------ */
+  prism: {
+    range: 11.5,
+    minRange: 1.5,
+    speed: 18,
+    cooldown: 3.5,
+    impactDuration: 0.32,
+    fadeDuration: 0.55,
+    impactRadius: 1.6,
+    damage: 42,
+    exposeDuration: 1.5,
+    sparkRate: 96,
+    sparkLifetime: 0.36,
+    sparkSpeed: 8.5,
+    lightIntensity: 15,
+    lightRadius: 11,
+    lightColor: '#b48cff',
+    castFlash: 0.08,
+    colorCore: '#e9ffff',
+    colorEdge: '#9f6bff',
+    colorSmoke: '#24134f'
+  },
+
+  /* ------------------------------------------------------------------ */
   /* Camera rig                                                          */
   /* ------------------------------------------------------------------ */
   camera: {
@@ -1854,7 +1879,7 @@ export const CastShape = Object.freeze({
  * array, and the index is the slot the keyboard binds to — adding a third
  * ability is a new file, an entry here and a settings block above.
  */
-export const ELEMENTS = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'solar'];
+export const ELEMENTS = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'solar', 'prism'];
 
 /**
  * Registry metadata: how an ability is presented, and how it is aimed.
@@ -1879,6 +1904,12 @@ export const ELEMENT_META = {
     accent: '#ffb347',
     key: 'X',
     hint: 'Solar Flare'
+  },
+  prism: {
+    label: 'Prism Burst',
+    accent: '#b48cff',
+    key: 'B',
+    hint: 'Prism Burst'
   }
 };
 

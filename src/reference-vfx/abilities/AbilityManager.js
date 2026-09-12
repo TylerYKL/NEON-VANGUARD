@@ -4,6 +4,7 @@ import { MeteorAbility } from './MeteorAbility.js';
 import { BeamAbility } from './BeamAbility.js';
 import { SnareAbility } from './SnareAbility.js';
 import { SolarFlareAbility } from './SolarFlareAbility.js';
+import { PrismBurstAbility } from './PrismBurstAbility.js';
 import { ELEMENTS } from '../config/settings.js';
 import { ObjectPool } from '../utils/ObjectPool.js';
 
@@ -14,7 +15,8 @@ const ABILITY_TYPES = {
   meteor: MeteorAbility,
   beam: BeamAbility,
   snare: SnareAbility,
-  solar: SolarFlareAbility
+  solar: SolarFlareAbility,
+  prism: PrismBurstAbility
 };
 
 const MAX_CONCURRENT = 4;

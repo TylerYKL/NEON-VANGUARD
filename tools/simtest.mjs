@@ -365,6 +365,33 @@ check('…and clears when the value is sane again', !sim.faulted);
   settle();
 }
 
+/* ---------- 5c. registered Prism Burst ability gameplay path ---------- */
+{
+  active = heroes.findIndex((h) => h.def.id === 'aegis');
+  const prismHero = heroes[active];
+  sim.setTargets(3);
+  for (const enemy of G.enemies) enemy.pos.set(prismHero.pos.x + 0.7, 0, prismHero.pos.z);
+  G.referenceVFX = {
+    mapping: { map: { aegis: ['prism', 'thunder', 'meteor'] } },
+    cast(hero, slot, hooks) {
+      hooks.onImpact?.({ position: hero.pos.clone(), element: 'prism' });
+      return { element: 'prism' };
+    },
+  };
+  prismHero.cds[0] = 0;
+  const hpBeforePrism = G.enemies.reduce((sum, enemy) => sum + enemy.hp, 0);
+  const prismFired = sim.cast(0);
+  const hpAfterPrism = G.enemies.reduce((sum, enemy) => sum + enemy.hp, 0);
+  check('Prism Burst enters useSkill through the registered reference ID', prismFired === true);
+  check('Prism Burst applies its real impact damage', hpAfterPrism < hpBeforePrism,
+    hpBeforePrism + ' -> ' + hpAfterPrism);
+  check('Prism Burst adds its real expose effect', effects.length > 0, String(effects.length));
+  step(120);
+  check('Prism Burst expose effect expires cleanly', effects.length === 0 && G.enemies.every((enemy) => !enemy.prismExposed));
+  G.referenceVFX = undefined;
+  settle();
+}
+
 /* ---------- 6. uninstall restores G ---------- */
 const wanted = ['enemies', 'heroes', 'barriers', 'mods', 'popText', 'groundAim', 'damageEnemy', 'announceSkill', 'onUltCast', 'panOf'];
 const snapshot = {};

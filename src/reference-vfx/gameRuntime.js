@@ -67,6 +67,7 @@ export class GameReferenceVFX {
   setTuning(tuning) {
     this.mapping = normalizeReferenceSkills(tuning?.referenceSkills);
     applySkillManifestSettings(tuning?.skillManifests?.solar || tuning?.skillManifests?.['solar-flare']);
+    applySkillManifestSettings(tuning?.skillManifests?.prism || tuning?.skillManifests?.['prism-burst']);
   }
 
   /**

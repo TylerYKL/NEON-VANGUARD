@@ -575,6 +575,10 @@ export class Hero {
       this.solarFlareMechanic(G, ability);
       return;
     }
+    if (referenceCastId === 'prism') {
+      this.prismBurstMechanic(G, ability);
+      return;
+    }
     const key = this.def.id + i;
     switch (key) {
       case 'aegis0': this.seismicSlam(G); break;
@@ -620,6 +624,38 @@ export class Hero {
             }
           }
           return this.t < c.burnDuration;
+        },
+      });
+    }
+  }
+
+  prismBurstMechanic(G, ability = null) {
+    const self = this;
+    const c = referenceSettings.prism;
+    const impact = ability?.position?.clone?.() || this.pos.clone();
+    const victims = [];
+
+    for (const enemy of G.enemies) {
+      if (enemy.dead) continue;
+      const distance = flatDist(enemy.pos, impact);
+      if (distance > c.impactRadius + enemy.radius) continue;
+      const falloff = Math.max(0.2, 1 - distance / Math.max(c.impactRadius, 0.001));
+      G.damageEnemy(enemy, c.damage * falloff, impact, { knock: 4 * falloff, source: self });
+      victims.push(enemy);
+    }
+
+    // Expose is a real timed effect rather than metadata: the status remains
+    // attached to each victim until the authored duration expires, and the
+    // normal effect-list reset cancels it with the rest of the match state.
+    if (victims.length && c.exposeDuration > 0) {
+      G.addEffect({
+        t: 0,
+        update(dt) {
+          this.t += dt;
+          for (const enemy of victims) {
+            if (!enemy.dead) enemy.prismExposed = Math.max(0, c.exposeDuration - this.t);
+          }
+          return this.t < c.exposeDuration;
         },
       });
     }

@@ -112,8 +112,9 @@ The current Hero Studio reference-cast registry contains these IDs:
 | `beam` | Nova Beam | F |
 | `snare` | Voltaic Snare | V |
 | `solar` | Solar Flare | X |
+| `prism` | Prism Burst | B |
 
-`solar` is now registered as the first manifest-backed test ability. Its JSON can be imported, applied to the Solar Flare profile, and assigned to hero slots. The remaining manifest workflow still validates IDs and requires explicit save actions.
+`solar` and `prism` are registered manifest-backed test abilities. Their JSON can be uploaded or imported, applied to their VFX profiles, and assigned to hero slots. The remaining manifest workflow still validates IDs and requires explicit save actions.
 
 ---
 
@@ -296,7 +297,7 @@ case 'Digit6':
   break;
 ```
 
-The HUD is generated from `ELEMENTS`. Once `solar` is a registered element, it becomes a normal playable card instead of the amber manifest-only card.
+The HUD is generated from `ELEMENTS`. Once `solar` or `prism` is a registered element, it becomes a normal playable card instead of the amber manifest-only card.
 
 ---
 

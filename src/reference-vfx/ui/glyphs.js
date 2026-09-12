@@ -86,6 +86,12 @@ const SNARE = WRAP(`
   <path d="M50 55L62 40H52L58 26"/>
 `);
 
+const PRISM = WRAP(`
+  <path d="M50 10L82 30V68L50 90L18 68V30L50 10Z"/>
+  <path d="M18 30L50 50L82 30M50 50V90"/>
+  <path d="M50 50L42 64L50 76L58 64L50 50Z"/>
+`);
+
 /**
  * Glacier — a crown of blades standing on a ring.
  *
@@ -112,5 +118,6 @@ export const ELEMENT_SIGILS = {
   meteor: METEOR,
   beam: BEAM,
   snare: SNARE,
+  prism: PRISM,
   glacier: GLACIER
 };

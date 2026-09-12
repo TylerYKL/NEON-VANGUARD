@@ -6,7 +6,7 @@
   "label": "Prism Burst",
   "description": "A focused spectrum bolt that fractures into a short-lived radial burst on impact.",
   "input": {
-    "key": "F",
+    "key": "B",
     "targeting": "line",
     "range": 11.5,
     "minRange": 1.5
@@ -83,17 +83,18 @@
     "lyra": "E"
   },
   "implementation": {
-    "abilityClass": "not-registered",
-    "registry": "src/reference-vfx/heroSkills.js",
+    "abilityClass": "src/reference-vfx/abilities/PrismBurstAbility.js",
+    "registry": "src/reference-vfx/abilities/AbilityManager.js + src/reference-vfx/heroSkills.js",
+    "gameplayHook": "src/heroes.js",
     "editorProfile": "src/reference-vfx/config/settings.js"
   },
   "importStatus": {
-    "currentlySupported": false,
-    "reason": "Valid VFX and gameplay design contract; a runtime ability class and registry entry are still required before it can be applied or cast.",
+    "currentlySupported": true,
+    "reason": "Prism Burst is registered as a manifest-backed reference ability with pooled VFX and gameplay impact/expose behavior.",
     "nextSteps": [
-      "Implement the pooled reference ability class.",
-      "Register prism-burst in the reference cast registry.",
-      "Add gameplay routing and a CAST SIM assertion before enabling it."
+      "Upload or import this manifest through the VFX Editor.",
+      "Choose Apply manifest to VFX editor, then Save routing to game.",
+      "Press B in the VFX Lab or use an assigned hero Q/E/R slot to test the registered ability."
     ]
   }
 }

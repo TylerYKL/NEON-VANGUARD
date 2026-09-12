@@ -2,7 +2,7 @@
 
 `solar-flare.skill.json` is the design and implementation manifest for the registered Solar Flare test ability. It documents the input shape, timing phases, gameplay payload, VFX profile, audio cue, hero assignments, and the code registration points used by the runtime.
 
-`prism-burst.ability.json` is a second sample for the upload validator. It is structurally valid and includes VFX/gameplay metadata, but it is intentionally unregistered so the upload result should be **VALID · REVIEW-ONLY** and the Apply action should remain disabled.
+`prism-burst.ability.json` is a second registered sample ability for the upload validator. It is structurally valid, maps to the pooled `PrismBurstAbility`, and should report **VALID · REGISTERED** so the Apply action is enabled.
 
 ## Import and apply behavior
 
@@ -26,6 +26,12 @@ There are two existing JSON import paths, plus a validated workspace upload path
    - Validates kind, version, ID, input, timing, phases, assignments, and object shapes before sending them to `tools/upload_server.py`.
    - The API validates again and only saves valid manifests under `models/uploads/`; `GET /skills` reports valid, registered, and review-only status.
    - Upload/import never executes `implementation` paths. Valid unregistered documents are listed for review but cannot be applied or cast.
+
+When `prism-burst.ability.json` is uploaded through **Upload + validate skill…**:
+
+1. It reports **VALID · REGISTERED** and appears in the imported skill manifest panel.
+2. Choose **Apply manifest to VFX editor** to apply the Prism profile and Aegis R / Nyx Q / Lyra E assignments.
+3. Choose **Save routing to game**, then press `B` in the VFX Lab or restart the arena to test the registered gameplay impact and expose status.
 
 When `solar-flare.skill.json` is imported through the right-side VFX Editor:
 
