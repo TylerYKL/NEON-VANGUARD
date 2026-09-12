@@ -1,5 +1,5 @@
 import GUI from 'lil-gui';
-import { settings, CAST_ANIMATIONS } from '../config/settings.js';
+import { settings, ELEMENTS, ELEMENT_META, CAST_ANIMATIONS } from '../config/settings.js';
 import { PresetManager } from './PresetManager.js';
 
 /**
@@ -32,6 +32,7 @@ export class Editor {
 
     this._lastManifest = null;
     this._buildPresets();
+    this._buildCastSim();
     this._buildGlobal();
     this._buildAim();
     this._buildZone();
@@ -98,6 +99,79 @@ export class Editor {
   toggle() {
     this._hidden = !this._hidden;
     this.gui.show(!this._hidden);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* beta CAST SIM                                                       */
+  /* ------------------------------------------------------------------ */
+
+  _buildCastSim() {
+    const sim = this.hooks.sim;
+    if (!sim) return;
+
+    const state = {
+      enabled: sim.enabled,
+      auto: sim.auto,
+      speed: sim.speed,
+      targets: sim.targets,
+      distance: sim.distance,
+      element: ELEMENTS[0],
+      cast: () => {
+        sim.cast(state.element);
+        this.refreshCastSim(state);
+      },
+      reset: () => {
+        sim.reset();
+        this.refreshCastSim(state);
+      },
+      status: sim.status,
+    };
+    this._castSimState = state;
+
+    const folder = this.gui.addFolder('CAST SIM · Beta');
+    folder.add(state, 'enabled').name('enable bench').onChange((value) => {
+      sim.setEnabled(value);
+      this.refreshCastSim(state);
+    });
+    folder.add(state, 'element', Object.fromEntries(
+      ELEMENTS.map((element) => [ELEMENT_META[element]?.label || element, element])
+    )).name('reference cast').onChange((element) => {
+      state.element = element;
+    });
+    folder.add({ cast: state.cast }, 'cast').name('Cast selected');
+    folder.add(state, 'auto').name('auto recast').onChange((value) => {
+      sim.setAuto(value);
+      this.refreshCastSim(state);
+    });
+    folder.add(state, 'speed', { '1×': 1, '½×': 0.5, '¼×': 0.25 }).name('speed').onChange((value) => {
+      sim.setSpeed(Number(value));
+      this.refreshCastSim(state);
+    });
+    folder.add(state, 'targets', { '0': 0, '3': 3, '6': 6, '9': 9, '12': 12 }).name('visual targets').onChange((value) => {
+      sim.setTargets(Number(value));
+      this.refreshCastSim(state);
+    });
+    Editor.range(folder, state, 'distance', 2, 24, 0.1, 'cast distance').onChange((value) => {
+      sim.setDistance(Number(value));
+      this.refreshCastSim(state);
+    });
+    folder.add(state, 'status').name('status').disable();
+    folder.add({ reset: state.reset }, 'reset').name('Reset bench');
+    folder.add({ note: 'Targets are visual only; beta casts use the real reference ability runtime.' }, 'note')
+      .name('scope').disable();
+    this.castSimFolder = folder;
+  }
+
+  refreshCastSim(state = this._castSimState) {
+    if (!state || !this.hooks.sim) return;
+    const sim = this.hooks.sim;
+    state.enabled = sim.enabled;
+    state.auto = sim.auto;
+    state.speed = sim.speed;
+    state.targets = sim.targets;
+    state.distance = sim.distance;
+    state.status = sim.status;
+    this.castSimFolder?.controllersRecursive().forEach((controller) => controller.updateDisplay());
   }
 
   /* ------------------------------------------------------------------ */

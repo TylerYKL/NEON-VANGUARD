@@ -29,6 +29,7 @@ import { PostProcessing } from '../postprocessing/PostProcessing.js';
 
 import { HUD, LoadingScreen } from '../ui/HUD.js';
 import { Editor } from '../ui/Editor.js';
+import { BetaCastSim } from '../ui/BetaCastSim.js';
 
 import { settings, ELEMENTS } from '../config/settings.js';
 
@@ -113,7 +114,9 @@ export class App {
     /* ---- UI ---- */
     this.loading = new LoadingScreen();
     this.hud = new HUD(document.getElementById('hud'));
+    this.sim = new BetaCastSim(this);
     this.editor = new Editor({
+      sim: this.sim,
       onClear: () => this.clearEffects(),
       onToast: (message) => this.hud.showToast(message),
       getReferenceMapping: () => G.referenceVFX?.mapping,      // ← 新增
@@ -234,6 +237,8 @@ export class App {
     this.lights.reset();
     this.shake.reset();
     this.flash.reset();
+    this.sim?.afterClear();
+    this.editor?.refreshCastSim?.();
   }
 
   /* ------------------------------------------------------------------ */
@@ -283,7 +288,8 @@ export class App {
     gl.info.reset();
 
     const raw = this.time.tick();
-    const dt = this.paused ? 0 : raw * settings.global.timeScale;
+    const simScale = this.sim?.timeScale ?? 1;
+    const dt = this.paused ? 0 : raw * settings.global.timeScale * simScale;
     this.elapsed += dt;
 
     /* ---- shared uniforms ---- */
@@ -318,6 +324,7 @@ export class App {
     this.dust.update(this.elapsed, this.character.position);
 
     this.abilities.update(dt);
+    this.sim?.update();
     this.particles.flush();
     this.decals.update(dt);
     this.fissures.update(dt);
@@ -358,6 +365,7 @@ export class App {
 
   dispose() {
     this.stop();
+    this.sim.dispose();
     this.input.dispose();
     this.aim.dispose();
     this.abilities.dispose();
