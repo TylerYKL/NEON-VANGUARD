@@ -579,6 +579,10 @@ export class Hero {
       this.prismBurstMechanic(G, ability);
       return;
     }
+    if (referenceCastId === 'wanjian') {
+      this.wanjianMechanic(G, ability);
+      return;
+    }
     const key = this.def.id + i;
     switch (key) {
       case 'aegis0': this.seismicSlam(G); break;
@@ -656,6 +660,64 @@ export class Hero {
             if (!enemy.dead) enemy.prismExposed = Math.max(0, c.exposeDuration - this.t);
           }
           return this.t < c.exposeDuration;
+        },
+      });
+    }
+  }
+
+  /**
+   * 万剑归宗 — zone AoE. 500 damage at the impact point, radial knockback,
+   * stun, then burn. Follows the same shape as `solarFlareMechanic` and
+   * `prismBurstMechanic` on purpose: one impact frame does the burst, a
+   * timed effect list owns the burn, the VFX phase (converge → fuse → form →
+   * charge → strike) is the reference ability's business and this only reacts
+   * to `ability.position` once the slam lands.
+   */
+  wanjianMechanic(G, ability = null) {
+    const self = this;
+    const c = referenceSettings.wanjian;
+    const impact = ability?.position?.clone?.() || this.pos.clone();
+    const victims = [];
+
+    /* --- the slam: one burst of damage at the impact point --- */
+    for (const enemy of G.enemies) {
+      if (enemy.dead) continue;
+      const distance = flatDist(enemy.pos, impact);
+      if (distance > c.zoneRadius + enemy.radius) continue;
+
+      // Falloff flattens inside the circle and only bites at the rim: a
+      // 500-damage ultimate that drops to 20% at the edge reads as a bug,
+      // not as positioning. 0.4 floor, quadratic ease so the centre still
+      // rewards accuracy.
+      const t = distance / Math.max(c.zoneRadius, 0.001);
+      const falloff = Math.max(0.4, 1 - t * t * 0.6);
+
+      G.damageEnemy(enemy, c.damage * falloff, impact, {
+        knock: c.knockback * falloff,
+        source: self,
+        ult: true,
+      });
+      enemy.stun = Math.max(enemy.stun || 0, c.stunDuration);
+      victims.push(enemy);
+    }
+
+    /* --- burn: same contract solar uses, so a match reset cancels it with
+       everything else on G.effects --- */
+    if (victims.length && c.burnDuration > 0 && c.burnDamage > 0) {
+      G.addEffect({
+        t: 0,
+        nextTick: 0,
+        update(dt) {
+          this.t += dt;
+          if (this.t >= this.nextTick) {
+            this.nextTick += Math.max(0.1, c.burnTick);
+            for (const enemy of victims) {
+              if (!enemy.dead) {
+                G.damageEnemy(enemy, c.burnDamage, impact, { silent: true, source: self });
+              }
+            }
+          }
+          return this.t < c.burnDuration;
         },
       });
     }
