@@ -222,14 +222,27 @@ export class Editor {
               reportValidation(result, `Uploaded and validated ${result.filename}`);
             } else if (result.validation || result.error) {
               reportValidation(result, 'Skill upload');
-            } else {
-              this.hooks.onToast?.('No skill manifest selected');
+            } else if (result.cancelled) {
+              this.hooks.onToast?.('No file selected · use Try Prism Burst sample to test without a file picker');
             }
           }
         },
         'upload'
       )
       .name('Upload + validate skill…');
+
+    folder
+      .add(
+        {
+          sample: async () => {
+            const result = await this.presets.uploadSampleSkill();
+            if (result.uploaded) reportValidation(result, 'Uploaded and validated Prism Burst sample');
+            else reportValidation(result, 'Prism Burst sample');
+          }
+        },
+        'sample'
+      )
+      .name('Try Prism Burst sample');
 
     folder
       .add(

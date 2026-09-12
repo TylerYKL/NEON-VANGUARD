@@ -123,7 +123,30 @@ export class PresetManager {
     }));
   }
 
-  /** Upload a validated skill/ability manifest to the workspace dropbox. */
+  async _uploadSkillData(data, originalName) {
+    const validation = validateSkillManifest(data);
+    if (!validation.valid) return { uploaded: false, valid: false, validation };
+    const base = String(data.id || originalName.replace(/\.json$/i, '')).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+    const filename = /\.(?:skill|ability)\.json$/i.test(originalName) ? originalName : `${base}.skill.json`;
+    try {
+      const response = await fetch(`${UPLOAD_API}/upload/${encodeURIComponent(filename)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      let result = {};
+      try { result = await response.json(); } catch { /* server may return plain text */ }
+      if (!response.ok) {
+        return { uploaded: false, valid: false, validation: result.validation || validation, error: result.error || `HTTP ${response.status}` };
+      }
+      this._rememberSkillManifest(data);
+      return { uploaded: true, valid: true, filename, validation: result.validation || validation, skillManifest: data.label || data.id || 'unnamed skill' };
+    } catch (error) {
+      return { uploaded: false, valid: false, errors: [{ path: '$', message: error.message || String(error) }] };
+    }
+  }
+
+  /** Upload a validated skill/ability manifest selected by the user. */
   uploadSkillFromFile() {
     return new Promise((resolve) => {
       const input = document.createElement('input');
@@ -131,31 +154,26 @@ export class PresetManager {
       input.accept = '.skill.json,.ability.json,application/json';
       input.onchange = async () => {
         const file = input.files?.[0];
-        if (!file) return resolve({ uploaded: false, valid: false, errors: [] });
+        if (!file) return resolve({ uploaded: false, valid: false, cancelled: true });
         try {
-          const data = JSON.parse(await file.text());
-          const validation = validateSkillManifest(data);
-          if (!validation.valid) return resolve({ uploaded: false, valid: false, validation });
-          const base = String(data.id || file.name.replace(/\.json$/i, '')).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
-          const filename = /\.(?:skill|ability)\.json$/i.test(file.name) ? file.name : `${base}.skill.json`;
-          const response = await fetch(`${UPLOAD_API}/upload/${encodeURIComponent(filename)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
-          });
-          let result = {};
-          try { result = await response.json(); } catch { /* server may return plain text */ }
-          if (!response.ok) {
-            return resolve({ uploaded: false, valid: false, validation: result.validation || validation, error: result.error || `HTTP ${response.status}` });
-          }
-          this._rememberSkillManifest(data);
-          resolve({ uploaded: true, valid: true, filename, validation: result.validation || validation, skillManifest: data.label || data.id || 'unnamed skill' });
+          resolve(await this._uploadSkillData(JSON.parse(await file.text()), file.name));
         } catch (error) {
           resolve({ uploaded: false, valid: false, errors: [{ path: '$', message: error.message || String(error) }] });
         }
       };
       input.click();
     });
+  }
+
+  /** Upload the checked-in Prism Burst sample without opening a file picker. */
+  async uploadSampleSkill() {
+    try {
+      const response = await fetch('examples/skills/prism-burst.ability.json', { cache: 'no-store' });
+      if (!response.ok) return { uploaded: false, valid: false, error: `sample HTTP ${response.status}` };
+      return this._uploadSkillData(await response.json(), 'prism-burst.ability.json');
+    } catch (error) {
+      return { uploaded: false, valid: false, error: error.message || String(error) };
+    }
   }
 
   /**
