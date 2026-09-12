@@ -115,7 +115,12 @@ export class App {
     this.hud = new HUD(document.getElementById('hud'));
     this.editor = new Editor({
       onClear: () => this.clearEffects(),
-      onToast: (message) => this.hud.showToast(message)
+      onToast: (message) => this.hud.showToast(message),
+      getReferenceMapping: () => G.referenceVFX?.mapping,      // ← 新增
+      onReferenceMappingChanged: (mapping) => {
+      // 把 mapping 写回 App 的路由状态，然后 HUD 刷新
+      G.referenceVFX?.setMapping?.(mapping);
+      }
     });
 
     this._bindEvents();
