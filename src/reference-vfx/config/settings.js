@@ -2021,7 +2021,7 @@ export const CastShape = Object.freeze({
  * array, and the index is the slot the keyboard binds to — adding a third
  * ability is a new file, an entry here and a settings block above.
  */
-export const ELEMENTS = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'solar', 'prism'];
+export const ELEMENTS = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'solar', 'prism'，'wanjian'];
 
 /**
  * Registry metadata: how an ability is presented, and how it is aimed.
@@ -2052,6 +2052,13 @@ export const ELEMENT_META = {
     accent: '#b48cff',
     key: 'B',
     hint: 'Prism Burst'
+  }，
+  wanjian: {
+    label: '万剑归宗',
+    accent: '#88e0ff',
+    key: 'G',
+    hint: 'Ten Thousand Swords Return',
+    cast: CastShape.ZONE
   }
 };
 
