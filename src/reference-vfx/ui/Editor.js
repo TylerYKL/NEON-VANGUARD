@@ -30,6 +30,7 @@ export class Editor {
 
     this._presetState = { name: 'My preset', selected: this.presets.names[0] ?? '' };
 
+    this._lastManifest = null;
     this._buildPresets();
     this._buildGlobal();
     this._buildAim();
@@ -191,6 +192,7 @@ export class Editor {
       } else if (result.skillManifest) {
         const state = result.validation?.registered ? 'registered' : 'review-only';
         this.hooks.onToast?.(`${verb}: ${result.skillManifest} · ${state}`);
+        this._lastManifest = result.manifest || null;
       }
     };
 
@@ -245,6 +247,56 @@ export class Editor {
         'sample'
       )
       .name('Try Prism Burst sample');
+
+    folder
+      .add(
+        {
+          apply: () => {
+            const m = this._lastManifest;
+            if (!m) {
+              this.hooks.onToast?.('Nothing to apply · import a manifest first');
+              return;
+            }
+    
+            const { validateSkillAssignments, applySkillAssignments, describePlan } =
+              this._assignments || {};
+    
+            // Lazy-import so the module is only loaded when a manifest was seen.
+            import('../skillAssignments.js').then((mod) => {
+              const v = mod.validateSkillAssignments(m);
+    
+              if (!v.valid) {
+                const first = v.errors[0];
+                this.hooks.onToast?.(`Assignments rejected · ${first.path}: ${first.message}`);
+                return;
+              }
+              if (!v.registered) {
+                this.hooks.onToast?.(`Cannot apply · '${m.id}' is not a registered cast id (review-only manifest)`);
+                return;
+              }
+    
+              const mapping = this.hooks.getReferenceMapping?.();
+              if (!mapping) {
+                this.hooks.onToast?.('Cannot apply · no reference mapping available');
+                return;
+              }
+    
+              const written = mod.applySkillAssignments(mapping, v.plan, m.id);
+              this.hooks.onToast?.(
+                written > 0
+                  ? `Applied · ${mod.describePlan(v.plan, m.id)}`
+                  : `Nothing to change · ${mod.describePlan(v.plan, m.id)}`
+              );
+    
+              this.hooks.onReferenceMappingChanged?.(mapping);
+            }).catch((err) => {
+              this.hooks.onToast?.(`Apply failed · ${err.message}`);
+            });
+          }
+        },
+        'apply'
+      )
+      .name('Apply manifest assignments');
 
     folder
       .add(
